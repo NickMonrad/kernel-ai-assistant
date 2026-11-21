@@ -67,6 +67,7 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.stopListening
+import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
@@ -586,7 +587,7 @@ class VoiceCommandActivity : ComponentActivity() {
             // keeps the capture running.
             if (!isChangingConfigurations) WakeOverlayChannel.requestCancel(wakeToken)
         } else if (!cancelledVoiceStart) {
-            ownerSessionId?.let(voiceInputController::stopListening)
+            ownerSessionId?.let(voiceInputController::cancelListening)
         }
         toneGenerator?.release()
         toneGenerator = null

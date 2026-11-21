@@ -1232,19 +1232,119 @@ class VoiceViewModelTest {
         coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
 
+    private fun writeAsr4allModelFiles(size: Asr4AllSize): List<java.io.File> =
+        Asr4AllInstall.models(size).map { model ->
+            model.localFile(context).also { it.parentFile.mkdirs(); it.writeText("x") }
+        }
+
+    @Test
+    fun `a size switch keeps the active model until the new one is verified then deletes it`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        every { modelDownloadManager.refreshState(any()) } just Runs
+        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
+        coEvery { voiceInputPreferences.setAsr4allSize(any()) } coAnswers { asr4allSize.value = firstArg() }
+        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } coAnswers { firstArg<() -> Unit>().invoke() }
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
+        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
+        assertTrue(oldFiles.all { it.exists() }, "the active model stays installed while the new one downloads")
+        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
+
+        writeAsr4allModelFiles(Asr4AllSize.L)
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.L).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
+        coVerify(timeout = 5_000) { voiceInputPreferences.setAsr4allSize(Asr4AllSize.L) }
+        assertTrue(oldFiles.none { it.exists() }, "the old size is deleted once the new one is verified")
+        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.L && it.asr4allPendingSize == null }
+        assertTrue(viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true)
+    }
+
+    @Test
+    fun `a failed size switch download keeps the active size installed and stored`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
+        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
+        modelDownloadStates.value = modelDownloadStates.value +
+            (Asr4AllInstall.models(Asr4AllSize.L).first() to DownloadState.Error("download failed"))
+        viewModel.uiState.first { it.asr4allPendingSize == null }
+
+        assertTrue(oldFiles.all { it.exists() }, "a failed download keeps the active model")
+        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
+    }
+
+    @Test
+    fun `cancelling the new size download keeps the active size installed and stored`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
+        coVerify(timeout = 5_000) { modelDownloadManager.startDownload(any()) }
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.L).associateWith { DownloadState.Downloading() }
+        viewModel.cancelSherpaSttDownload(VoiceInputEngine.Asr4all)
+        viewModel.uiState.first { it.asr4allPendingSize == null }
+
+        coVerify(exactly = Asr4AllInstall.models(Asr4AllSize.L).size) { modelDownloadManager.cancelDownload(any()) }
+        assertTrue(oldFiles.all { it.exists() }, "a cancelled download keeps the active model")
+        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
+    }
+
+    @Test
+    fun `a size switch with no size installed stores the choice at once`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        every { modelDownloadManager.refreshState(any()) } just Runs
+        coEvery { voiceInputPreferences.setAsr4allSize(any()) } coAnswers { asr4allSize.value = firstArg() }
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.L }
+
+        coVerify(exactly = 1) { voiceInputPreferences.setAsr4allSize(Asr4AllSize.L) }
+        verify(exactly = 0) { modelDownloadManager.startDownload(any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.withEngineReleased<Unit>(any()) }
+    }
+
     @Test
     fun `a size switch that cannot release the engine keeps the old files and the stored size`() = runTest {
         every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
         every { context.filesDir } returns tempDir.toFile()
-        val oldFiles = Asr4AllInstall.models(Asr4AllSize.M).map { it.localFile(context) }
-        oldFiles.forEach { it.parentFile?.mkdirs(); it.writeText("x") }
         every { modelDownloadManager.refreshState(any()) } just Runs
+        val oldFiles = writeAsr4allModelFiles(Asr4AllSize.M)
+        writeAsr4allModelFiles(Asr4AllSize.L)
         coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } returns null
 
         viewModel.setAsr4allSize(Asr4AllSize.L)
-        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.M }
-
+        coVerify(timeout = 5_000) { modelDownloadManager.refreshState(any()) } // the commit refreshes last
         assertTrue(oldFiles.all { it.exists() }, "a wedged capture must keep the model it still reads")
         coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
+        assertTrue(viewModel.uiState.value.asr4allPendingSize == null)
+    }
+
+    @Test
+    fun `the asr4all card follows the size being downloaded`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        writeAsr4allModelFiles(Asr4AllSize.M)
+        modelDownloadStates.value = modelDownloadStates.value +
+            Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/${it.fileName}") }
+        viewModel.uiState.first { it.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == true }
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allPendingSize == Asr4AllSize.L }
+        assertTrue(
+            viewModel.uiState.value.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded == false,
+            "the card shows the size being downloaded, not the installed one",
+        )
+        viewModel.cancelSherpaSttDownload(VoiceInputEngine.Asr4all)
+        viewModel.uiState.first { it.asr4allPendingSize == null }
     }
 }

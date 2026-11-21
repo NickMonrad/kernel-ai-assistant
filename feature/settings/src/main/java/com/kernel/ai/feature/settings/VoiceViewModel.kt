@@ -51,6 +51,10 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.model.availability.toAvailability
@@ -86,6 +90,8 @@ data class VoiceUiState(
     val availableInputEngines: List<VoiceInputEngine> = VoiceInputEngine.entries,
     val asr4allSize: Asr4AllSize = Asr4AllInstall.defaultSize,
     val asr4allSizes: List<Asr4AllSize> = listOf(Asr4AllInstall.defaultSize),
+    /** The size being downloaded before it replaces [asr4allSize]; null when no switch is pending. */
+    val asr4allPendingSize: Asr4AllSize? = null,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -286,6 +292,11 @@ class VoiceViewModel @Inject constructor(
     )
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
+
+    /** Size whose download must finish before it replaces the active size; null when no switch is pending. */
+    private val asr4allPendingSize = MutableStateFlow<Asr4AllSize?>(null)
+    private var asr4allSwitchJob: Job? = null
+    private val asr4allSwitchLock = Mutex()
 
     init {
         viewModelScope.launch {
@@ -490,15 +501,15 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
-            combine(modelDownloadManager.downloadStates, voiceInputPreferences.asr4allSize) { states, stored ->
-                states to Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier)
-            }.collect { (states, asr4allSize) ->
+            combine(modelDownloadManager.downloadStates, voiceInputPreferences.asr4allSize, asr4allPendingSize) { states, stored, pending ->
+                Triple(states, Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier), pending)
+            }.collect { (states, asr4allSize, pendingSize) ->
                 val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
                     computeDownloadState(
                         spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
                         states,
                     )
-                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(asr4allSize), states))
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -518,6 +529,7 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroStates = inflectStates,
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
+                        asr4allPendingSize = pendingSize,
                         sherpaSttStates = perFamilyStates,
                     )
                 }
@@ -579,7 +591,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun modelsFor(engine: VoiceInputEngine): List<KernelModel> =
-        if (engine == VoiceInputEngine.Asr4all) Asr4AllInstall.models(_uiState.value.asr4allSize)
+        if (engine == VoiceInputEngine.Asr4all) Asr4AllInstall.models(asr4allPendingSize.value ?: _uiState.value.asr4allSize)
         else SherpaSttModelSpec.forEngine(engine)?.kernelModels().orEmpty()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
@@ -647,6 +659,7 @@ class VoiceViewModel @Inject constructor(
 
 
     fun cancelSherpaSttDownload(engine: VoiceInputEngine) {
+        if (engine == VoiceInputEngine.Asr4all) cancelAsr4allSwitch()
         val currentStates = modelDownloadManager.downloadStates.value
         modelsFor(engine)
             .filter { currentStates[it] is DownloadState.Downloading }
@@ -654,6 +667,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun deleteSherpaStt(engine: VoiceInputEngine) {
+        if (engine == VoiceInputEngine.Asr4all) cancelAsr4allSwitch()
         viewModelScope.launch(Dispatchers.IO) {
             val models = modelsFor(engine)
             val deleteFiles = {
@@ -802,28 +816,80 @@ class VoiceViewModel @Inject constructor(
     }
 
     /**
-     * Chooses the asr4all size. Only the selected size stays installed: the previous size's files
-     * are deleted, and the new size is not downloaded automatically.
+     * Chooses the asr4all size. The active size stays installed and selected while the new size
+     * downloads; once the new size is verified it becomes the selection and the old files are deleted.
+     * A failed or cancelled download keeps the active size. With no size installed, the choice is stored
+     * at once.
      */
     fun setAsr4allSize(size: Asr4AllSize) {
         if (size !in Asr4AllInstall.selectableSizes(hardwareProfileDetector.profile.tier)) return
-        val previous = _uiState.value.asr4allSize
-        if (previous == size) return
-        _uiState.update { it.copy(asr4allSize = size) }
-        viewModelScope.launch(Dispatchers.IO) {
-            Asr4AllInstall.models(previous)
-                .filter { modelDownloadManager.downloadStates.value[it] is DownloadState.Downloading }
-                .forEach { modelDownloadManager.cancelDownload(it) }
-            // The engine reads the files being deleted; release it under its start lock first. Null means the
-            // capture could not be released, so the old files stay and the selection reverts.
-            val deleted = asr4allVoiceInputController.withEngineReleased {
-                Asr4AllInstall.deleteFiles(context, previous)
+        if (size == asr4allPendingSize.value) return
+        cancelAsr4allSwitch()
+        if (size == _uiState.value.asr4allSize) return
+        asr4allSwitchJob = viewModelScope.launch(Dispatchers.IO) { runAsr4allSwitch(size) }
+    }
+
+    /** Abandons a pending switch: its job stops, its downloads are cancelled, and the active size stays selected. */
+    private fun cancelAsr4allSwitch() {
+        asr4allSwitchJob?.cancel()
+        asr4allSwitchJob = null
+        val pending = asr4allPendingSize.value ?: return
+        asr4allPendingSize.value = null
+        Asr4AllInstall.models(pending)
+            .filter { modelDownloadManager.downloadStates.value[it] is DownloadState.Downloading }
+            .forEach { modelDownloadManager.cancelDownload(it) }
+    }
+
+    private suspend fun runAsr4allSwitch(size: Asr4AllSize) {
+        asr4allSwitchLock.withLock {
+            val tier = hardwareProfileDetector.profile.tier
+            val active = Asr4AllInstall.effectiveSize(voiceInputPreferences.asr4allSize.first(), tier)
+            if (size == active) return
+            when {
+                !Asr4AllInstall.isDownloaded(context, active) -> commitAsr4allSize(size, active, deleteOld = false)
+                Asr4AllInstall.isDownloaded(context, size) -> commitAsr4allSize(size, active, deleteOld = true)
+                else -> {
+                    asr4allPendingSize.value = size
+                    try {
+                        if (awaitAsr4allDownload(size)) commitAsr4allSize(size, active, deleteOld = true)
+                    } finally {
+                        if (asr4allPendingSize.value == size) asr4allPendingSize.value = null
+                    }
+                }
             }
-            if (deleted == null) {
-                _uiState.update { it.copy(asr4allSize = previous) }
-                return@launch
+        }
+    }
+
+    /** Starts [size]'s downloads and waits until they settle. True only when every file is downloaded. */
+    private suspend fun awaitAsr4allDownload(size: Asr4AllSize): Boolean {
+        val models = Asr4AllInstall.models(size)
+        val before = modelDownloadManager.downloadStates.value
+        models.forEach { modelDownloadManager.startDownload(it) }
+        // A state left over from an earlier attempt is not a failure: an Error counts only once it changed
+        // or after this attempt was seen downloading.
+        val seenDownloading = mutableSetOf<KernelModel>()
+        val settled = modelDownloadManager.downloadStates
+            .onEach { states -> models.forEach { if (states[it] is DownloadState.Downloading) seenDownloading += it } }
+            .first { states ->
+                models.all { states[it] is DownloadState.Downloaded } || models.any { model ->
+                    val state = states[model]
+                    (state is DownloadState.Error && (model in seenDownloading || state != before[model])) ||
+                        (model in seenDownloading && state is DownloadState.NotDownloaded)
+                }
             }
-            voiceInputPreferences.setAsr4allSize(size)
+        return models.all { settled[it] is DownloadState.Downloaded }
+    }
+
+    /**
+     * Selects [size]. With [deleteOld], [previous]'s files are deleted under an engine release; if the
+     * release cannot happen, nothing is deleted and [previous] stays selected.
+     */
+    private suspend fun commitAsr4allSize(size: Asr4AllSize, previous: Asr4AllSize, deleteOld: Boolean) {
+        withContext(NonCancellable) {
+            val switched = !deleteOld ||
+                asr4allVoiceInputController.withEngineReleased { Asr4AllInstall.deleteFiles(context, previous) } != null
+            if (switched) voiceInputPreferences.setAsr4allSize(size)
+            asr4allPendingSize.value = null
             (Asr4AllInstall.models(previous) + Asr4AllInstall.models(size))
                 .forEach { modelDownloadManager.refreshState(it) }
         }

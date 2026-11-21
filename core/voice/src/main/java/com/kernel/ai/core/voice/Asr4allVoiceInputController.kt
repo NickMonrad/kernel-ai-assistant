@@ -161,7 +161,7 @@ class Asr4allVoiceInputController internal constructor(
     internal var beforeCancelledStopJoinForTest: (() -> Unit)? = null
 
     suspend fun isAvailable(): Boolean = availableForTest?.invoke()
-        ?: Asr4AllInstall.isDownloaded(context, selectedSize())
+        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) }
 
     /** The size to load now: the user's choice, subject to the tier policy. */
     private suspend fun selectedSize(): Asr4AllSize = Asr4AllInstall.effectiveSize(
@@ -211,8 +211,9 @@ class Asr4allVoiceInputController internal constructor(
                     null
                 } else {
                     onSession(sessionId)
-                    // #2027: announce before the AudioRecord opens, so the wake detector releases the mic
-                    // first. An announced session ends in exactly one ListeningStopped on every path below.
+                    // #2027: announced before the AudioRecord opens so the wake detector can yield. The yield is
+                    // asynchronous (tryEmit, then the main-thread router), so it can land after the mic opens; the
+                    // owner fence tolerates that overlap. An announced session ends in exactly one ListeningStopped.
                     _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
                     openCapture(sessionId)?.also {
                         lastCapture = it
@@ -424,7 +425,9 @@ class Asr4allVoiceInputController internal constructor(
 
     /**
      * The engine for the selected size and tier, opened if needed. A changed size or thread count
-     * closes the old engine first. Callers hold [startLock].
+     * closes the old engine first. The caller must already have ended any previous capture, because
+     * its reader calls the engine: startListening and prewarmIfCurrent await that under [startLock],
+     * and withEngineReleased ends it before closing. Callers hold [startLock].
      */
     private suspend fun ensureEngine(): Asr4AllEngine? {
         val tier = hardwareProfileDetector.profile.tier
@@ -557,6 +560,7 @@ class Asr4allVoiceInputController internal constructor(
         if (!isAvailable()) return false
         return startLock.withLock {
             if (!isCurrent()) return@withLock false
+            if (!awaitCaptureEnded()) return@withLock false
             withContext(Dispatchers.IO) { ensureEngine() }
             true
         }

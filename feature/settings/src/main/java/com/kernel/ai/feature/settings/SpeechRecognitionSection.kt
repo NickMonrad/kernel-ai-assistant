@@ -152,7 +152,7 @@ internal fun SpeechRecognitionSection(
                         if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
                                 Asr4AllSizeRow(
-                                    selected = uiState.asr4allSize,
+                                    selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,
                                     sizes = uiState.asr4allSizes,
                                     onSelect = onAsr4allSize,
                                 )

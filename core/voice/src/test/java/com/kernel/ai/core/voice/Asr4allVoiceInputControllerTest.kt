@@ -490,6 +490,25 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `withEngineReleased gives up on a capture held past the bound and runs nothing`() = runBlocking(Dispatchers.IO) {
+        val c = controller(captureJoinTimeoutMs = 200)
+        val gate = CountDownLatch(1)
+        readGate = gate
+        try {
+            firstFrame = CountDownLatch(1)
+            startedId(c.startListening(VoiceCaptureMode.Command))
+            assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+            var ran = false
+            val released = c.withEngineReleased { ran = true }
+            assertTrue(released == null, "a reader still parked past the bound must not be released, got $released")
+            assertTrue(!ran, "the block must not run while the capture is live")
+        } finally {
+            gate.countDown()
+            readGate = null
+        }
+    }
+
+    @Test
     fun `a start waits for an exclusive engine release and opens nothing during it`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         c.prewarm()

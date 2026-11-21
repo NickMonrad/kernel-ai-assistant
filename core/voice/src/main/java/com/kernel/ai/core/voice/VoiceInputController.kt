@@ -69,8 +69,9 @@ sealed interface VoiceInputEvent {
         val category: String? = null,
     ) : VoiceInputEvent
     /**
-     * The capture ended without a result: it was superseded or its engine was released (engine
-     * switch or deletion). Consumers clear listening and must not submit any partial text.
+     * The capture ended. With `cancelled = true` it was superseded, discarded, or its engine was released
+     * (engine switch or deletion): no result follows, so consumers clear listening and must not submit partial
+     * text. With `cancelled = false` it ended after an explicit finalize, and the stop follows a final [Transcript].
      */
     data class ListeningStopped(
         override val mode: VoiceCaptureMode,

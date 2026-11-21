@@ -167,7 +167,7 @@ private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = wh
 }
 
 /**
- * Routes voice capture between Android native and Sherpa-ONNX Zipformer.
+ * Routes voice capture between Android native, Sherpa-ONNX Zipformer, and asr4all, one owner at a time.
  *
  * Concurrency model:
  * - Routing state ([activeController], [openGeneration], [expectedNativeSessionId],
