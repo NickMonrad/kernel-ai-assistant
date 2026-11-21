@@ -1,0 +1,134 @@
+{
+  "bridge": "tools/asr4all-cleanroom/et_bridge.py",
+  "models": {
+    "S": "<asr4all-s dir>",
+    "M": "<asr4all-m dir>",
+    "L": "<asr4all-l dir>"
+  },
+  "sizes": [
+    "S",
+    "M",
+    "L"
+  ],
+  "tiers": [
+    "all"
+  ],
+  "chunk_ms": 100,
+  "repeat": 2,
+  "check_chunk_ms": 37,
+  "clips": [
+    {
+      "id": "1673-143397-0009",
+      "wav": "<clips dir>/1673-143397-0009.wav"
+    },
+    {
+      "id": "174-84280-0003",
+      "wav": "<clips dir>/174-84280-0003.wav"
+    },
+    {
+      "id": "1919-142785-0036",
+      "wav": "<clips dir>/1919-142785-0036.wav"
+    },
+    {
+      "id": "1988-24833-0004",
+      "wav": "<clips dir>/1988-24833-0004.wav"
+    },
+    {
+      "id": "1993-147965-0005",
+      "wav": "<clips dir>/1993-147965-0005.wav"
+    },
+    {
+      "id": "2078-142845-0049",
+      "wav": "<clips dir>/2078-142845-0049.wav"
+    },
+    {
+      "id": "2086-149220-0022",
+      "wav": "<clips dir>/2086-149220-0022.wav"
+    },
+    {
+      "id": "2277-149896-0019",
+      "wav": "<clips dir>/2277-149896-0019.wav"
+    },
+    {
+      "id": "2412-153954-0001",
+      "wav": "<clips dir>/2412-153954-0001.wav"
+    },
+    {
+      "id": "2428-83705-0002",
+      "wav": "<clips dir>/2428-83705-0002.wav"
+    },
+    {
+      "id": "251-137823-0013",
+      "wav": "<clips dir>/251-137823-0013.wav"
+    },
+    {
+      "id": "3576-138058-0038",
+      "wav": "<clips dir>/3576-138058-0038.wav"
+    },
+    {
+      "id": "3752-4944-0019",
+      "wav": "<clips dir>/3752-4944-0019.wav"
+    },
+    {
+      "id": "5338-284437-0024",
+      "wav": "<clips dir>/5338-284437-0024.wav"
+    },
+    {
+      "id": "5694-64029-0019",
+      "wav": "<clips dir>/5694-64029-0019.wav"
+    },
+    {
+      "id": "5895-34615-0011",
+      "wav": "<clips dir>/5895-34615-0011.wav"
+    },
+    {
+      "id": "6241-61943-0027",
+      "wav": "<clips dir>/6241-61943-0027.wav"
+    },
+    {
+      "id": "6295-244435-0004",
+      "wav": "<clips dir>/6295-244435-0004.wav"
+    },
+    {
+      "id": "6313-66129-0000",
+      "wav": "<clips dir>/6313-66129-0000.wav"
+    },
+    {
+      "id": "6345-93302-0009",
+      "wav": "<clips dir>/6345-93302-0009.wav"
+    },
+    {
+      "id": "777-126732-0028",
+      "wav": "<clips dir>/777-126732-0028.wav"
+    },
+    {
+      "id": "7976-105575-0014",
+      "wav": "<clips dir>/7976-105575-0014.wav"
+    },
+    {
+      "id": "8297-275155-0001",
+      "wav": "<clips dir>/8297-275155-0001.wav"
+    },
+    {
+      "id": "84-121550-0015",
+      "wav": "<clips dir>/84-121550-0015.wav"
+    },
+    {
+      "id": "edge_long_2277-149896",
+      "wav": "<clips dir>/edge_long_2277-149896.wav"
+    },
+    {
+      "id": "edge_short_0p6s",
+      "wav": "<clips dir>/edge_short_0p6s.wav"
+    },
+    {
+      "id": "edge_silence_5s",
+      "wav": "<clips dir>/edge_silence_5s.wav"
+    },
+    {
+      "id": "edge_tiny_0p1s",
+      "wav": "<clips dir>/edge_tiny_0p1s.wav"
+    }
+  ],
+  "output": "engine.jsonl"
+}

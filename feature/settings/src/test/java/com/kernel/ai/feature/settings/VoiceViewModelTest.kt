@@ -482,7 +482,7 @@ class VoiceViewModelTest {
         )
     }
     @Test
-    fun `release builds mirror shared Inflect eligibility while debug builds expose all engines`() = runTest {
+    fun `release builds expose Android TTS and Sherpa while debug builds keep Inflect`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -509,10 +509,8 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            InflectMicroModelSpec.isReleaseEligible(HardwareTier.FLAGSHIP),
-            releaseViewModel.uiState.value.availableOutputEngines.contains(
-                VoiceOutputEngine.InflectMicroExperimental,
-            ),
+            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental),
+            releaseViewModel.uiState.value.availableOutputEngines,
         )
     }
 

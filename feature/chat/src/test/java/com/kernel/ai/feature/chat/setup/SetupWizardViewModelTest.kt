@@ -74,8 +74,8 @@ class SetupWizardViewModelTest {
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { setupVoiceDevice.inflectEligible() } returns false
-        // Release rules unless a test says otherwise; debug builds also offer Inflect Micro everywhere.
-        every { setupVoiceDevice.isReleaseBuild() } returns true
+        // Most of this suite exercises the full debug speech stack. Release-only gating has focused tests below.
+        every { setupVoiceDevice.isReleaseBuild() } returns false
         coEvery { platformReader.read() } returns MakeYoursPlatform(
             hasMicrophone = true,
             micGranted = true,
@@ -368,14 +368,46 @@ class SetupWizardViewModelTest {
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `a phone where Android's listener is not ready offers Automatic and Cori only`() {
+    fun `release offers only platform speech input and never Sherpa STT, with Piper and Android TTS output`() {
+        every { setupVoiceDevice.isReleaseBuild() } returns true
+        coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf(VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.inputEngine)
+        assertTrue(VoiceOutputEngine.SherpaExperimental in vm.uiState.value.outputOptions)
+        assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
+        assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
+        assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
+        assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
+        val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
+        val inflectBytes = InflectMicroSetup.kernelModels().sumOf { it.approxSizeBytes } + coriBytes
+        assertEquals(coriBytes, vm.uiState.value.outputSizes[VoiceOutputEngine.SherpaExperimental])
+        assertEquals(inflectBytes, vm.uiState.value.outputSizes[VoiceOutputEngine.InflectMicroExperimental])
+
+        vm.atDownloadStep()
+        vm.onContinue {}
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(match { it != VoiceInputEngine.AndroidNative }) }
+        verify(exactly = 0) { downloadManager.startDownload(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `debug on a phone without platform speech offers Automatic and local voices`() {
         device(nativeReady = false, hasTts = false, tier = HardwareTier.FLAGSHIP)
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf(VoiceInputEngine.Auto), vm.uiState.value.inputOptions)
-        assertEquals(listOf(VoiceOutputEngine.SherpaExperimental), vm.uiState.value.outputOptions)
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            vm.uiState.value.outputOptions,
+        )
         assertTrue(vm.uiState.value.inputReason != null)
     }
 
@@ -386,7 +418,14 @@ class SetupWizardViewModelTest {
 
         assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
         assertEquals(null, vm.uiState.value.inputReason)
-        assertEquals(listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts), vm.uiState.value.outputOptions)
+        assertEquals(
+            listOf(
+                VoiceOutputEngine.SherpaExperimental,
+                VoiceOutputEngine.InflectMicroExperimental,
+                VoiceOutputEngine.AndroidTts,
+            ),
+            vm.uiState.value.outputOptions,
+        )
     }
 
     // ── Defaults ─────────────────────────────────────────────────────────────────

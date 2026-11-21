@@ -1,0 +1,17 @@
+# runtime size tier variant cpus sets   (S21, Exynos 2100: cpu0-3 Cortex-A55, 4-6 A78, 7 X1)
+et s stream_c16r4 default all owner,long,breadth
+et s stream_c32r8 default all owner,long,breadth
+et m stream_c16r4 default all owner,long,breadth
+et m stream_c32r8 default all owner,long,breadth
+et l stream_c16r4 default all owner,long,breadth
+et l stream_c32r8 default all owner,long,breadth
+# Low-end proxy: every thread pinned to the three Cortex-A55 cores (cpu0-2; Android's foreground cpuset excludes cpu3) (mask 07), ExecuTorch at 2 threads.
+et s stream_c16r4 t2 07 owner,long
+et s stream_c32r8 t2 07 owner,long
+et m stream_c16r4 t2 07 owner,long
+et m stream_c32r8 t2 07 owner,long
+et l stream_c16r4 t2 07 owner,long
+et l stream_c32r8 t2 07 owner,long
+zipformer - - default all owner,long,breadth
+zipformer - - default 07 owner,long
+native - - default all owner,breadth

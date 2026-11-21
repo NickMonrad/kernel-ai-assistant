@@ -54,21 +54,30 @@ private fun heyJandalSttEngine(selected: VoiceInputEngine): VoiceInputEngine =
 
 /**
  * Every catalogue file turning Hey Jandal on needs with [selectedInput] as the speech input: the wake verifier
- * ([wakeVerifierKernelModels]) plus the STT model [queueHeyJandalSttModel] queues. The one source for the size that
- * setup and Settings › Voice show (#1931); callers drop files already downloaded.
+ * ([wakeVerifierKernelModels]) plus, in debug builds only, the STT model [queueHeyJandalSttModel] queues. Release
+ * keeps Sherpa STT excluded, so its verifier is Whisper alone. The one source for the size that setup and
+ * Settings › Voice show (#1931); callers drop files already downloaded.
  */
-fun heyJandalDownloadModels(selectedInput: VoiceInputEngine): List<KernelModel> =
-    (wakeVerifierKernelModels() + SherpaSttModelSpec.forEngine(heyJandalSttEngine(selectedInput))?.kernelModels().orEmpty())
-        .distinct()
+fun heyJandalDownloadModels(selectedInput: VoiceInputEngine, isRelease: Boolean): List<KernelModel> =
+    (wakeVerifierKernelModels() + heyJandalSttModels(selectedInput, isRelease)).distinct()
+
+private fun heyJandalSttModels(selectedInput: VoiceInputEngine, isRelease: Boolean): List<KernelModel> =
+    if (isRelease) {
+        emptyList()
+    } else {
+        SherpaSttModelSpec.forEngine(heyJandalSttEngine(selectedInput))?.kernelModels().orEmpty()
+    }
 
 /**
  * Queues the STT model Hey Jandal verifies with: the selected online recognizer if it has one,
- * otherwise Zipformer. Call when Hey Jandal is turned on.
+ * otherwise Zipformer. Call when Hey Jandal is turned on. No-op in release builds.
  */
 suspend fun queueHeyJandalSttModel(
     voiceInputPreferences: VoiceInputPreferences,
     modelDownloadManager: ModelDownloadManager,
+    isRelease: Boolean,
 ) {
+    if (isRelease) return
     val spec = SherpaSttModelSpec.forEngine(heyJandalSttEngine(voiceInputPreferences.selectedEngine.first())) ?: return
     spec.kernelModels().forEach { modelDownloadManager.startDownload(it) }
 }

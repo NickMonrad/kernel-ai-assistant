@@ -12,9 +12,27 @@ import org.junit.jupiter.api.Test
 class SetupSpeechOptionsTest {
 
     @Test
-    fun `Android's listener is offered only when it is ready`() {
-        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), SetupSpeechOptions.inputOptions(androidNativeReady = true))
-        assertEquals(listOf(VoiceInputEngine.Auto), SetupSpeechOptions.inputOptions(androidNativeReady = false))
+    fun `debug offers Automatic and Android native only when Android is ready`() {
+        assertEquals(
+            listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative),
+            SetupSpeechOptions.inputOptions(androidNativeReady = true, isRelease = false),
+        )
+        assertEquals(
+            listOf(VoiceInputEngine.Auto),
+            SetupSpeechOptions.inputOptions(androidNativeReady = false, isRelease = false),
+        )
+    }
+
+    @Test
+    fun `release offers only Android native input`() {
+        assertEquals(
+            listOf(VoiceInputEngine.AndroidNative),
+            SetupSpeechOptions.inputOptions(androidNativeReady = true, isRelease = true),
+        )
+        assertEquals(
+            listOf(VoiceInputEngine.AndroidNative),
+            SetupSpeechOptions.inputOptions(androidNativeReady = false, isRelease = true),
+        )
     }
 
     @Test
@@ -24,26 +42,18 @@ class SetupSpeechOptionsTest {
     }
 
     @Test
-    fun `Android's voice is offered only when a TTS engine is installed`() {
-        assertEquals(
-            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
-            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
-        )
-        assertEquals(
-            listOf(VoiceOutputEngine.SherpaExperimental),
-            SetupSpeechOptions.outputOptions(hasSystemTts = false, isRelease = true, inflectEligible = false),
-        )
-    }
-
-    @Test
-    fun `release builds offer Inflect Micro only where it is eligible`() {
+    fun `release offers Piper and Android TTS, and Inflect Micro only on eligible devices`() {
         assertEquals(
             listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
             SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = true),
         )
-        assertFalse(
-            VoiceOutputEngine.InflectMicroExperimental in
-                SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            SetupSpeechOptions.outputOptions(hasSystemTts = false, isRelease = true, inflectEligible = true),
+        )
+        assertEquals(
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+            SetupSpeechOptions.outputOptions(hasSystemTts = true, isRelease = true, inflectEligible = false),
         )
     }
 

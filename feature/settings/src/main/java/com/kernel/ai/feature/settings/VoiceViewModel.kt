@@ -79,6 +79,7 @@ data class KokoroVoiceRowUiState(
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
     val selectedInputEngine: VoiceInputEngine = VoiceInputEngine.Auto,
+    val availableInputEngines: List<VoiceInputEngine> = VoiceInputEngine.entries,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -266,6 +267,7 @@ class VoiceViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(
         VoiceUiState(
+            availableInputEngines = VoiceInputEngine.entriesForBuild(isReleaseBuild),
             availableOutputEngines = VoiceOutputEngine.entriesForBuild(
                 isRelease = isReleaseBuild,
                 inflectEligible = inflectReleaseEligible,
@@ -459,8 +461,7 @@ class VoiceViewModel @Inject constructor(
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
-                    // Ensure the selected online STT model is downloaded for wake-word verification.
-                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
                 }
             }
         }
@@ -544,20 +545,23 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun heyJandalDownloadBytes(input: VoiceInputEngine, states: Map<KernelModel, DownloadState>): Long =
-        heyJandalDownloadModels(input)
+        heyJandalDownloadModels(input, isReleaseBuild)
             .filterNot { states[it] is DownloadState.Downloaded }
             .sumOf { it.approxSizeBytes }
 
     fun setVoiceInputEngine(engine: VoiceInputEngine) {
-        _uiState.update { it.copy(selectedInputEngine = engine) }
+        val effective = engine.takeIf { it in _uiState.value.availableInputEngines }
+            ?: VoiceInputEngine.AndroidNative
+        _uiState.update { it.copy(selectedInputEngine = effective) }
         viewModelScope.launch {
-            voiceInputPreferences.setSelectedEngine(engine)
+            voiceInputPreferences.setSelectedEngine(effective)
         }
     }
 
     private fun modelsForSpec(spec: SherpaSttModelSpec): List<KernelModel> = spec.kernelModels()
 
     fun downloadSherpaStt(engine: VoiceInputEngine) {
+        if (isReleaseBuild) return
         val spec = SherpaSttModelSpec.forEngine(engine) ?: return
         modelsForSpec(spec).forEach { modelDownloadManager.startDownload(it) }
     }
@@ -786,6 +790,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun downloadKokoroVoice(voice: SherpaKokoroVoice) {
+        if (isReleaseBuild) return
         sherpaVoicePackDownloadManager.startKokoroDownload(voice)
     }
 
@@ -809,7 +814,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
-                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager)
+                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
             }
         }
     }

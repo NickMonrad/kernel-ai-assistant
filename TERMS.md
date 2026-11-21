@@ -24,6 +24,10 @@ Jandal can act on your device when you ask it to — for example, setting alarms
 
 Don't use Jandal to break the law, to harm, harass, or deceive others, or to interfere with other people's devices, accounts, or services. Follow the terms of any model you download, including the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and its prohibited-use policy.
 
+Where Jandal's offline speech recognition uses the asr4all model, that model is provided under the [FUTO Model Weights License (Restricted Use) 1.0](https://huggingface.co/futo-org/asr4all-s/blob/87a6b5d093723fe37e9f69ad26307a3b95a31af0/LICENSE) (the asr4all-s model, pinned revision `87a6b5d0`; the asr4all-m model uses the same licence text at [revision `7d6e9145`](https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE)). The asr4all-l-plus model has a different licence and is not covered by this clause. The licence text is also available in the app under Settings › About › Legal & privacy › Open-source licences. You agree not to use Jandal's speech recognition, or the text it produces, for any of the purposes that licence prohibits: bulk or untargeted monitoring, interception, recording, transcription or analysis of people's speech; voiceprint tracking; inferring protected characteristics such as race, religion, political opinion, sexual orientation, disability or health from a person's voice; intelligence gathering; monitoring people in custody; targeting journalists, activists, whistleblowers, protesters or similar groups; or routing any of this through another person or service to get around these limits.
+
+You agree to comply with the Limitations section of that licence, which forms part of these terms; the summary above is for convenience and the licence text controls.
+
 ## 6. Third-party services
 
 Some features you choose to use connect to services that Jandal does not operate, including:
@@ -49,4 +53,4 @@ These terms may be updated. The current version is published at this page with i
 
 Questions or reports: **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**
 
-_Effective date: 3 November 2026._
+_Effective date: 20 November 2026._
