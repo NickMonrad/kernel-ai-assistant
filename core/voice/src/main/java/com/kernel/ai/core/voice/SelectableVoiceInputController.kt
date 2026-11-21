@@ -167,6 +167,7 @@ private data class ZipformerHandoff(
 
 private fun VoiceInputEvent.withCaptureSessionId(id: Long): VoiceInputEvent = when (this) {
     is VoiceInputEvent.ListeningStarted -> copy(captureSessionId = id)
+    is VoiceInputEvent.ListeningRequested -> copy(captureSessionId = id)
     is VoiceInputEvent.SpeechDetected -> copy(captureSessionId = id)
     is VoiceInputEvent.PartialTranscript -> copy(captureSessionId = id)
     is VoiceInputEvent.Transcript -> copy(captureSessionId = id)
@@ -269,6 +270,7 @@ class SelectableVoiceInputController @Inject constructor(
 
     private val pipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val outbound = voiceEventFlow()
+    private val micLifecycle = voiceEventFlow()
     private val noticeFlow = MutableSharedFlow<VoiceNotice>(
         replay = 1,
         extraBufferCapacity = 8,
@@ -280,6 +282,9 @@ class SelectableVoiceInputController @Inject constructor(
      * hand-off once per collector and could start two recognizers.
      */
     override val events: Flow<VoiceInputEvent> = outbound.asSharedFlow()
+
+    /** Forwarded before the active-controller filter; see [VoiceInputController.micLifecycleEvents] (#2027). */
+    override val micLifecycleEvents: Flow<VoiceInputEvent> = micLifecycle.asSharedFlow()
     override val notices: SharedFlow<VoiceNotice> = noticeFlow.asSharedFlow()
 
     /** Live mic level of whichever engine is capturing (#1850). Both delegates reset to 0 at rest. */
@@ -1003,6 +1008,14 @@ class SelectableVoiceInputController @Inject constructor(
      * event is still delivered, so a terminal Error or ListeningStopped is never dropped.
      */
     private suspend fun route(controller: VoiceInputController, event: VoiceInputEvent) {
+        // #2027: mic arbitration sees lifecycle events from every controller, including one replaced by a
+        // hand-off, so a replaced native session still gets its ListeningStopped.
+        if (event is VoiceInputEvent.ListeningRequested ||
+            event is VoiceInputEvent.ListeningStarted ||
+            event is VoiceInputEvent.ListeningStopped
+        ) {
+            micLifecycle.tryEmit(event)
+        }
         try {
             routeEvent(controller, event)
         } catch (e: CancellationException) {

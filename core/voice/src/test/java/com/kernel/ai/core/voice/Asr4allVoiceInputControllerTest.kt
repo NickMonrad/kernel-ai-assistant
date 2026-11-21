@@ -576,6 +576,60 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `ListeningRequested is announced before the mic opens and each announced session ends in one ListeningStopped`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val order = CopyOnWriteArrayList<String>()
+            val stopped = Semaphore(0)
+            // Unconfined: the collector runs inside the emitting call, so `order` is in emission order.
+            val scope = CoroutineScope(Dispatchers.Unconfined)
+            val collect = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                c.events.collect {
+                    when (it) {
+                        is VoiceInputEvent.ListeningRequested -> order += "requested#${it.captureSessionId}"
+                        is VoiceInputEvent.ListeningStarted -> order += "started#${it.captureSessionId}"
+                        is VoiceInputEvent.ListeningStopped -> {
+                            order += "stopped#${it.captureSessionId}"
+                            stopped.release()
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+            c.recorderForTest = {
+                order += "mic-open"
+                recorder()
+            }
+            try {
+                firstFrame = CountDownLatch(1)
+                val id = startedId(c.startListening(VoiceCaptureMode.Command))
+                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+                c.stopListening()
+                assertTrue(stopped.tryAcquire(5, TimeUnit.SECONDS), "capture did not stop")
+                assertEquals(
+                    listOf("requested#$id", "mic-open", "started#$id", "stopped#$id"),
+                    order.toList(),
+                )
+
+                order.clear()
+                c.recorderForTest = {
+                    order += "mic-attempt"
+                    null
+                }
+                val failed = c.startListening(VoiceCaptureMode.Command)
+                assertTrue(failed is VoiceInputStartResult.Unavailable)
+                val failedId = order.first().removePrefix("requested#")
+                assertEquals(
+                    listOf("requested#$failedId", "mic-attempt", "stopped#$failedId"),
+                    order.toList(),
+                )
+            } finally {
+                collect.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
     fun `a caller cancelled while the engine loads releases the mic, focus and emits ListeningStopped`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)

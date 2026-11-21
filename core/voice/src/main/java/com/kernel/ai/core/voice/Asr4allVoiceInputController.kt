@@ -177,8 +177,11 @@ class Asr4allVoiceInputController @Inject constructor(
                     stoppedEarly = true
                     null
                 } else {
+                    onSession(sessionId)
+                    // #2027: announce before the AudioRecord opens, so the wake detector releases the mic
+                    // first. An announced session ends in exactly one ListeningStopped on every path below.
+                    _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
                     openCapture(sessionId)?.also {
-                        onSession(sessionId)
                         lastCapture = it
                         activeCapture = it
                         activeStop = stop
@@ -189,6 +192,7 @@ class Asr4allVoiceInputController @Inject constructor(
             }
             if (capture == null) {
                 if (stoppedEarly) return@withLock VoiceInputStartResult.Cancelled()
+                if (micFailed) _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 check(micFailed)
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }

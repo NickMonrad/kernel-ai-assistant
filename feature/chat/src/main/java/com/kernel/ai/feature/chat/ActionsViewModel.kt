@@ -440,6 +440,8 @@ class ActionsViewModel @Inject constructor(
         viewModelScope.launch {
             voiceInputController.events.collect { event ->
                 when (event) {
+                    // #2027: the pre-start event only moves the wake mic; readiness state stays with ListeningStarted.
+                    is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
                         if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)

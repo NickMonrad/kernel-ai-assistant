@@ -778,6 +778,8 @@ class ClockAlertService : Service() {
     private suspend fun handleVoiceEvent(event: VoiceInputEvent) {
         if (!isOwnedAlertEvent(event, captureSessionId, isVoiceListening)) return
         when (event) {
+            // #2027: the pre-start event only moves the wake mic; the cue and status wait for ListeningStarted.
+            is VoiceInputEvent.ListeningRequested -> Unit
             is VoiceInputEvent.ListeningStarted -> {
                 if (shouldPlayClockAlertListeningCue(event, captureSessionId, isVoiceListening)) {
                     voiceJournal?.let { journal ->

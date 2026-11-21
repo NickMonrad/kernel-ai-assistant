@@ -282,6 +282,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
     @Volatile
     private var activeSessionId: Long = 0L
+
+    /** #2029: whether the active session is still wanted by its caller; false once superseded. */
     @Volatile
     private var activeSessionWanted: (() -> Boolean)? = null
 
@@ -317,6 +319,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
      */
     @Volatile
     private var readinessEmittedForSession = false
+    /** Session whose ListeningRequested was emitted and not yet closed by a terminal event (#2027). */
+    @Volatile
+    private var announcedSessionId: Long = 0L
 
     /** #1973: elapsedRealtime when the current session's start was requested, for the start-to-ready timing. */
     @Volatile
@@ -331,6 +336,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
      * Starts a capture session. With [allowPlatformFallback] false the session uses only the
      * on-device recognizer; failures surface as errors rather than retrying on the platform
      * recognition service, which may send audio to an online service.
+     *
+     * #2029: [onSessionAdmitted] receives the session id once it is allocated. [isWanted] is re-checked
+     * before each step that opens or retains capture; once false the start is superseded and returns
+     * [VoiceInputStartResult.Cancelled] without opening the microphone.
      */
     suspend fun startListening(
         mode: VoiceCaptureMode,
@@ -341,7 +350,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
         return withContext(Dispatchers.Main.immediate) {
             val startRequestedAtMs = SystemClock.elapsedRealtime()
             if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
-            stopListeningInternal(emitStopped = true)
+            // #2027: a replaced session that announced ListeningRequested and never closed still holds the
+            // wake mic. It is closed here only if this start fails; a successful start takes ownership.
+            val replaced = currentMode?.takeIf { announcedSessionId != 0L }?.let { it to activeSessionId }
+            stopListeningInternal(emitStopped = false)
             this@NativeAndroidVoiceInputController.allowPlatformFallback = allowPlatformFallback
 
 
@@ -363,7 +375,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
             )
             if (!skipWaits) {
                 recognitionSupport.awaitInFlightLiveCheck()
-                if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
+                if (!isWanted()) return@withContext supersededStart(replaced)
                 cachedAvailability = recognitionSupport.getCaptureAvailability()
             }
             val runLiveCheck = !skipWaits && shouldRunLiveLocaleCheck(
@@ -381,20 +393,19 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 }
                 cachedAvailability
             }
-            if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
             val localeCheckMs = SystemClock.elapsedRealtime() - startRequestedAtMs
             val onDeviceReady = availability.blockingReason == null &&
                 availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
             // Asked only when on-device is not ready, since the platform service is then the alternative.
             val platformServiceAvailable = allowPlatformFallback && !onDeviceReady &&
                 recognitionSupport.hasExternalPlatformRecognizer()
-            if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
             captureBlockingReason(availability, platformServiceAvailable)?.let { reason ->
                 Log.w(
                     TAG,
                     "Blocking Android native STT start: language=${availability.languageSummary} " +
                         "localeStatus=${availability.localeStatus} reason=$reason",
                 )
+                closeReplaced(replaced)
                 return@withContext VoiceInputStartResult.Unavailable(
                     reason,
                 )
@@ -402,11 +413,11 @@ class NativeAndroidVoiceInputController @Inject constructor(
 
             var admittedSessionId: Long? = null
             try {
-                if (!isWanted()) return@withContext VoiceInputStartResult.Cancelled()
+                if (!isWanted()) return@withContext supersededStart(replaced)
                 requestAudioFocus()
                 if (!isWanted()) {
                     releaseAudioFocus()
-                    return@withContext VoiceInputStartResult.Cancelled()
+                    return@withContext supersededStart(replaced)
                 }
                 val sessionId = VoiceCaptureSessionIds.allocate()
                 admittedSessionId = sessionId
@@ -433,10 +444,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     "locale" to availability.localeStatus, "check_ms" to localeCheckMs,
                 )
                 try {
-                    if (!isWanted()) {
-                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
-                    }
+                    if (!isWanted()) return@withContext supersededStart(replaced, sessionId)
                     if (!startRecognizer(
                             sessionId = sessionId,
                             mode = mode,
@@ -445,14 +453,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
                             isWanted = isWanted,
                         )
                     ) {
-                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                        return@withContext supersededStart(replaced, sessionId)
                     }
                 } catch (startEx: Exception) {
-                    if (!isWanted()) {
-                        stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                        return@withContext VoiceInputStartResult.Cancelled(sessionId)
-                    }
+                    if (!isWanted()) return@withContext supersededStart(replaced, sessionId)
                     // On-device recognizer failed to start (e.g. not installed, OOM). Clean up
                     // any partially-constructed recognizer before retrying with Platform, so we
                     // don't orphan an instance that could fire stale callbacks.
@@ -467,10 +471,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                             "On-device recognizer failed to start; retrying with platform backend",
                             startEx,
                         )
-                        if (!isWanted()) {
-                            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                            return@withContext VoiceInputStartResult.Cancelled(sessionId)
-                        }
+                        if (!isWanted()) return@withContext supersededStart(replaced, sessionId)
                         if (!startRecognizer(
                                 sessionId = sessionId,
                                 mode = mode,
@@ -479,8 +480,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                                 isWanted = isWanted,
                             )
                         ) {
-                            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                            return@withContext VoiceInputStartResult.Cancelled(sessionId)
+                            return@withContext supersededStart(replaced, sessionId)
                         }
                     } else {
                         throw startEx
@@ -489,10 +489,16 @@ class NativeAndroidVoiceInputController @Inject constructor(
                 VoiceInputStartResult.Started(sessionId)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start Android native voice capture", e)
-                admittedSessionId?.let {
-                    stopListeningInternal(emitStopped = true, expectedSessionId = it, cancelled = true)
-                }
-                    ?: releaseAudioFocus()
+                // #2027: a start that announced ListeningRequested closes with ListeningStopped so the
+                // wake-word detector re-arms. A start that never announced stays silent, as before.
+                closeReplaced(replaced)
+                admittedSessionId?.let { sessionId ->
+                    stopListeningInternal(
+                        emitStopped = announcedSessionId == sessionId,
+                        cancelled = true,
+                        expectedSessionId = sessionId,
+                    )
+                } ?: releaseAudioFocus()
                 VoiceInputStartResult.Unavailable(
                     e.message ?: "Failed to start Android speech recognition.",
                 )
@@ -505,12 +511,15 @@ class NativeAndroidVoiceInputController @Inject constructor(
             stopListeningInternal(emitStopped = true, expectedSessionId = activeSessionId)
         }
     }
+
+    /** #2029: session-scoped stop, posted to the main executor; a stale session id is a no-op. */
     internal fun stopListeningForSession(captureSessionId: Long) {
         context.mainExecutor.execute {
             stopListeningInternal(emitStopped = true, expectedSessionId = captureSessionId)
         }
     }
 
+    /** #2029: session-scoped cancel for a superseded capture; its Stopped carries cancelled=true. */
     internal fun cancelListeningForSession(captureSessionId: Long) {
         context.mainExecutor.execute {
             stopListeningInternal(
@@ -538,11 +547,12 @@ class NativeAndroidVoiceInputController @Inject constructor(
         inPlaceRefreshJob?.cancel()
         inPlaceRefreshJob = null
         speechRecognizer = null
-        activeSessionWanted = null
         currentMode = null
+        activeSessionWanted = null
         _inputLevel.value = 0f
         activeSessionId = 0L
         readinessEmittedForSession = false
+        announcedSessionId = 0L
 
         recognizer?.apply {
             runCatching { stopListening() }
@@ -567,6 +577,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
+    /**
+     * Starts the recognizer for [sessionId]. Returns false, with no recognizer left behind, when [isWanted]
+     * turns false before the microphone is opened; the caller then closes the session.
+     */
     private fun startRecognizer(
         sessionId: Long,
         mode: VoiceCaptureMode,
@@ -578,6 +592,10 @@ class NativeAndroidVoiceInputController @Inject constructor(
         },
     ): Boolean {
         if (!isWanted()) return false
+        // #2027: announce the start before any recognizer exists, so the wake-word detector releases the
+        // microphone first. Readiness cannot come while another capture holds it.
+        _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
+        announcedSessionId = sessionId
         val recognizer = when (backend) {
             RecognizerBackend.OnDevice -> recognitionSupport.createOnDeviceSpeechRecognizer()
             RecognizerBackend.Platform -> recognitionSupport.createPlatformSpeechRecognizer()
@@ -627,34 +645,91 @@ class NativeAndroidVoiceInputController @Inject constructor(
             delay(readyTimeoutMs)
             if (activeSessionId != sessionId) return@launch
             if (!isSessionWanted(sessionId)) {
-                cancelSupersededSession(sessionId)
+                closeSuperseded(sessionId)
                 return@launch
             }
             if (!shouldRetryWithPlatformAfterStartupTimeout(backend, allowPlatformFallback)) {
                 // Online fallback not allowed: end the session instead of leaving it waiting
                 // on a recognizer that never became ready.
                 Log.w(TAG, "On-device recognizer never became ready for sessionId=$sessionId; platform fallback disabled")
-                _events.tryEmit(
-                    VoiceInputEvent.Error(
+                endNotReadySession(
+                    sessionId = sessionId,
+                    mode = mode,
+                    error = VoiceInputEvent.Error(
                         mode = mode,
                         captureSessionId = sessionId,
                         message = "On-device speech recognition didn't start. Please try again.",
                         category = NATIVE_NOT_READY,
                     ),
                 )
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
                 return@launch
             }
             Log.w(
                 TAG,
                 "On-device recognizer never became ready for sessionId=$sessionId; retrying with platform recognizer",
             )
-            retryWithPlatformRecognizer(
-                sessionId = sessionId,
-                mode = mode,
-                availability = availability,
-            )
+            // A failed platform retry must end the session too: its ListeningRequested is already out.
+            when (retryWithPlatformRecognizer(sessionId = sessionId, mode = mode, availability = availability)) {
+                PlatformRetryResult.Started, PlatformRetryResult.Superseded -> Unit
+                PlatformRetryResult.Failed -> endNotReadySession(
+                    sessionId = sessionId,
+                    mode = mode,
+                    error = VoiceInputEvent.Error(
+                        mode = mode,
+                        captureSessionId = sessionId,
+                        message = "Android speech recognition failed to start. Please try again.",
+                    ),
+                )
+            }
         }
+    }
+
+    /**
+     * Ends a session whose recognizer never reached readiness: the terminal [error], then exactly one
+     * [VoiceInputEvent.ListeningStopped], the event the wake detector re-arms on (#2027). Callers check
+     * that [sessionId] is still active.
+     */
+    private fun endNotReadySession(sessionId: Long, mode: VoiceCaptureMode, error: VoiceInputEvent.Error) {
+        _events.tryEmit(error)
+        _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+        stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
+    }
+
+    /** Emits the close for a replaced session whose start has just failed (#2027); no-op otherwise. */
+    private fun closeReplaced(replaced: Pair<VoiceCaptureMode, Long>?) {
+        replaced?.let { (mode, sessionId) -> _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId)) }
+    }
+
+    /** #2029: the session is still the active one and its caller still wants it. */
+    private fun isSessionWanted(sessionId: Long): Boolean =
+        activeSessionId == sessionId && activeSessionWanted?.invoke() == true
+
+    /**
+     * #2029: ends a superseded session with `ListeningStopped(cancelled = true)`. Only a session that
+     * announced ListeningRequested emits it, so the wake detector re-arms only for a closed announcement.
+     */
+    private fun closeSuperseded(sessionId: Long) {
+        stopListeningInternal(
+            emitStopped = announcedSessionId == sessionId,
+            expectedSessionId = sessionId,
+            cancelled = true,
+        )
+    }
+
+    /** #2029: a start superseded by a newer one. Closes its own admitted session and any replaced one. */
+    private fun supersededStart(
+        replaced: Pair<VoiceCaptureMode, Long>?,
+        sessionId: Long? = null,
+    ): VoiceInputStartResult {
+        sessionId?.let(::closeSuperseded)
+        closeReplaced(replaced)
+        return VoiceInputStartResult.Cancelled(sessionId)
+    }
+
+    private enum class PlatformRetryResult {
+        Started,
+        Superseded,
+        Failed,
     }
 
     private fun cancelStartupFallback() {
@@ -669,8 +744,9 @@ class NativeAndroidVoiceInputController @Inject constructor(
      * tracked as [inPlaceRefreshJob]: it is cancelled before scheduling another
      * refresh, by [stopListeningInternal], and whenever the session is replaced; it
      * re-checks [activeSessionId] after the settle so it can never start for a stale
-     * session.  Emits no events and allocates no new session id — the session-level
-     * attempt count and journal correlation are unchanged.
+     * session.  The replacement re-emits ListeningRequested through [startRecognizer]; the wake gate already
+     * holds the yield for this session, so it does not release again.  No ListeningStopped is emitted and no
+     * new session id is allocated: the session-level attempt count and journal correlation are unchanged.
      */
     private fun scheduleInPlaceRefresh(
         sessionId: Long,
@@ -698,9 +774,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     backend = backend,
                     isRefreshed = true,
                 )
-                if (!started) {
-                    stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
-                }
+                if (!started) closeSuperseded(sessionId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -724,7 +798,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         message = e.message ?: "Android speech recognition failed to restart.",
                     ),
                 )
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
             } finally {
                 if (inPlaceRefreshJob === job) inPlaceRefreshJob = null
             }
@@ -733,47 +808,24 @@ class NativeAndroidVoiceInputController @Inject constructor(
     }
 
 
-    private enum class PlatformRetryResult {
-        Started,
-        Superseded,
-        Failed,
-    }
-
-    private fun isSessionWanted(sessionId: Long): Boolean =
-        activeSessionId == sessionId && activeSessionWanted?.invoke() == true
-
-    private fun cancelSupersededSession(sessionId: Long): PlatformRetryResult {
-        if (activeSessionId == sessionId) {
-            stopListeningInternal(
-                emitStopped = true,
-                expectedSessionId = sessionId,
-                cancelled = true,
-            )
-        }
-        return PlatformRetryResult.Superseded
-    }
-
     private fun retryWithPlatformRecognizer(
         sessionId: Long,
         mode: VoiceCaptureMode,
         availability: AndroidNativeRecognitionAvailability,
     ): PlatformRetryResult {
         if (activeSessionId != sessionId) return PlatformRetryResult.Superseded
-        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
+        if (!isSessionWanted(sessionId)) {
+            closeSuperseded(sessionId)
+            return PlatformRetryResult.Superseded
+        }
         if (!allowPlatformFallback) return PlatformRetryResult.Failed
 
         cancelStartupFallback()
-        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
-
-        val previousRecognizer = speechRecognizer
-        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
-        previousRecognizer?.apply {
+        speechRecognizer?.apply {
             runCatching { cancel() }
             runCatching { destroy() }
         }
-        if (speechRecognizer === previousRecognizer) speechRecognizer = null
-        if (!isSessionWanted(sessionId)) return cancelSupersededSession(sessionId)
-
+        speechRecognizer = null
         return try {
             val started = startRecognizer(
                 sessionId = sessionId,
@@ -785,14 +837,16 @@ class NativeAndroidVoiceInputController @Inject constructor(
             if (started) {
                 PlatformRetryResult.Started
             } else {
-                cancelSupersededSession(sessionId)
+                closeSuperseded(sessionId)
+                PlatformRetryResult.Superseded
             }
         } catch (error: Exception) {
-            if (!isSessionWanted(sessionId)) {
-                cancelSupersededSession(sessionId)
-            } else {
+            if (isSessionWanted(sessionId)) {
                 Log.e(TAG, "Failed to retry Android native STT with platform recognizer", error)
                 PlatformRetryResult.Failed
+            } else {
+                closeSuperseded(sessionId)
+                PlatformRetryResult.Superseded
             }
         }
     }
@@ -810,12 +864,14 @@ class NativeAndroidVoiceInputController @Inject constructor(
         private var sawPartialTranscript = false
         private var sessionWatchdogJob: Job? = null
 
+        /** #2029: a session superseded by a newer start stops its timers and callbacks without emitting. */
         private fun suppressSupersededWork(): Boolean {
             if (isSessionWanted(sessionId)) return false
             sessionCompleted = true
             cancelSessionWatchdog()
             return true
         }
+
         private fun resetSessionWatchdog() {
             sessionWatchdogJob?.cancel()
             sessionWatchdogJob = kotlinx.coroutines.CoroutineScope(Dispatchers.Main.immediate).launch {
@@ -860,6 +916,7 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     }
                 }
                 if (suppressSupersededWork()) return@launch
+
                 sessionCompleted = true
                 Log.w(
                     TAG,
@@ -887,7 +944,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                         },
                     ),
                 )
-                stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+                _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+                stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
             }
         }
 
@@ -1038,7 +1096,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     },
                 ),
             )
-            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onResults(results: Bundle?) {
@@ -1070,7 +1129,8 @@ class NativeAndroidVoiceInputController @Inject constructor(
                     ),
                 )
             }
-            stopListeningInternal(emitStopped = true, expectedSessionId = sessionId)
+            _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId))
+            stopListeningInternal(emitStopped = false, expectedSessionId = sessionId)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
