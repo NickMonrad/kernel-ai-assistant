@@ -1,0 +1,13 @@
+         1795294192.961 25999 25999 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t Evidence1923 smoke_mode=weather thermal_status_at_start=0'
+         1795294193.020  9535  9535 I Evidence1923: smoke_mode=weather thermal_status_at_start=0
+         1795294193.198  7976  7976 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1795294198.258  7976  7976 D VoiceTiming: firstChunkQueued epochMs=1795294198258 chars=67
+         1795294203.387  7976  8283 I VoiceTiming: synth token=2 chunk=0 chars=81 sid=0 startEpochMs=1795294198286 endEpochMs=1795294203386 synthMs=5100 audioMs=5214 rtf=0.98
+         1795294203.389  7976  8288 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=81 part=1/1 text=In Wellington, it's seventeen degrees, clear sky, feeling like seventeen degrees.
+         1795294203.389  7976  8288 I KernelAI: SpeakingStarted engine=sherpa chars=81 epochMs=1795294203389
+         1795294203.468  7976  8288 I VoiceTiming: playStart token=2 chunk=0 epochMs=1795294203467
+         1795294206.544  7976  8283 I VoiceTiming: synth token=2 chunk=1 chars=60 sid=0 startEpochMs=1795294203387 endEpochMs=1795294206544 synthMs=3157 audioMs=4174 rtf=0.76
+         1795294209.035  7976  8288 I VoiceTiming: playEnd token=2 chunk=0 epochMs=1795294209035
+         1795294209.044  7976  8288 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=60 part=1/1 text=Today's high is twenty one degrees, low is thirteen degrees.
+         1795294209.044  7976  8288 I VoiceTiming: playStart token=2 chunk=1 epochMs=1795294209044 gapMs=9
+         1795294213.460  7976  8288 I VoiceTiming: playEnd token=2 chunk=1 epochMs=1795294213460
