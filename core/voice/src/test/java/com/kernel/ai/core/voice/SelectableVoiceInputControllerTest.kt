@@ -187,6 +187,19 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `auto uses zipformer while asr4all is still downloading and the online fallback is off`() {
+        assertEquals(
+            AutoSttRoute.Zipformer,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = false,
+                zipformerReady = true,
+                allowOnlineFallback = false,
+            ),
+        )
+    }
+
+    @Test
     fun `auto uses asr4all when native is unavailable even with online fallback allowed`() {
         assertEquals(
             AutoSttRoute.Asr4all,
@@ -291,6 +304,30 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 1) { recognitionSupport.getAvailability() }
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
+    }
+
+    @Test
+    fun `auto keeps a loaded asr4all engine when its route is asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.releaseEngine() }
+    }
+
+    @Test
+    fun `auto releases a loaded asr4all engine when its route is not asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
 

@@ -45,7 +45,7 @@ internal fun downloadRows(
             bytes,
         )
     }
-    group(plannedModels, VoiceDefaultsProvisioner.asr4allSetupModels().toSet()) { bytes ->
+    group(plannedModels, VoiceDefaultsProvisioner.asr4allFilesOfAnySize().toSet()) { bytes ->
         DownloadRowItem(
             DownloadRowKind.SpeechInput,
             "Offline speech recognition",
@@ -60,7 +60,7 @@ internal fun downloadRows(
         DownloadRowItem(DownloadRowKind.Voice, "Inflect Micro", "Inflect Micro v2 voice", bytes)
     }
     val grouped = CHAT_MODELS + MEMORY_MODELS + VoiceDefaultsProvisioner.zipformerModels() +
-        VoiceDefaultsProvisioner.asr4allSetupModels() + InflectMicroSetup.kernelModels()
+        VoiceDefaultsProvisioner.asr4allFilesOfAnySize() + InflectMicroSetup.kernelModels()
     plannedModels.filterNot { it in grouped }.forEach { model ->
         add(DownloadRowItem(DownloadRowKind.Other, ModelRoleCopy.purpose(model), model.displayName, model.approxSizeBytes))
     }

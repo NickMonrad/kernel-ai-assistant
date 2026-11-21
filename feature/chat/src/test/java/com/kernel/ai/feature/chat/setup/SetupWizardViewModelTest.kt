@@ -10,6 +10,8 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -72,6 +74,7 @@ class SetupWizardViewModelTest {
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.M)
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { setupVoiceDevice.inflectEligible() } returns false
         // Most of this suite exercises the full debug speech stack. Release-only gating has focused tests below.
@@ -566,7 +569,7 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
 
         assertEquals(
-            VoiceDefaultsProvisioner.asr4allSetupModels() + InflectMicroSetup.kernelModels(),
+            Asr4AllInstall.models(Asr4AllSize.M) + InflectMicroSetup.kernelModels(),
             vm.uiState.value.plannedModels,
         )
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
@@ -627,7 +630,7 @@ class SetupWizardViewModelTest {
 
     private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
     private val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
-    private val asr4allBytes = VoiceDefaultsProvisioner.asr4allSetupModels().sumOf { it.approxSizeBytes }
+    private val asr4allBytes = Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes }
 
     @Test
     fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier and Zipformer`() {
@@ -648,7 +651,7 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            VoiceDefaultsProvisioner.zipformerModels() + VoiceDefaultsProvisioner.asr4allSetupModels(),
+            VoiceDefaultsProvisioner.zipformerModels() + Asr4AllInstall.models(Asr4AllSize.M),
             vm.uiState.value.plannedModels,
         )
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
@@ -683,6 +686,19 @@ class SetupWizardViewModelTest {
         )
     }
 
+    @Test
+    fun `the plan counts the stored asr4all size only where the tier offers it`() {
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.L)
+        val flagship = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.L), flagship.uiState.value.plannedModels)
+
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.LOW_POWER)
+        val lowPower = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M), lowPower.uiState.value.plannedModels)
+    }
+
     // ── Zipformer files follow the speech input (#1855 part 2 review S1) ─────────
 
     @Test
@@ -692,7 +708,7 @@ class SetupWizardViewModelTest {
         coEvery { downloadManager.plannedFirstRunModels() } returns zipformer + other
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals(zipformer + other + VoiceDefaultsProvisioner.asr4allSetupModels(), vm.uiState.value.plannedModels)
+        assertEquals(zipformer + other + Asr4AllInstall.models(Asr4AllSize.M), vm.uiState.value.plannedModels)
 
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 

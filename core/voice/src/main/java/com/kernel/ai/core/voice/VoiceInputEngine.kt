@@ -19,7 +19,7 @@ enum class VoiceInputEngine(
     ),
     SherpaZipformer(
         displayName = "Sherpa-ONNX Zipformer",
-        description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model. Highest accuracy for NZ English with no network dependency.",
+        description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model with no network dependency.",
         isSherpaFamily = true,
         debugOnly = true,
     ),
@@ -46,7 +46,7 @@ enum class VoiceInputEngine(
     Asr4all(
         displayName = "asr4all streaming",
         description = "Offline streaming speech recognition with the asr4all model (ExecuTorch). M is about 60 MB; L, for capable phones, is about 101 MB. Streaming partial results.",
-        warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
+        warning = "Experimental. Compare on your own speech before relying on it.",
     ),
     ;
 

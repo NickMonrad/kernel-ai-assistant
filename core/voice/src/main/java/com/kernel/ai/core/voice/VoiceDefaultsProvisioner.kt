@@ -186,8 +186,8 @@ class VoiceDefaultsProvisioner @Inject constructor(
         fun needsAsr4all(engine: VoiceInputEngine): Boolean =
             engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
 
-        /** The asr4all files the setup plan counts: the default size, which the tier policy resolves to on every tier. */
-        fun asr4allSetupModels(): List<KernelModel> = Asr4AllInstall.models(Asr4AllInstall.defaultSize)
+        /** Every asr4all file of every shipped size: membership for the setup plan and its rows. The plan itself counts one size. */
+        fun asr4allFilesOfAnySize(): List<KernelModel> = Asr4AllInstall.shippedSizes.flatMap(Asr4AllInstall::models)
 
         fun zipformerModels(): List<KernelModel> =
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.mapNotNull { name ->
