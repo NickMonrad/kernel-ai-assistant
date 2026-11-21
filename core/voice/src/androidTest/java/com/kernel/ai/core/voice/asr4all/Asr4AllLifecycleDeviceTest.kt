@@ -28,7 +28,7 @@ class Asr4AllLifecycleDeviceTest {
     fun openResetCloseCyclesDoNotLeakOrUseAfterClose() {
         val dir = Asr4AllDeviceFiles.modelDir(Asr4AllSize.M)
         val pte = File(dir, "${Asr4AllModelConfig.EXPORT_DIR}/asr_encoder.pte")
-        val pcm = Asr4AllDeviceFiles.clip("1272-128104-0000.wav")
+        val pcm = Asr4AllDeviceFiles.clip("84-121550-0015.wav")
         // 3 s of the clip per utterance keeps each cycle short.
         val utterance = pcm.copyOf(48_000)
 

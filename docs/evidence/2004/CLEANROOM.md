@@ -21,7 +21,10 @@ listed `/var/tmp` and `/tmp` paths, other agents' worktrees or logs, or any thir
 asr4all decoding. The only GitHub issue bodies read were #2004, #2003, #2007 and #1999 (bodies
 only, no comments). When I first searched, no PR for #2003 existed (`gh pr list --search 2003`,
 empty). After the operator pointed me to it, the only #2003 material read was the diff of draft PR
-#2010 (listed below); I read no PR comments or review threads, and no other branch.
+#2010, at two heads (listed below); I read no PR comments or review threads, and no other branch.
+The only other PR comment read is the verifier's AC1 result on #2011, with the operator's
+permission (see "AC1 round 1"). It contains only observable outputs. To find it, I filtered the
+PR's comments by that heading locally, so no other comment's text was displayed.
 
 Incidental: a `ps` listing I ran to check my own Gradle process also showed another agent's Gradle
 command line, whose working directory was a worktree named `feat-core-executorch-runtime`. No file
@@ -77,6 +80,8 @@ Also the following:
 | input | revision | SHA-256 |
 |---|---|---|
 | #2003 shared runtime: diff of draft PR #2010 (`gh pr diff 2010`), branch `feat/core-executorch-runtime` | head `dceae496cabf5798e2aefb716ee3880b2bfd47e6` | `97373a3d0c5c3cabb90ab33f85afa0ad8184f766a2f7044d04d1f6040324620a` (diff text) |
+| #2003 shared runtime: diff of draft PR #2010 after its rebase onto `main` (licence/guard fixes; `TensorSpec` now takes `TensorDim`, new `ExecuTorchClosedException`) | head `98e28b069e0ee0724e47ec3689c00e3eac147184` | `9655db56e967e043b9fde4f910f604fc08b6af404a49d1000a23a79e5ea7f77e` (diff text) |
+| LibriSpeech `dev-clean.tar.gz` (OpenSLR 12), to rebuild the verifier's clips | — | `76f87d090650617fca0cac8f88b9416e0ebf80350acb97b343a85fa903728ab3` |
 | ExecuTorch `schema/program.fbs` | `pytorch/executorch` tag `v1.5.1` | `da7b809b497abea70e813cb23f39e46b6c76e2501d66ef3e91d4f9e1c9cfd62f` |
 | ExecuTorch `schema/scalar_type.fbs` | `pytorch/executorch` tag `v1.5.1` | `a4c83c25ee7da8eedf61f04fe3df979e5866035763f0ee8d3ed68463e3baad8f` |
 | ExecuTorch `schema/extended_header.h` | `pytorch/executorch` tag `v1.5.1` | `e93e15f096dd16b46e9459e6816da0e017357ac1fb7b25086f8810e09e74a92d` |
@@ -158,8 +163,104 @@ parity failure can be traced:
    document; I observed a native embedding-range check fail on such inputs with the Python
    runtime).
 
-Items 3 and 5 are the least certain; they were chosen by black-box measurement against public
-references (see below). Parity results from the verifier decide whether they stand.
+Items 3 and 5 were the least certain; they were chosen by black-box measurement against public
+references (see below). The verifier's AC1 run (next section) showed item 3 and parts of items
+2 and 4 to be wrong; they were fixed as recorded there. Items 1, 5 and 6 are unchanged.
+
+## AC1 round 1: verifier result and fixes (21 Nov 2026)
+
+**Input.** One PR comment on #2011, the verifier's "AC1 parity verification (#2004): NOT PARITY"
+([comment 7054718096](https://github.com/NickMonrad/kernel-ai-assistant/pull/2011#issuecomment-7054718096),
+posted 2026-11-21T01:01:43Z; SHA-256 of its body text
+`fc3706c034a2fad8a41b708bb55a1b9bc372dd112baa2a0c5552c4f7677896ae`). The operator allowed me to read that
+one comment. I read all of it.
+
+It contains only observable outputs: the pass criteria, the setup (versions, model hashes, clip
+recipe and WAV hashes), aggregate agreement, a per-row pass/fail table, the reference and engine
+final text for the 43 mismatching rows, and the first differing partial event for 141 rows. It
+names the reference driver and its SHA-256. It says the live text was read with "its pending tail
+included (its documented endpoint option)", which is a usage setting, not an internal. Nothing in
+it describes how the reference computes its outputs. Result: finals 125/168, M+L dev-clean 77/96,
+partial sequences 27/168, on engine head `fd49f01`.
+
+**Reproduction.** I rebuilt the verifier's 28 clips from its published recipe. The sources were
+LibriSpeech `dev-clean.tar.gz` (SHA-256 `76f87d09…728ab3`, same as the verifier's) decoded with
+`ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le -bitexact`, plus the four generated edge clips. All 28 WAVs
+match the verifier's SHA-256 values byte for byte.
+
+**Method.**
+- I wrote a Python mirror of the Kotlin engine (same windowing, CTC, PCEC calls and rendering)
+  on the official `executorch` 1.5.1 runtime, with each tier's encoder outputs cached per clip.
+  Before use, I checked it against the Kotlin engine: identical finals, partials and partial
+  offsets on all 27 host-harness rows, and it reproduces every engine text in the verifier's
+  comment (43/43 finals, 141/141 partial events).
+- I took the reference final for each row to be the verifier's text where it reported a
+  mismatch, and the engine's (unchanged) output where it reported a match. Then I scored
+  candidate input encodings against all 168 rows. For partials, the check is the verifier's first
+  differing event, plus the events before it, which the verifier's table shows were equal.
+- The model's own outputs decided between hypotheses. No reference internals were available or
+  used.
+
+Hypotheses tested (finals agreeing with the reference, of 168):
+
+| change | finals |
+|---|---|
+| baseline (decisions as above) | 125 |
+| decode only real-audio frames at the end (ceil or floor) | 125 |
+| float input = token log-probability (start/mean/max/min/sum), probability, logit, margin, entropy, run length, pause or start time in seconds, blank probability | 14–126 |
+| pause = gap *after* the token (last token: blackout, 0, 8 or trailing silence) | 97–98 |
+| pause gap start-to-start / without the −1 / first token 0 / first token = leading silence | 121–128 |
+| hidden = first frame / last frame / max / sum / peak-probability frame of the run | 124–130 |
+| hidden = mean from the previous token's end to this run's end | 92 |
+| **hidden = mean from this token's first frame up to the next token's first frame** (run plus following blanks; last token to end of the decoded frames) | **163** |
+| … with the last token ending at the last real-audio frame, ceil(samples/640) | 166 |
+| … plus shifting the span end by ±1 frame | 147–152 |
+| … plus float inputs above | 140–164 |
+| … plus first token's pause = log2 bucket of the frames before it (instead of blackout 9) | 166 (different 2 rows) |
+| … plus last token / end-of-input decoding to floor(samples/640) frames | **168** |
+
+The two rows left before the final step (`1993-147965-0005`, S, both tiers) were not a numeric
+effect: float32 and float64 mean variants (numpy, torch, sequential) gave the same text. They
+were decided by where the last token's span ends: floor(138560/640) = 216 matches,
+ceil = 217 does not.
+
+Partials (first-difference agreement of 168):
+
+| change | partials |
+|---|---|
+| baseline (flush pending + open token, no end slot) | 30 |
+| include the end-of-input slot | 38 |
+| hold back the open token | 85 |
+| hold back the latest token, open or closed, and include the end slot | 147 |
+| with the hidden, pause and end-of-input fixes above (token handed over when the next token starts) | 167 |
+
+The latest token being held back follows from the hidden fix: a token's span, and so its input,
+is not known until the next token starts.
+
+**Fixes made** (commit "fix(#2004): PCEC inputs and live text match the verifier's reference
+outputs"):
+
+- Decision 2, revised: at end of input, only frames wholly covered by real audio
+  (floor(samples/640)) are decoded. Windows after that are not run.
+- Decision 3, revised:
+  - The hidden input is the mean of the encoder hidden rows from the token's first frame up to,
+    not including, the next token's first frame. For the last token, the span runs to the last
+    decoded frame.
+  - The first token's pause is the log2 bucket of the frames before it. Other pauses are unchanged.
+  - The float input stays 0, and padding is unchanged. The blackout bucket is no longer produced.
+- Decision 4, revised: a token is handed to PCEC when the next token starts, or at end of input.
+  Live text is the flush over the handed-over tokens, including the end-of-input slot, so it
+  never shows the latest token.
+
+**Result** (Kotlin engine through the host harness, verifier's 28 clips, S/M/L × c16r4/c32r8, 100 ms
+chunks, repeat 2, 37 ms chunk cross-check):
+- Finals agree with the reference on 168/168 rows. For the 10 rows where the verifier showed only
+  a word window (`6241-61943-0027` for S and L, and `edge_long_2277-149896`), the window matches.
+- Partials agree on 167/168 at the verifier's first differing event. The exception is M c32r8
+  `6241-61943-0027`, where the first event is `The men appeared.` and the reference has
+  `The men appeared`; I found no input variant that changes it without breaking other rows.
+- Partial events after each row's first difference were not visible to me, so only the verifier's
+  re-run can confirm full partial-sequence parity.
 
 ## Black-box measurement data
 
@@ -205,4 +306,10 @@ encoding tried; the renderer drops it.
 - After the rebase onto #2010 (seam replaced by `:core:executorch` types, `.pte` signature
   check added): the S/M/L × 6 tiers × 3 clips run passes again, and the M `stream_c16r4` and
   `stream_c64r16` rows (partials and finals) are byte-identical to the pre-rebase output.
-- Device results (S21) are in `docs/evidence/2004/README.md`.
+- After the AC1 round-1 fixes and the rebase onto #2010 `98e28b06`: the verifier's 28 clips ×
+  S/M/L × all six tiers (504 rows) all open, pass the shape checks, repeat identically and give
+  the same final with 37 ms chunks. The rows are in `docs/evidence/2004/engine-round2/` for the
+  verifier's round 2.
+- Device results (S21) are in `docs/evidence/2004/README.md`. After the fixes, the AC2 test
+  asserts the verifier's reference final for M c16r4 `84-121550-0015`, and the S21 matches it
+  exactly.

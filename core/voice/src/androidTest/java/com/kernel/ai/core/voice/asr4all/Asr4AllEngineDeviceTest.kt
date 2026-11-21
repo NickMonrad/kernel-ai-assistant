@@ -13,19 +13,20 @@ import org.junit.runner.RunWith
 /**
  * The asr4all engine on the real M export with the real ExecuTorch runtime (#2004 AC2, AC3).
  *
- * Clip: LibriSpeech dev-clean 1272-128104-0000 (CC BY 4.0, via
- * `hf-internal-testing/librispeech_asr_dummy` revision `5be91486e11a2d616f4ec5db8d3fd248585ac07a`).
- * The expected final text is in `assets/asr4all/1272-128104-0000.m.stream_c16r4.final.txt`; see
- * docs/evidence/2004/README.md for where it comes from.
+ * Clip: LibriSpeech dev-clean `84-121550-0015` (CC BY 4.0; OpenSLR 12 `dev-clean.tar.gz`, decoded
+ * with `ffmpeg -ac 1 -ar 16000 -c:a pcm_s16le -bitexact`; SHA-256 `71a4d201…39df4`), one of the
+ * verifier's AC1 clips. The expected final text in
+ * `assets/asr4all/84-121550-0015.m.stream_c16r4.final.txt` is the verifier's reference output for
+ * M at `stream_c16r4` (PR #2011, AC1 comment), as #2004 AC2 requires.
  */
 @RunWith(AndroidJUnit4::class)
 class Asr4AllEngineDeviceTest {
-    private val clip = "1272-128104-0000.wav"
+    private val clip = "84-121550-0015.wav"
 
     @Test
     fun mediumExportTranscribesThePublicClip() {
         val pcm = Asr4AllDeviceFiles.clip(clip)
-        val expected = Asr4AllDeviceFiles.text("1272-128104-0000.m.stream_c16r4.final.txt").trim()
+        val expected = Asr4AllDeviceFiles.text("84-121550-0015.m.stream_c16r4.final.txt").trim()
 
         Asr4AllEngine.open(Asr4AllDeviceFiles.modelDir(Asr4AllSize.M), Asr4AllSize.M).use { engine ->
             assertEquals("stream_c16r4", engine.tier.name)
