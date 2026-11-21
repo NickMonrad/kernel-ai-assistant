@@ -565,7 +565,10 @@ class SetupWizardViewModelTest {
 
         vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
 
-        assertEquals(InflectMicroSetup.kernelModels(), vm.uiState.value.plannedModels)
+        assertEquals(
+            VoiceDefaultsProvisioner.asr4allSetupModels() + InflectMicroSetup.kernelModels(),
+            vm.uiState.value.plannedModels,
+        )
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
     }
 
@@ -617,13 +620,14 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.isRerun)
-        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes, vm.uiState.value.welcomeTotalBytes)
+        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes + asr4allBytes, vm.uiState.value.welcomeTotalBytes)
     }
 
     // ── Hey Jandal download size (#1931) ─────────────────────────────────────────
 
     private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
     private val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
+    private val asr4allBytes = VoiceDefaultsProvisioner.asr4allSetupModels().sumOf { it.approxSizeBytes }
 
     @Test
     fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier and Zipformer`() {
@@ -643,7 +647,10 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceDefaultsProvisioner.zipformerModels(), vm.uiState.value.plannedModels)
+        assertEquals(
+            VoiceDefaultsProvisioner.zipformerModels() + VoiceDefaultsProvisioner.asr4allSetupModels(),
+            vm.uiState.value.plannedModels,
+        )
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
     }
@@ -671,7 +678,7 @@ class SetupWizardViewModelTest {
 
         assertFalse(vm.uiState.value.isRerun)
         assertEquals(
-            KernelModel.GEMMA_4_E4B.approxSizeBytes + SherpaPiperVoice.CoriHigh.approxDownloadBytes,
+            KernelModel.GEMMA_4_E4B.approxSizeBytes + SherpaPiperVoice.CoriHigh.approxDownloadBytes + asr4allBytes,
             vm.uiState.value.welcomeTotalBytes,
         )
     }
@@ -685,7 +692,7 @@ class SetupWizardViewModelTest {
         coEvery { downloadManager.plannedFirstRunModels() } returns zipformer + other
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals(zipformer + other, vm.uiState.value.plannedModels)
+        assertEquals(zipformer + other + VoiceDefaultsProvisioner.asr4allSetupModels(), vm.uiState.value.plannedModels)
 
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 

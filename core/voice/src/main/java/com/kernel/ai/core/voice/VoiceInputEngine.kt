@@ -9,7 +9,7 @@ enum class VoiceInputEngine(
 ) {
     Auto(
         displayName = "Automatic (recommended)",
-        description = "Uses the offline Sherpa-ONNX Zipformer model. If you allow online speech recognition, uses Android speech recognition instead.",
+        description = "Uses the offline asr4all model once it is downloaded, and the offline Sherpa-ONNX Zipformer model until then. If you allow online speech recognition, uses Android speech recognition instead.",
         debugOnly = true,
     ),
     AndroidNative(

@@ -7,6 +7,7 @@ import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -26,8 +27,8 @@ private const val LEGACY_VOSK_DIR = "voice"
 /**
  * Prepares the default voice stack on app start, alongside the required model downloads:
  *
- * - queues the offline Zipformer STT model when the selected input engine needs it
- *   ([VoiceInputEngine.Auto] uses it as the offline fallback and for alert commands);
+ * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer, and
+ *   asr4all for Auto and asr4all streaming (the size the tier policy picks);
  * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
  *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
  *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
@@ -45,6 +46,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
+    private val hardwareProfileDetector: HardwareProfileDetector,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
@@ -66,22 +68,52 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
 
     private suspend fun queueSpeechInputModel() {
-        if (prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) return
-        queueSpeechInput(voiceInputPreferences.selectedEngine.first())
-        prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
+        val engine = voiceInputPreferences.selectedEngine.first()
+        if (!prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) {
+            queueZipformer(engine)
+            prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
+        }
+        // Marked only once queued, so a launch while the Terms gate (#1998) is closed retries later.
+        if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && queueAsr4all(engine)) {
+            prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
+        }
     }
 
     /**
-     * Queues the Zipformer files [engine] needs that are not on disk yet. Used at launch and by the setup
-     * wizard's Finish, so the size line and the queue agree, including a stored Automatic whose files were deleted.
+     * Queues the speech input files [engine] needs that are not on disk yet: Zipformer for Auto and Sherpa
+     * Zipformer, asr4all for Auto and asr4all streaming. Used at launch and by the setup wizard's Finish, so the
+     * size line and the queue agree, including a stored Automatic whose files were deleted.
      */
     suspend fun queueSpeechInput(engine: VoiceInputEngine) {
+        queueZipformer(engine)
+        queueAsr4all(engine)
+    }
+
+    private suspend fun queueZipformer(engine: VoiceInputEngine) {
         if (!needsZipformer(engine)) return
         val missing = zipformerModels().filterNot { it.isDownloaded(context) }
         if (missing.isNotEmpty()) {
             Log.i(TAG, "Queuing Zipformer STT model for engine=$engine: ${missing.map { it.name }}")
             missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
         }
+    }
+
+    /**
+     * Queues the asr4all files of the size the user's choice resolves to on this tier. Returns true when the engine
+     * needs asr4all and it is queued or already on disk; false when it does not need it or the Terms hook is closed.
+     */
+    private suspend fun queueAsr4all(engine: VoiceInputEngine): Boolean {
+        if (!needsAsr4all(engine) || !Asr4AllInstall.termsAcceptanceGranted()) return false
+        val size = Asr4AllInstall.effectiveSize(
+            voiceInputPreferences.asr4allSize.first(),
+            hardwareProfileDetector.profile.tier,
+        )
+        val missing = Asr4AllInstall.models(size).filterNot { it.isDownloaded(context) }
+        if (missing.isNotEmpty()) {
+            Log.i(TAG, "Queuing asr4all ${size.name} model for engine=$engine: ${missing.map { it.name }}")
+            missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
+        }
+        return true
     }
 
     private suspend fun queueSpeechOutputVoice(isExistingInstall: Boolean) {
@@ -140,6 +172,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
         private const val PREFS_NAME = "voice_defaults_provisioner"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
+        private const val KEY_ASR4ALL_QUEUED = "asr4all_queued_v1"
 
         /** `<root>/voice` folders that still hold the unpacked Vosk model; nothing else. */
         internal fun legacyVoskDirsToDelete(roots: List<File>): List<File> =
@@ -148,6 +181,13 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
         fun needsZipformer(engine: VoiceInputEngine): Boolean =
             engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer
+
+        /** Auto and asr4all streaming use the asr4all model; Sherpa Zipformer does not. */
+        fun needsAsr4all(engine: VoiceInputEngine): Boolean =
+            engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
+
+        /** The asr4all files the setup plan counts: the default size, which the tier policy resolves to on every tier. */
+        fun asr4allSetupModels(): List<KernelModel> = Asr4AllInstall.models(Asr4AllInstall.defaultSize)
 
         fun zipformerModels(): List<KernelModel> =
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.mapNotNull { name ->

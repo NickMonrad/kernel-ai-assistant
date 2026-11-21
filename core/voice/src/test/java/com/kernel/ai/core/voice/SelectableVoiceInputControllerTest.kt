@@ -69,6 +69,7 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.stopListening() } just runs
         every { asr4allVoiceInputController.supersedeCapture() } just runs
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
@@ -121,10 +122,28 @@ class SelectableVoiceInputControllerTest {
     // ── Auto routing (pure) ─────────────────────────────────────────────────
 
     @Test
-    fun `auto prefers zipformer when the online fallback is off`() {
+    fun `auto prefers asr4all over zipformer when the online fallback is off`() {
         assertEquals(
-            AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = false),
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = true,
+                allowOnlineFallback = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto uses asr4all alone while zipformer is not downloaded`() {
+        assertEquals(
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = false,
+                allowOnlineFallback = false,
+            ),
         )
     }
 
@@ -132,31 +151,64 @@ class SelectableVoiceInputControllerTest {
     fun `auto uses android native when the online fallback is allowed`() {
         assertEquals(
             AutoSttRoute.Native,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = true,
+                allowOnlineFallback = true,
+            ),
         )
     }
 
     @Test
-    fun `auto uses on-device native while zipformer downloads`() {
+    fun `auto uses on-device native while no offline model is downloaded`() {
         assertEquals(
             AutoSttRoute.Native,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = false, allowOnlineFallback = false),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = false,
+                zipformerReady = false,
+                allowOnlineFallback = false,
+            ),
         )
     }
 
     @Test
-    fun `auto uses zipformer when native is unavailable even with online fallback allowed`() {
+    fun `auto uses zipformer when asr4all is still downloading and native is unavailable`() {
         assertEquals(
             AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = true, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = false,
+                zipformerReady = true,
+                allowOnlineFallback = true,
+            ),
         )
     }
 
     @Test
-    fun `auto reports unavailable when neither recognizer is ready`() {
+    fun `auto uses asr4all when native is unavailable even with online fallback allowed`() {
+        assertEquals(
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = true,
+                zipformerReady = false,
+                allowOnlineFallback = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto reports unavailable when no recognizer is ready`() {
         assertEquals(
             AutoSttRoute.Unavailable,
-            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = false, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = false,
+                zipformerReady = false,
+                allowOnlineFallback = true,
+            ),
         )
     }
 

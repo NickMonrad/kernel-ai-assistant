@@ -20,6 +20,13 @@ object Asr4AllInstall {
     /** Size used until the user chooses another; the same on every tier (#2013). */
     val defaultSize: Asr4AllSize = Asr4AllSize.M
 
+    /**
+     * Terms acceptance hook (#1998). Every asr4all download start asks this first: the auto-queue in
+     * [VoiceDefaultsProvisioner] and the Settings download row. #1998 replaces the body with its recorded
+     * acceptance. Until then asr4all downloads are not gated, as shipped in #2029.
+     */
+    fun termsAcceptanceGranted(): Boolean = true
+
     /** Sizes with shipped exports; S is not shipped and has no files to sweep. */
     val shippedSizes: List<Asr4AllSize> = listOf(Asr4AllSize.M, Asr4AllSize.L)
 

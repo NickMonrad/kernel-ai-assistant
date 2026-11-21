@@ -40,6 +40,14 @@ class VoiceInputEngineTest {
     }
 
     @Test
+    fun `provisioner downloads asr4all only for engines that use it`() {
+        assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Auto))
+        assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Asr4all))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaZipformer))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.AndroidNative))
+    }
+
+    @Test
     fun `provisioner maps every Zipformer file to a catalogue model`() {
         assertEquals(
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.size,

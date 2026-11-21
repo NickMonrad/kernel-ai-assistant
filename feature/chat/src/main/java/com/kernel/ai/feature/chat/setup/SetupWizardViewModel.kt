@@ -192,7 +192,8 @@ class SetupWizardViewModel @Inject constructor(
 
             val wakeStored = wakeWordPreferences.heyJandalEnabled.first()
             voiceStates = voicePackDownloadManager.downloadStates.value
-            allPlannedModels = downloadManager.plannedFirstRunModels()
+            allPlannedModels = downloadManager.plannedFirstRunModels() +
+                VoiceDefaultsProvisioner.asr4allSetupModels().filterNot { isModelDownloaded(it) }
             val input = effectiveInput(inputEngine)
             val output = effectiveOutput(outputEngine)
             val plannedModels = plannedModelsFor(input, output)
@@ -245,14 +246,17 @@ class SetupWizardViewModel @Inject constructor(
     private fun effectiveOutput(engine: VoiceOutputEngine?): VoiceOutputEngine? = engine ?: storedOutput
 
     /**
-     * Zipformer files are needed only when the effective input uses them (Auto or Sherpa Zipformer). Inflect Micro's
+     * Zipformer and asr4all files are needed only when the effective input uses them (see the provisioner's
+     * needsZipformer and needsAsr4all). Inflect Micro's
      * graph files join the plan when Inflect is the output, so the step-3 rows and totals include them (#1931).
      */
     private fun plannedModelsFor(input: VoiceInputEngine, output: VoiceOutputEngine?): List<KernelModel> {
-        val speech = if (VoiceDefaultsProvisioner.needsZipformer(input)) {
-            allPlannedModels
-        } else {
-            allPlannedModels.filterNot { it in VoiceDefaultsProvisioner.zipformerModels() }
+        val asr4all = VoiceDefaultsProvisioner.asr4allSetupModels()
+        val speech = allPlannedModels.filter { model ->
+            val isZipformer = model in VoiceDefaultsProvisioner.zipformerModels()
+            val isAsr4all = model in asr4all
+            (!isZipformer || VoiceDefaultsProvisioner.needsZipformer(input)) &&
+                (!isAsr4all || VoiceDefaultsProvisioner.needsAsr4all(input))
         }
         val inflect = if (output == VoiceOutputEngine.InflectMicroExperimental) {
             InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }
