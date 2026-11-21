@@ -101,6 +101,15 @@ class FallbackVoiceOutputController @Inject constructor(
         }
     }
 
+    /** Sherpa (Piper, Kokoro) only, for #1923: other engines return null and speak on confirmation as before. */
+    override suspend fun openPreSynthesisedSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession? {
+        val engine = voiceOutputPreferences.selectedEngine.first()
+        if (engine != VoiceOutputEngine.SherpaExperimental && engine != VoiceOutputEngine.KokoroExperimental) return null
+        if (sherpa.warmUp() is VoiceOutputResult.Unavailable) return null
+        activate(sherpa)
+        return recordedStreamSession(engine, sherpa, sherpa.openPreSynthesisedSession(request))
+    }
+
     override fun stop() = stopWith(SpeakEndReason.STOPPED)
 
     override fun stop(reason: SpeechStopReason) = stopWith(reason.toEndReason())
@@ -379,6 +388,8 @@ class FallbackVoiceOutputController @Inject constructor(
         }
 
         override suspend fun appendPause(durationMs: Long) = delegate.appendPause(durationMs)
+
+        override suspend fun release(request: VoiceSpeakRequest): Boolean = delegate.release(request)
 
         override suspend fun cancel() {
             delegate.cancel()

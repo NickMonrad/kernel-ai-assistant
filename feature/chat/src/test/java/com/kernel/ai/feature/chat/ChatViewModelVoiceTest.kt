@@ -128,6 +128,8 @@ class ChatViewModelVoiceTest {
     private val voiceInputController: VoiceInputController = mockk(relaxed = true)
     private val voiceOutputController: VoiceOutputController = mockk(relaxed = true)
     private val voiceStreamingSession: VoiceOutputStreamingSession = mockk(relaxed = true)
+    private val voiceHeldSession: VoiceOutputStreamingSession = mockk(relaxed = true)
+    private val heldChunks = mutableListOf<Pair<String, Boolean>>()
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk(relaxed = true)
     private val jandalPersona: JandalPersona = mockk(relaxed = true)
     private val nzTruthSeedingService: NzTruthSeedingService = mockk(relaxed = true)
@@ -212,6 +214,14 @@ class ChatViewModelVoiceTest {
         every { kernelAIToolSet.terminalToolResult() } returns null
         coEvery { voiceStreamingSession.cancel() } just runs
         coEvery { voiceOutputController.openStreamingSession(any()) } returns voiceStreamingSession
+        heldChunks.clear()
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns null
+        coEvery { voiceHeldSession.release(any()) } returns true
+        coEvery { voiceHeldSession.cancel() } just runs
+        coEvery { voiceHeldSession.append(any(), any()) } coAnswers {
+            heldChunks += firstArg<String>() to secondArg<Boolean>()
+            VoiceOutputResult.Spoken
+        }
         coEvery { voiceStreamingSession.append(any(), any()) } coAnswers {
             streamedChunks += firstArg<String>() to secondArg<Boolean>()
             VoiceOutputResult.Spoken
@@ -647,6 +657,219 @@ class ChatViewModelVoiceTest {
         coVerify(exactly = 0) { voiceOutputController.speak(any()) }
         assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks, "generation finishing after Home must not speak")
         assertNull(viewModel.voiceMode.value, "Home exits Chat Loop mode")
+    }
+
+    @Test
+    fun `presynthesised first sentence is released and the rest of the reply continues on that session`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("The first sentence here is long enough to stand alone. "),
+            GenerationResult.Token("The second sentence follows after it and is spoken last."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceHeldSession.release(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        assertEquals(
+            listOf(
+                "The first sentence here is long enough to stand alone." to false,
+                "The second sentence follows after it and is spoken last." to true,
+            ),
+            heldChunks,
+        )
+    }
+
+    @Test
+    fun `the speaking state shows the whole reply once the presynthesised sentence is released`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        // Sherpa reports the text that release() supplies, not the blank text the held session opened with.
+        coEvery { voiceHeldSession.release(any()) } coAnswers {
+            voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(firstArg<VoiceSpeakRequest>().text))
+            true
+        }
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("The first sentence here is long enough to stand alone. "),
+            GenerationResult.Token("The second sentence follows after it and is spoken last."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        assertEquals(
+            ChatViewModel.VoicePlaybackState.Speaking(
+                "The first sentence here is long enough to stand alone. The second sentence follows after it and is spoken last.",
+            ),
+            viewModel.voicePlaybackState.value,
+        )
+    }
+
+    @Test
+    fun `a retry pass discards the presynthesised first sentence and speaks the retried reply`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        // The first pass claims an action it never ran, so the turn is generated again.
+        every { inferenceEngine.generate(any()) } returnsMany listOf(
+            flowOf(
+                GenerationResult.Token("The first sentence here is long enough to stand alone. I've set the timer."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+            // The retried pass opens with the same first sentence, so only the retry discard stops that hold being released.
+            flowOf(
+                GenerationResult.Token("The first sentence here is long enough to stand alone. Here is a short reply about kiwi birds."),
+                GenerationResult.Complete(durationMs = 1L),
+            ),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        coVerify(exactly = 0) { voiceHeldSession.release(any()) }
+        assertEquals(
+            listOf("The first sentence here is long enough to stand alone." to false, "Here is a short reply about kiwi birds." to true),
+            streamedChunks,
+        )
+    }
+
+    @Test
+    fun `a voice error mid-reply discards the presynthesised first sentence before the reply ends`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        val gate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            gate.await()
+            emit(GenerationResult.Token("The second sentence follows after it and is spoken last."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "recognizer failed", captureSessionId = 1L))
+        runCurrent()
+
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        gate.complete(Unit)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { voiceHeldSession.release(any()) }
+    }
+
+    @Test
+    fun `a tool call discards the presynthesised first sentence and speaks the reply from the start`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Check the weather") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Check the weather")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        var toolCalled = false
+        every { kernelAIToolSet.wasToolCalled() } answers { toolCalled }
+        val toolGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            toolGate.await()
+            toolCalled = true
+            emit(GenerationResult.Token("Let me check that for you."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Check the weather", captureSessionId = 1L))
+        advanceUntilIdle()
+        toolGate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        coVerify(exactly = 0) { voiceHeldSession.release(any()) }
+        assertEquals("The first sentence here is long enough to stand alone.", streamedChunks.first().first)
+    }
+
+    @Test
+    fun `home during a presynthesised reply cancels the held sentence and starts no speech`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        val generationGate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            generationGate.await()
+            emit(GenerationResult.Token("The second sentence follows after it and is spoken last."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        viewModel.onScreenStopped(screenOff = false)
+        generationGate.complete(Unit)
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        coVerify(exactly = 0) { voiceHeldSession.release(any()) }
+        coVerify(exactly = 0) { voiceOutputController.openStreamingSession(any()) }
+        assertEquals(listOf("The first sentence here is long enough to stand alone." to false), heldChunks)
+        assertEquals(emptyList<Pair<String, Boolean>>(), streamedChunks)
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `a presynthesised sentence that cannot release is replaced by speaking the reply as usual`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        coEvery { voiceHeldSession.release(any()) } returns false
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("The first sentence here is long enough to stand alone. "),
+            GenerationResult.Token("The second sentence follows after it and is spoken last."),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceHeldSession.release(any()) }
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        assertEquals(
+            listOf(
+                "The first sentence here is long enough to stand alone." to false,
+                "The second sentence follows after it and is spoken last." to true,
+            ),
+            streamedChunks,
+        )
     }
 
     @Test
