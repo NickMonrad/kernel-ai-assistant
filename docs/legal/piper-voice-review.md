@@ -2,13 +2,13 @@
 
 Checked 2026-11-21. This is an engineering record, not legal advice. It supersedes the 2026-11-12 note that used to live at `docs/release-audit/PIPER_VOICE_LICENCE_REVIEW.md`. That note pinned `rhasspy/piper-voices` at `5041a7a`, so it missed the upstream retrains described below. It also could not confirm what the Sherpa-ONNX archives contain.
 
-Scope: every `SherpaPiperVoice` entry except `CoriHigh`, which #1268 had made release-visible. Since #1793 (merged as `46539142`), no Piper voice, Cori included, is release-visible in v0.1: the Sherpa/Piper/eSpeak runtime is excluded from release. Kokoro and Inflect are out of scope, as is the eSpeak-ng GPL posture, which #1474 accepted.
+Scope: every `SherpaPiperVoice` entry except `CoriHigh`, which #1268 had made release-visible. Since #1793 (merged as `46539142`), no Piper voice, Cori included, is release-visible in v0.1: the Sherpa/Piper/eSpeak runtime is excluded from release. Kokoro and Inflect are out of scope. So is the eSpeak-ng GPL posture: the owner accepted it under #1474, which is now closed, although source-to-binary provenance for the packs' `espeak-ng-data` is still not established.
 
 ## Result
 
 **No voice is release-OK as Jandal downloads it today.** Every reviewed voice stays `releaseVisible = false`. No code, test, NOTICE or `app/release-attribution-metadata.json` change follows from this review.
 
-Six voices (Jenny, Alba, Aru, VCTK, Joe, Amy) were retrained upstream between 9 and 20 Nov 2026 on a base that does not descend from Lessac. Jandal does not download those retrained weights. It downloads Sherpa-ONNX archives published between June 2025 and April 2026, and every one of those archives contains the older weights fine-tuned from Lessac or Ryan (verified below). Jenny, Alba, Aru, VCTK and Joe could become release-OK with conditions (see "Path to release"). Amy cannot, whatever it is trained on.
+Six voices (Jenny, Alba, Aru, VCTK, Joe, Amy) were retrained upstream between 9 and 20 Nov 2026 on a base that does not descend from Lessac. Jandal does not download those retrained weights. It downloads Sherpa-ONNX archives published between June 2025 and April 2026, and every one of those archives contains the older pre-retrain weights (verified below). Ten were fine-tuned from Lessac or Ryan. Lessac and Ryan are themselves trained from scratch on those restricted datasets. Jenny, Alba, Aru, VCTK and Joe could become release-OK with conditions (see "Path to release"). Amy cannot, whatever it is trained on.
 
 ## What the app downloads
 
@@ -35,7 +35,7 @@ How each archive was verified:
 | en_US-lessac-high | 2025-06-30, `8619d204…` | yes | not retrained | Trained from scratch (Blizzard 2013 Lessac) |
 | en_US-ryan-high | 2025-06-30, `6a71edf4…` | yes | not retrained | Trained from scratch (RyanSpeech) |
 
-(1) The Joe archive's graph was re-exported (396 named initializers against 397 upstream), but every tensor value matches the pre-retrain weights and covers 100% of the parameters. It shares 0% of its parameters with the retrained weights.
+(1) The Joe archive's graph was re-exported: it has 396 initializers against 401 upstream, or 360 against 365 excluding anonymous `onnx::*` constants. Every tensor value still matches the pre-retrain weights and covers 100% of the parameters. It shares 0% of its parameters with the retrained weights.
 
 ## Per-voice verdicts
 
@@ -69,9 +69,9 @@ How each archive was verified:
 
 All of these conditions must hold before `releaseVisible = true`:
 
-1. **Change the weights source.** Download the retrained weights pinned to a `rhasspy/piper-voices` revision at or after `e929968c3761f1c281875787685a745863db838d`. Alternatively, use a Sherpa asset whose initializers are shown, by the method above, to equal those weights. The current Sherpa archives are not acceptable under any reading.
+1. **Change the weights source.** Download the retrained weights at an exact `rhasspy/piper-voices` revision (`e929968c3761f1c281875787685a745863db838d` or a later commit chosen at promotion time). Record that revision and the per-voice `.onnx` LFS oid in this doc and in `app/release-attribution-metadata.json`. Upstream retrains in place under the same file names, so a revision range or file name alone does not pin the weights. Alternatively, use a Sherpa asset whose initializers are shown, by the method above, to equal the pinned weights. The current Sherpa archives are not acceptable under any reading.
 2. **Repackage for Sherpa-ONNX.** The retrained `.onnx` has no Sherpa metadata. Its `.onnx.json` declares `piper_version` 1.5.0 and adds `vowel_clusters`, `phoneme_counts`, `hop_length` and `default_speaker_id`. Its `phoneme_id_map` has 166 entries where the old one had 154 (Jenny was checked); existing ids are unchanged. Graph inputs are unchanged (`input`, `input_lengths`, `scales`). So `tokens.txt` must be regenerated and `add_meta_data.py` must be applied. [INFERENCE] Sherpa-ONNX 1.13.0 probably loads the graph. Whether the eSpeak frontend matches Piper 1.5's `vowel_clusters` handling is untested, so pronunciation needs checking on a device.
-3. **Hosting and notices.** If Jandal hosts the repackaged archive, that is redistribution. Ship the upstream `MODEL_CARD` inside each pack and add the NOTICE entry below. #1474 still covers the eSpeak-ng data shipped in each pack.
+3. **Hosting and notices.** If Jandal hosts the repackaged archive, that is redistribution. Ship the upstream `MODEL_CARD` inside each pack and add the NOTICE entry below. The pack's `espeak-ng-data` falls under the eSpeak-ng GPL posture accepted in #1474 (closed). Its source-to-binary provenance must be recorded before any release.
 4. **#1793 exclusion.** Since #1793, no Piper voice is release-visible in v0.1 and the Piper/eSpeak runtime is kept out of release artefacts. These conditions apply only once that exclusion is lifted. Any voice made release-visible must then also be recorded in `app/release-attribution-metadata.json`, which `:app:verifyReleaseAttributionMetadata` checks.
 
 NOTICE text to add once a voice meets the conditions. The Hi-Fi TTS line is shared by the hifi_tts_92 group.
@@ -95,7 +95,7 @@ Add one of these per voice:
 
 ## Cori (reference only, unchanged)
 
-`en_GB-cori-high` is unchanged upstream: the `.onnx` LFS oid `470b4dd6…` has been the same since 2024-03-12, and the card is identical at both revisions. It says "Trained from scratch" on LibriVox (public domain). The training notes link to [brycebeattie.com/files/tts](https://brycebeattie.com/files/tts/), where the trainer lists Cori (high) as "License: public domain" and adds "Feel free to use these for any legal and ethical purpose". COMMERCIAL_USE.md lists it among from-scratch voices. Because upstream says the repository's MIT tag is not a grant, any future release basis for Cori is the trainer's public-domain statement plus the public-domain dataset, not "MIT repository". Cori is currently excluded from v0.1 by #1793. The Sherpa Cori archive was not weight-compared in this review.
+`en_GB-cori-high` is unchanged upstream: the `.onnx` LFS oid `470b4dd6…` has been the same since 2024-03-12, and the card is identical at both revisions. It says "Trained from scratch" on LibriVox (public domain). The training notes link to [brycebeattie.com/files/tts](https://brycebeattie.com/files/tts/), where the trainer lists Cori (high) as "License: public domain" and adds "Feel free to use these for any legal and ethical purpose". COMMERCIAL_USE.md lists it among from-scratch voices. Because upstream says the repository's MIT tag is not a grant, any future release basis for Cori is the trainer's public-domain statement plus the public-domain dataset, not "MIT repository". Cori is currently excluded from v0.1 by #1793. The Sherpa Cori archive (2025-06-30, sha256 `42922f07…`) was weight-compared by the same method: 460 initializers on each side, matching 100% of parameters by value against the upstream `.onnx` (LFS oid `470b4dd6…`). Its `MODEL_CARD` points to Bryce Beattie's training notes.
 
 ## Candidate English voices (not added)
 
@@ -103,7 +103,7 @@ These voices from `rhasspy/piper-voices` have a clean dataset chain and an exist
 
 | Voice | Accent / speaker | Dataset and chain | Sherpa asset | Notes |
 |---|---|---|---|---|
-| `en_GB-cori-medium` | British (RP) female | The Sherpa asset (2025-06-30) predates the retrain, so it matches the [pre-retrain card](https://huggingface.co/rhasspy/piper-voices/blob/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/en/en_GB/cori/medium/MODEL_CARD): trained from scratch on LibriVox, public domain. The [current card](https://huggingface.co/rhasspy/piper-voices/blob/e929968c3761f1c281875787685a745863db838d/en/en_GB/cori/medium/MODEL_CARD) is a hifi_tts_92 fine-tune, CC BY 4.0. | `vits-piper-en_GB-cori-medium.tar.bz2`, ~67 MB | Best fit for NZ/UK. Same voice as the shipped Cori at about 58% of the download. |
+| `en_GB-cori-medium` | British (RP) female | The Sherpa asset (2025-06-30) predates the retrain, so it matches the [pre-retrain card](https://huggingface.co/rhasspy/piper-voices/blob/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/en/en_GB/cori/medium/MODEL_CARD): trained from scratch on LibriVox, public domain. The [current card](https://huggingface.co/rhasspy/piper-voices/blob/e929968c3761f1c281875787685a745863db838d/en/en_GB/cori/medium/MODEL_CARD) is a hifi_tts_92 fine-tune, CC BY 4.0. | `vits-piper-en_GB-cori-medium.tar.bz2`, ~67 MB | Best fit for NZ/UK. Same voice as the catalogue's Cori (high) at about 58% of the download. |
 | `en_US-ljspeech-high` | US female | [Card](https://huggingface.co/rhasspy/piper-voices/blob/e929968c3761f1c281875787685a745863db838d/en/en_US/ljspeech/high/MODEL_CARD): LJ Speech, public domain, trained from scratch by Bryce Beattie | `vits-piper-en_US-ljspeech-high.tar.bz2`, ~116 MB | Well-known clean voice. |
 | `en_US-norman-medium` | US male | [Card](https://huggingface.co/rhasspy/piper-voices/blob/e929968c3761f1c281875787685a745863db838d/en/en_US/norman/medium/MODEL_CARD): LibriVox, public domain, trained from scratch | `vits-piper-en_US-norman-medium.tar.bz2`, ~67 MB | Clean male option. |
 | `en_US-kristin-medium` | US female | [Card](https://huggingface.co/rhasspy/piper-voices/blob/e929968c3761f1c281875787685a745863db838d/en/en_US/kristin/medium/MODEL_CARD): LibriVox, public domain, trained from scratch | `vits-piper-en_US-kristin-medium.tar.bz2`, ~67 MB | |
