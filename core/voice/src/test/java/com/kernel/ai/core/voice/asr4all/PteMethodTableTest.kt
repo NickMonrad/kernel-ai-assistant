@@ -2,9 +2,12 @@ package com.kernel.ai.core.voice.asr4all
 
 import com.kernel.ai.core.executorch.TensorDType
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 
@@ -14,7 +17,7 @@ import org.junit.jupiter.api.assertThrows
  * `executorch` 1.5.1 Python runtime's MethodMeta reports for the same file.
  */
 class PteMethodTableTest {
-    private val smoke = File("../executorch/src/androidTest/assets/executorch_smoke.pte")
+    private val smoke = File(checkNotNull(javaClass.getResource("/asr4all/executorch_smoke.pte")).toURI())
     private val temporary = mutableListOf<File>()
 
     @AfterEach
@@ -46,6 +49,24 @@ class PteMethodTableTest {
 
         assertThrows<Asr4AllConfigException> { PteMethodTable.read(garbage) }
         assertThrows<Asr4AllConfigException> { PteMethodTable.read(truncated) }
+    }
+
+    @Test
+    fun `a corrupted length word fails typed instead of allocating`() {
+        val original = smoke.readBytes()
+        val file = temp(original)
+        var typed = 0
+        for (position in 0 until original.size - 4 step 4) {
+            val bytes = original.copyOf()
+            ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putInt(position, Int.MAX_VALUE)
+            file.writeBytes(bytes)
+            try {
+                PteMethodTable.read(file)
+            } catch (e: Asr4AllConfigException) {
+                typed++
+            }
+        }
+        assertTrue(typed > 0)
     }
 
     private fun temp(bytes: ByteArray): File =

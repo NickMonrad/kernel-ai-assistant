@@ -5,6 +5,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import java.io.File
+import java.io.IOException
 
 /** The three published asr4all model sizes. [codenameWord] appears in `metadata.json`'s codename. */
 enum class Asr4AllSize(val repository: String, internal val codenameWord: String) {
@@ -167,7 +168,12 @@ class Asr4AllModelConfig private constructor(
             val defaultTier = meta.str("default_tier")
             check(geom.str("default_tier") == defaultTier && defaultTier in tiers, "default tier '$defaultTier' is inconsistent")
 
-            val encoderFile = File(exportDir, meta.obj("files").str("encoder"))
+            val encoderName = meta.obj("files").str("encoder")
+            check(
+                encoderName.isNotEmpty() && encoderName != "." && encoderName != ".." && '/' !in encoderName && '\\' !in encoderName,
+                "metadata.json encoder '$encoderName' must be a plain file name in $EXPORT_DIR",
+            )
+            val encoderFile = File(exportDir, encoderName)
             return Asr4AllModelConfig(
                 size = size,
                 codename = codename,
@@ -279,7 +285,11 @@ class Asr4AllModelConfig private constructor(
 
         private fun readFile(file: File): String {
             if (!file.isFile) throw Asr4AllConfigException("missing model file ${file.path}")
-            return file.readText()
+            return try {
+                file.readText()
+            } catch (e: IOException) {
+                throw Asr4AllConfigException("cannot read ${file.path}: ${e.message}", e)
+            }
         }
 
         private fun parseObject(json: String, name: String): JsonObject = try {

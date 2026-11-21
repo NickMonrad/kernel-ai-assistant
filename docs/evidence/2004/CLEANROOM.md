@@ -147,10 +147,13 @@ parity failure can be traced:
 2. Greedy CTC over all frames, including padding frames.
 3. PCEC tokens are CTC runs. Hidden input: mean of the encoder hidden rows over the run.
    Pause input: log2 bucket of the blank frames between the previous run's last frame and this
-   run's first frame (0 → 0, 1 → 1, 2–3 → 2, …, capped at bucket 8); the first token uses the
-   blackout bucket 9. Float input: 0. Padding positions: id `pad_in`, pause 0, zero hidden, 0.
-4. Streaming calls take full rungs; partials use the flush method on the current state without
-   committing it, and omit the closing-mark slot; the final text includes it.
+   run's first frame (0 → 0, 1 → 1, 2–3 → 2, …, capped at bucket 8). **Superseded:** the first token
+   uses this rule over the leading blank frames, not blackout bucket 9 as first written; the code
+   does the same. Float input: 0. Padding positions: id `pad_in`, pause 0, zero hidden, 0.
+4. Streaming calls take full rungs. Live text and final text use the same flush call on the current
+   state without committing it, and both include the end-of-input slot (where the head places a
+   closing mark). **Superseded:** the first version said partials omit that slot; `PcecStream.text()`
+   does not, and the round-2 engine rows were produced by that code.
 5. Text: CTC-collapse all slots, drop blanks, apply `cap` to the next piece that has a letter
    and `allcaps` to the next word, attach marks to the preceding text without a space (marks
    before the first word are dropped), keep single spaces, then sentence-initial capitals after
@@ -313,3 +316,22 @@ encoding tried; the renderer drops it.
 - Device results (S21) are in `docs/evidence/2004/README.md`. After the fixes, the AC2 test
   asserts the verifier's reference final for M c16r4 `84-121550-0015`, and the S21 matches it
   exactly.
+
+## AC1 round 2 verdict and acceptance (#2011)
+
+- Verifier round 2 (comment 7056733835): finals 504/504 across S/M/L × six tiers × 28 clips. Partial
+  text differs on three rows, one event each: `7976-105575-0014` S `stream_c16r4` (event 3),
+  `6241-61943-0027` M `stream_c16r4` (event 1), `6241-61943-0027` M `stream_c32r8` (event 0).
+- Owner decision (comment 7057135985, 21 Nov 2026): AC1 parity accepted. The three partial-only
+  differences are recorded here as known differences and accepted as practical parity.
+- Engine rows: `docs/evidence/2004/engine-round2/`, 504 rows, SHA-256 of the rows file
+  `c6eb8a99beebfab5d2d37bfb373781fe467dd7b6524b85546901a51fc5b11576`.
+- The Python mirror used for the design (`sim.py`, `sim2.py`) lives outside this worktree at
+  `~/.cache/cleanroom-2004/sim/` and is not committed here.
+
+## Review follow-up (code review 7057262279)
+
+- Fixed in code: PTE vector counts bounded before allocation; unbounded dynamic tensors rejected;
+  encoder file name must be a plain name; config I/O errors typed; engine range checks overflow-safe;
+  buffer read index; PythonBridgeBackend bounded wait; `et_bridge.py` exits after a failed request.
+- The S4 licence copy and the smoke `.pte` are under `core/voice/src/test/resources/asr4all/`; the README there was corrected.

@@ -6,8 +6,13 @@ import com.kernel.ai.core.executorch.ExecuTorchTensor
 import com.kernel.ai.core.executorch.MethodSignature
 import com.kernel.ai.core.executorch.TensorSpec
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -117,6 +122,70 @@ class Asr4AllEngineLifecycleTest {
         assertTrue(backends.all { it.closeCalls == 1 && !it.usedAfterClose })
     }
 
+    @Test
+    fun `non-finite audio is an input error and leaves the partial text unchanged`() {
+        open(FakeBackend()).use { engine ->
+            engine.acceptAudio(FloatArray(30_000))
+            val before = engine.partialText
+            assertThrows<Asr4AllInputException> { engine.acceptAudio(floatArrayOf(0.1f, Float.NaN)) }
+            assertThrows<Asr4AllInputException> { engine.acceptAudio(floatArrayOf(Float.POSITIVE_INFINITY)) }
+            assertEquals(before, engine.partialText)
+        }
+    }
+
+    @Test
+    fun `finish decodes only the frames covered by real audio`() {
+        // 639 samples are less than one 25 Hz frame: nothing real to decode, so no encoder call.
+        val short = FakeBackend()
+        open(short).use { engine ->
+            short.encoderCalls = 0 // open() runs a silent warm-up window through the encoder
+            engine.acceptAudio(FloatArray(639))
+            engine.finish()
+        }
+        assertEquals(0, short.encoderCalls)
+
+        // 1000 samples cover one whole frame: one zero-padded window, then the utterance ends.
+        val one = FakeBackend()
+        open(one).use { engine ->
+            one.encoderCalls = 0 // open() runs a silent warm-up window through the encoder
+            engine.acceptAudio(FloatArray(1000))
+            engine.finish()
+        }
+        assertEquals(1, one.encoderCalls)
+    }
+
+    @Test
+    fun `close from another thread waits for the call in flight, then every call fails typed`() {
+        val backend = FakeBackend()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val engine = open(backend) // before the hook: open() runs a warm-up window through the encoder
+        backend.onRun = {
+            entered.countDown()
+            release.await()
+        }
+        var workerFailure: Throwable? = null
+        val worker = thread {
+            try {
+                engine.acceptAudio(FloatArray(30_000))
+            } catch (e: Throwable) {
+                workerFailure = e
+            }
+        }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        val closer = thread { engine.close() }
+        closer.join(200)
+        assertTrue(closer.isAlive, "close returned while a call was in flight")
+        release.countDown()
+        worker.join(10_000)
+        closer.join(10_000)
+
+        assertNull(workerFailure)
+        assertFalse(closer.isAlive)
+        assertThrows<Asr4AllClosedException> { engine.acceptAudio(FloatArray(10)) }
+        assertEquals(1, backend.closeCalls)
+    }
+
     private fun open(backend: FakeBackend): Asr4AllEngine =
         Asr4AllEngine.open(modelDir, Asr4AllSize.M, null, 4, { _, _ -> backend }) { declared() }
 
@@ -135,12 +204,15 @@ class Asr4AllEngineLifecycleTest {
         private val methods: Set<String> = setOf("stream_c16r4", "pcec_c16", "pcec_c16_flush"),
     ) : Asr4AllBackend {
         var runCalls = 0
+        var encoderCalls = 0
         var closeCalls = 0
         var usedAfterClose = false
+        var onRun: (() -> Unit)? = null
 
         override val methodNames: Set<String> get() = methods
 
         override fun run(signature: MethodSignature, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> {
+            onRun?.invoke()
             if (closeCalls > 0) {
                 usedAfterClose = true
                 throw ExecuTorchClosedException("fake.pte")
@@ -148,12 +220,15 @@ class Asr4AllEngineLifecycleTest {
             runCalls++
             if (failRuns) throw ExecuTorchException("failed", errorCode = 18)
             return when (signature.method) {
-                "stream_c16r4" -> listOf(
-                    zeros(1, 16, 257),
-                    inputs[1],
-                    inputs[2],
-                    zeros(1, 16, hiddenDim.toLong()),
-                )
+                "stream_c16r4" -> {
+                    encoderCalls++
+                    listOf(
+                        zeros(1, 16, 257),
+                        inputs[1],
+                        inputs[2],
+                        zeros(1, 16, hiddenDim.toLong()),
+                    )
+                }
                 "pcec_c16" -> listOf(
                     ExecuTorchTensor.Int64(LongArray(32) { 6149 }, longArrayOf(1, 32)),
                     inputs[4],

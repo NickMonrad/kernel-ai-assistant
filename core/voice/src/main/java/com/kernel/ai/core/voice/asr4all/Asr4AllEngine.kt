@@ -34,8 +34,13 @@ class Asr4AllEngine private constructor(
     private var filterCache = program.initialFilterCache()
     private var attnCache = program.initialAttnCache()
 
-    /** Audio not yet consumed; `buffer[0]` is the first sample of the next encoder window. */
+    /**
+     * Audio not yet consumed: `buffer[head until head + buffered]`; `head` is the first sample of
+     * the next encoder window. Consumed samples are skipped by moving `head`; the array is compacted
+     * or grown only when the next append or window needs the room.
+     */
     private var buffer = FloatArray(tier.windowSamples * 2)
+    private var head = 0
     private var buffered = 0
     /** Samples received in this utterance. */
     private var received = 0L
@@ -47,7 +52,7 @@ class Asr4AllEngine private constructor(
     /** Appends [length] samples of float PCM from [samples] and returns the updated [partialText]. */
     fun acceptAudio(samples: FloatArray, offset: Int = 0, length: Int = samples.size - offset): String = synchronized(lock) {
         ensureOpen()
-        require(offset >= 0 && length >= 0 && offset + length <= samples.size) { "bad range $offset+$length of ${samples.size}" }
+        requireRange(offset, length, samples.size)
         for (i in offset until offset + length) {
             if (!samples[i].isFinite()) throw Asr4AllInputException("non-finite sample at index $i")
         }
@@ -66,7 +71,7 @@ class Asr4AllEngine private constructor(
 
     /** 16-bit PCM convenience: scales by 1/32768 and calls [acceptAudio]. */
     fun acceptPcm16(samples: ShortArray, offset: Int = 0, length: Int = samples.size - offset): String {
-        require(offset >= 0 && length >= 0 && offset + length <= samples.size) { "bad range $offset+$length of ${samples.size}" }
+        requireRange(offset, length, samples.size)
         val floats = FloatArray(length) { samples[offset + it] / 32768f }
         return acceptAudio(floats)
     }
@@ -80,7 +85,10 @@ class Asr4AllEngine private constructor(
             while (buffered > 0) {
                 val frames = (realFrames - decoder.framesDecoded).coerceIn(0, tier.commitFrames)
                 if (frames == 0) break // the rest is padding
-                if (buffered < tier.windowSamples) buffer.fill(0f, buffered, tier.windowSamples)
+                if (buffered < tier.windowSamples) {
+                    reserve(tier.windowSamples)
+                    buffer.fill(0f, head + buffered, head + tier.windowSamples)
+                }
                 encodeWindow(frames)
                 consume(minOf(tier.hopSamples, buffered))
             }
@@ -109,6 +117,10 @@ class Asr4AllEngine private constructor(
         if (closed) throw Asr4AllClosedException()
     }
 
+    private fun requireRange(offset: Int, length: Int, size: Int) {
+        require(offset in 0..size && length >= 0 && length <= size - offset) { "bad range $offset+$length of $size" }
+    }
+
     /** Runs [block]; on any failure the utterance is discarded so no stale state leaks into the next one. */
     private inline fun <T> failSafe(block: () -> T): T = try {
         block()
@@ -122,28 +134,38 @@ class Asr4AllEngine private constructor(
         pcec.reset()
         filterCache = program.initialFilterCache()
         attnCache = program.initialAttnCache()
+        head = 0
         buffered = 0
         received = 0
         partial = ""
     }
 
     private fun append(samples: FloatArray, offset: Int, length: Int) {
-        if (buffered + length > buffer.size) buffer = buffer.copyOf(maxOf(buffer.size * 2, buffered + length))
-        System.arraycopy(samples, offset, buffer, buffered, length)
+        reserve(buffered + length)
+        System.arraycopy(samples, offset, buffer, head + buffered, length)
         buffered += length
     }
 
+    /** Makes `buffer[head until head + total]` addressable, compacting or growing only when needed. */
+    private fun reserve(total: Int) {
+        if (head + total <= buffer.size) return
+        val fresh = if (total > buffer.size) FloatArray(maxOf(buffer.size * 2, total)) else buffer
+        System.arraycopy(buffer, head, fresh, 0, buffered)
+        buffer = fresh
+        head = 0
+    }
+
     private fun consume(count: Int) {
-        System.arraycopy(buffer, count, buffer, 0, buffered - count)
+        head += count
         buffered -= count
     }
 
     /**
-     * Encodes `buffer[0 until windowSamples]` and decodes the first [frames] committed frames;
+     * Encodes `buffer[head until head + windowSamples]` and decodes the first [frames] committed frames;
      * returns true when a token was handed to PCEC.
      */
     private fun encodeWindow(frames: Int = tier.commitFrames): Boolean {
-        val window = buffer.copyOf(tier.windowSamples)
+        val window = buffer.copyOfRange(head, head + tier.windowSamples)
         val out = program.encoder(window, filterCache, attnCache)
         filterCache = out.filterCache
         attnCache = out.attnCache

@@ -99,6 +99,16 @@ class Asr4AllModelConfigTest {
         assertThrows<Asr4AllConfigException> { Asr4AllModelConfig.load(notJson, Asr4AllSize.M) }
     }
 
+    @Test
+    fun `encoder file name must stay inside the export directory`() {
+        val dir = copyOf("m")
+        val metadata = dir.resolve(Asr4AllTestData.metadataPath)
+        metadata.writeText(metadata.readText().replace("\"encoder\": \"asr_encoder.pte\"", "\"encoder\": \"../asr_encoder.pte\""))
+
+        val e = assertThrows<Asr4AllConfigException> { Asr4AllModelConfig.load(dir, Asr4AllSize.M) }
+        assertTrue(e.message!!.contains("plain file name"), e.message)
+    }
+
     private fun copyOf(size: String): File {
         val dir = Files.createTempDirectory("asr4all-config").toFile().also(temporaryDirectories::add)
         Asr4AllTestData.modelDir(size).copyRecursively(dir, overwrite = true)

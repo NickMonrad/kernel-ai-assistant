@@ -78,3 +78,7 @@ adds the mapping check.
 - The S23U: #2004 names it for AC2. The operator directed this run to the S21 only.
 - L and S transcription on the device, and tiers other than `stream_c16r4`. The host harness
   covers S/M/L × all six tiers.
+
+## AC1 parity status
+
+Parity is recorded in `CLEANROOM.md` ("AC1 round 2 verdict and acceptance"): finals 504/504; three partial-only differences accepted by the owner on 21 Nov 2026.

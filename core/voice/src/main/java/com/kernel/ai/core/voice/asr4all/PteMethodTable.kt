@@ -84,7 +84,10 @@ object PteMethodTable {
                 return PteTensorInfo(
                     dtype = SCALAR_TYPES[fb.byte(t, TENSOR_SCALAR_TYPE)],
                     sizes = fb.ints(t, TENSOR_SIZES).map(Int::toLong),
-                    dynamic = fb.byte(t, TENSOR_SHAPE_DYNAMISM) != 0,
+                    dynamic = fb.byte(t, TENSOR_SHAPE_DYNAMISM).let {
+                        if (it == DYNAMISM_DYNAMIC_UNBOUND) throw Asr4AllConfigException("program has an unbounded dynamic tensor; the asr4all exports are static or bounded")
+                        it != 0
+                    },
                 )
             }
             result[name] = PteMethodInfo(
@@ -111,6 +114,7 @@ object PteMethodTable {
     private const val TENSOR_SCALAR_TYPE = 0
     private const val TENSOR_SIZES = 2
     private const val TENSOR_SHAPE_DYNAMISM = 8
+    private const val DYNAMISM_DYNAMIC_UNBOUND = 2 // schema/program.fbs TensorShapeDynamism: STATIC 0, DYNAMIC_BOUND 1, DYNAMIC_UNBOUND 2
 
     /** `schema/scalar_type.fbs` codes for the element types `:core:executorch` supports. */
     private val SCALAR_TYPES = mapOf(
@@ -146,19 +150,31 @@ private class FlatBuffer(private val b: ByteBuffer) {
 
     fun string(table: Int, slot: Int): String? {
         val s = table(table, slot) ?: return null
-        val length = b.getInt(s)
-        val bytes = ByteArray(length)
-        for (i in 0 until length) bytes[i] = b.get(s + 4 + i)
+        val length = count(s, 1)
+        val bytes = ByteArray(length) { b.get(s + 4 + it) }
         return String(bytes, Charsets.UTF_8)
     }
 
     fun ints(table: Int, slot: Int): List<Int> {
         val v = table(table, slot) ?: return emptyList()
-        return List(b.getInt(v)) { b.getInt(v + 4 + 4 * it) }
+        return List(count(v, 4)) { b.getInt(v + 4 + 4 * it) }
     }
 
     fun tables(table: Int, slot: Int): List<Int> {
         val v = table(table, slot) ?: return emptyList()
-        return List(b.getInt(v)) { deref(v + 4 + 4 * it) }
+        return List(count(v, 4)) { deref(v + 4 + 4 * it) }
+    }
+
+    /**
+     * Element count of the vector whose length prefix is at [position]. Checked against the bytes
+     * left in the buffer before anything is allocated, so a corrupted count fails typed.
+     */
+    private fun count(position: Int, elementSize: Int): Int {
+        val n = b.getInt(position)
+        val room = (b.limit() - (position + 4)).toLong()
+        if (n < 0 || n.toLong() * elementSize > room) {
+            throw Asr4AllConfigException("vector at offset $position claims $n elements; only $room bytes follow it")
+        }
+        return n
     }
 }

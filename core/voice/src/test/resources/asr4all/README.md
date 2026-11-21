@@ -4,9 +4,11 @@
   `executorch/xnnpack_int8/metadata.json` from `futo-org/asr4all-m` revision
   `7d6e9145109a5bece4f05831d046e93d27e38a99` and `futo-org/asr4all-s` revision
   `87a6b5d093723fe37e9f69ad26307a3b95a31af0` (SHA-256 in `docs/evidence/2004/CLEANROOM.md`). They
-  are model configuration covered by the FUTO Model Weights License (Restricted Use) 1.0,
-  `app/src/main/assets/legal/FUTO-Model-Weights-License-1.0.txt`. No weights or `.pte` files are
-  committed.
+  are configuration files covered by the FUTO Model Weights License (Restricted Use) 1.0 (the
+  Weights licence). The licence text is `FUTO-Model-Weights-License-1.0.txt` in this directory,
+  byte-identical to `app/src/main/assets/legal/FUTO-Model-Weights-License-1.0.txt`. No
+  `asr_encoder.pte` or other model weights are committed. `executorch_smoke.pte` is the generated
+  `:core:executorch` test program (copied from `core/executorch/src/androidTest/assets/`), not FUTO material.
 - `fixtures/1272-128104-0000_m_stream_c16r4*`: outputs recorded by running the M export's
   `stream_c16r4`, `pcec_c16` and `pcec_c16_flush` methods (ExecuTorch 1.5.1 Python runtime, x86-64)
   on LibriSpeech dev-clean utterance 1272-128104-0000 (CC BY 4.0, via

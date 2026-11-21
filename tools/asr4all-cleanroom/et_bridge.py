@@ -94,9 +94,11 @@ def main():
                 raise ValueError(f"unknown op {op}")
         except EOFError:
             return
-        except Exception as e:  # report and keep serving
+        except Exception as e:  # report, then exit: the request may be partly unread, so the stream cannot be resynchronised
             out.write(b"\x01")
             write_str(out, f"{type(e).__name__}: {e}")
+            out.flush()
+            return
         out.flush()
 
 

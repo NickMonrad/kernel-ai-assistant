@@ -11,6 +11,7 @@ import java.io.DataInputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.TimeUnit
 
 /**
  * Host-side [Asr4AllBackend] that runs methods through `tools/asr4all-cleanroom/et_bridge.py`, a
@@ -50,7 +51,7 @@ class PythonBridgeBackend private constructor(private val process: Process) : As
             output.write(4)
             output.flush()
         }
-        process.waitFor()
+        if (!process.waitFor(10, TimeUnit.SECONDS)) process.destroyForcibly()
     }
 
     private fun ensureOpen() = check(!closed) { "bridge program is closed" }
