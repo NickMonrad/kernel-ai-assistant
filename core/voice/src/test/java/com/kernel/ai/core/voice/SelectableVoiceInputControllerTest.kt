@@ -225,6 +225,25 @@ class SelectableVoiceInputControllerTest {
         )
     }
 
+    @Test
+    fun `release auto route follows online native, asr4all, on-device native, then unavailable`() {
+        fun route(native: Boolean, asr4all: Boolean, online: Boolean) = resolveAutoSttRoute(
+            nativeOnDeviceReady = native,
+            asr4allReady = asr4all,
+            zipformerReady = false,
+            allowOnlineFallback = online,
+        )
+
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = true, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = false))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = false))
+    }
+
     // ── Controller wiring ───────────────────────────────────────────────────
 
     @Test
@@ -264,6 +283,19 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
 
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
+    }
+
+    @Test
+    fun `release auto never starts zipformer even when its files are on disk`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+
+        assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
+
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
     }
 

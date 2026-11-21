@@ -27,8 +27,8 @@ private const val LEGACY_VOSK_DIR = "voice"
 /**
  * Prepares the default voice stack on app start, alongside the required model downloads:
  *
- * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer, and
- *   asr4all for Auto and asr4all streaming (the size the tier policy picks);
+ * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer (debug builds
+ *   only), and asr4all for Auto and asr4all streaming (the size the tier policy picks);
  * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
  *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
  *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
@@ -80,9 +80,9 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     /**
-     * Queues the speech input files [engine] needs that are not on disk yet: Zipformer for Auto and Sherpa
-     * Zipformer, asr4all for Auto and asr4all streaming. Used at launch and by the setup wizard's Finish, so the
-     * size line and the queue agree, including a stored Automatic whose files were deleted.
+     * Queues the speech input files [engine] needs that are not on disk yet: Zipformer for Auto and Sherpa Zipformer
+     * (debug builds only), asr4all for Auto and asr4all streaming. Used at launch and by the setup wizard's Finish, so
+     * the size line and the queue agree, including a stored Automatic whose files were deleted.
      */
     suspend fun queueSpeechInput(engine: VoiceInputEngine) {
         queueZipformer(engine)
@@ -90,7 +90,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
     }
 
     private suspend fun queueZipformer(engine: VoiceInputEngine) {
-        if (!needsZipformer(engine)) return
+        if (!needsZipformer(engine, voiceInputPreferences.allowsSherpaRuntime())) return
         val missing = zipformerModels().filterNot { it.isDownloaded(context) }
         if (missing.isNotEmpty()) {
             Log.i(TAG, "Queuing Zipformer STT model for engine=$engine: ${missing.map { it.name }}")
@@ -179,8 +179,9 @@ class VoiceDefaultsProvisioner @Inject constructor(
             roots.map { File(it, LEGACY_VOSK_DIR) }
                 .filter { it.isDirectory && File(it, "vosk-model").exists() }
 
-        fun needsZipformer(engine: VoiceInputEngine): Boolean =
-            engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer
+        /** Zipformer is a debug-build engine: release never plans or queues it, whatever the stored choice. */
+        fun needsZipformer(engine: VoiceInputEngine, allowsSherpaRuntime: Boolean): Boolean =
+            allowsSherpaRuntime && (engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer)
 
         /** Auto and asr4all streaming use the asr4all model; Sherpa Zipformer does not. */
         fun needsAsr4all(engine: VoiceInputEngine): Boolean =

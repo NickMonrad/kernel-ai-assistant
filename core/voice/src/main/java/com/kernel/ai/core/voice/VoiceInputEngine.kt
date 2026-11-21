@@ -9,8 +9,7 @@ enum class VoiceInputEngine(
 ) {
     Auto(
         displayName = "Automatic (recommended)",
-        description = "Uses the offline asr4all model once it is downloaded, and the offline Sherpa-ONNX Zipformer model until then. If you allow online speech recognition, uses Android speech recognition instead.",
-        debugOnly = true,
+        description = "Uses the offline asr4all model once it is downloaded. Until then, uses Android's speech recognition on this phone. If you allow online speech recognition, Android's speech recognition is used first.",
     ),
     AndroidNative(
         displayName = "Android native",
@@ -67,10 +66,13 @@ enum class VoiceInputEngine(
         fun entriesForBuild(isRelease: Boolean): List<VoiceInputEngine> =
             entries.filter { engine -> !isRelease || !engine.debugOnly }
 
-        /** Stored debug/Sherpa choices resolve safely to Android native in release builds. */
+        /**
+         * Release drops the debug and Sherpa engines: a stored choice of one of them, or a missing or unknown value,
+         * resolves to [Auto]. Stored Android native and asr4all choices stay, since release Settings still offers them.
+         */
         fun resolveForBuild(value: String?, isRelease: Boolean): VoiceInputEngine {
             val engine = fromStorage(value)
-            return engine.takeIf { it in entriesForBuild(isRelease) } ?: AndroidNative
+            return engine.takeIf { it in entriesForBuild(isRelease) } ?: Auto
         }
     }
 }
