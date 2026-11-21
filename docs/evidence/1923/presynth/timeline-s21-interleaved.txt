@@ -1,4 +1,4 @@
-== il-base-1-run1.log
+== s21-il-il-base-1-run1.log
    generate_called                    +0 ms
    engine_first_visible_token     +10131 ms
    vm_first_token                 +10132 ms
@@ -14,23 +14,7 @@
    lastToken->firstChunkQueued 274 ms; lastToken->SpeakingStarted +5226 ms
    visible-answer phase (first visible token -> lastToken): 8197 ms
    projection (same synth time, no contention): live speech starts -2083 ms vs lastToken
-== il-pre-1-run1.log
-   firstChunkQueued                -5712 ms
-   generate_called                    +0 ms
-   engine_first_visible_token     +10434 ms
-   vm_first_token                 +10436 ms
-   first_sentence_ready           +11544 ms
-   sherpa_synth0_end              +15956 ms
-   engine_lastToken               +18541 ms
-   vm_complete_handler            +18545 ms
-   SpeakingStarted                +18596 ms
-   first sentence (59 chars): 'Morena, here.\n\nHere are three short facts about kiwi birds:'
-   first chunk synth: 63 chars, 4296 ms for 3670 ms audio
-   decode: 76 tokens @ 8.74 tok/s
-   lastToken->firstChunkQueued -24253 ms; lastToken->SpeakingStarted +55 ms
-   visible-answer phase (first visible token -> lastToken): 8107 ms
-   projection (same synth time, no contention): live speech starts -2701 ms vs lastToken
-== il-base-2-run1.log
+== s21-il-il-base-2-run1.log
    generate_called                    +0 ms
    engine_first_visible_token     +10031 ms
    vm_first_token                 +10032 ms
@@ -46,8 +30,23 @@
    lastToken->firstChunkQueued 254 ms; lastToken->SpeakingStarted +4376 ms
    visible-answer phase (first visible token -> lastToken): 9915 ms
    projection (same synth time, no contention): live speech starts -4369 ms vs lastToken
-== il-pre-2-run1.log
-   firstChunkQueued                -5636 ms
+== s21-il-il-pre-1-run1.log
+   generate_called                    +0 ms
+   engine_first_visible_token     +10434 ms
+   vm_first_token                 +10436 ms
+   first_sentence_ready           +11544 ms
+   sherpa_synth0_end              +15956 ms
+   engine_lastToken               +18541 ms
+   vm_complete_handler            +18545 ms
+   firstChunkQueued               +18594 ms
+   SpeakingStarted                +18596 ms
+   first sentence (59 chars): 'Morena, here.\n\nHere are three short facts about kiwi birds:'
+   first chunk synth: 63 chars, 4296 ms for 3670 ms audio
+   decode: 76 tokens @ 8.74 tok/s
+   lastToken->firstChunkQueued 53 ms; lastToken->SpeakingStarted +55 ms
+   visible-answer phase (first visible token -> lastToken): 8107 ms
+   projection (same synth time, no contention): live speech starts -2701 ms vs lastToken
+== s21-il-il-pre-2-run1.log
    generate_called                    +0 ms
    engine_first_visible_token     +10185 ms
    vm_first_token                 +10186 ms
@@ -55,10 +54,11 @@
    sherpa_synth0_end              +14768 ms
    engine_lastToken               +17384 ms
    vm_complete_handler            +17388 ms
+   firstChunkQueued               +17435 ms
    SpeakingStarted                +17436 ms
    first sentence (51 chars): 'More.\n\nHere are three short facts about kiwi birds:'
    first chunk synth: 50 chars, 3363 ms for 3071 ms audio
    decode: 74 tokens @ 9.50 tok/s
-   lastToken->firstChunkQueued -23020 ms; lastToken->SpeakingStarted +52 ms
+   lastToken->firstChunkQueued 51 ms; lastToken->SpeakingStarted +52 ms
    visible-answer phase (first visible token -> lastToken): 7199 ms
    projection (same synth time, no contention): live speech starts -2724 ms vs lastToken

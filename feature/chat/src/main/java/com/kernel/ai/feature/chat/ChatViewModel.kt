@@ -2044,6 +2044,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        voicePresynthesis.discard()
     }
 
     fun stopVoiceOutput() {
@@ -4188,7 +4189,10 @@ class ChatViewModel @Inject constructor(
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
                     // Flag needsHistoryReplay so the next user turn re-injects full context.
-                    if (!resetInferenceConversation("resetConversationBeforeRetry")) return@launch
+                    if (!resetInferenceConversation("resetConversationBeforeRetry")) {
+                        voicePresynthesis.discard()
+                        return@launch
+                    }
                     needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)

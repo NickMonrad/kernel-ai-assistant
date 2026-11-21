@@ -16,6 +16,8 @@ import kotlinx.coroutines.withContext
  * Synthesises the first chunk of a voice reply while it is still streaming (#1923), so that playback can start as
  * soon as the reply is confirmed. The chunk is held unplayed until [take] hands it to the confirmed reply, which
  * releases it. One hold per turn: a tool call, a retry, a stop or a new turn discards it before anything plays.
+ * Main-thread only: every call comes from ChatViewModel on Main.immediate. [take] clears the hold before it suspends,
+ * so a discard from another path cannot race it.
  */
 internal class VoicePresynthesis(
     private val controller: VoiceOutputController,
@@ -58,6 +60,7 @@ internal class VoicePresynthesis(
         hold = started
         started.opening = scope.launch {
             try {
+                // Release supplies the text SpeakingStarted reports; this blank open request is only the handle.
                 val session = controller.openPreSynthesisedSession(VoiceSpeakRequest(text = "")) ?: return@launch
                 if (started.discarded) {
                     session.cancel()

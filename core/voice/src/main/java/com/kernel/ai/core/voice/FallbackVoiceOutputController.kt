@@ -389,7 +389,7 @@ class FallbackVoiceOutputController @Inject constructor(
 
         override suspend fun appendPause(durationMs: Long) = delegate.appendPause(durationMs)
 
-        override suspend fun release(): Boolean = delegate.release()
+        override suspend fun release(request: VoiceSpeakRequest): Boolean = delegate.release(request)
 
         override suspend fun cancel() {
             delegate.cancel()

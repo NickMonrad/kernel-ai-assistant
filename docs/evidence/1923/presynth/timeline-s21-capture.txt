@@ -1,4 +1,4 @@
-== base-run1.log
+== capture-s21-base-run1.log
    generate_called                    +0 ms
    engine_first_visible_token      +5737 ms
    vm_first_token                  +5737 ms
@@ -14,7 +14,7 @@
    lastToken->firstChunkQueued 117 ms; lastToken->SpeakingStarted +2861 ms
    visible-answer phase (first visible token -> lastToken): 4057 ms
    projection (same synth time, no contention): live speech starts -736 ms vs lastToken
-== base-run2.log
+== capture-s21-base-run2.log
    generate_called                    +0 ms
    engine_first_visible_token      +5544 ms
    vm_first_token                  +5545 ms
@@ -30,7 +30,7 @@
    lastToken->firstChunkQueued 121 ms; lastToken->SpeakingStarted +2807 ms
    visible-answer phase (first visible token -> lastToken): 5015 ms
    projection (same synth time, no contention): live speech starts -1724 ms vs lastToken
-== base-run3.log
+== capture-s21-base-run3.log
    generate_called                    +0 ms
    engine_first_visible_token      +5518 ms
    vm_first_token                  +5520 ms
@@ -46,8 +46,7 @@
    lastToken->firstChunkQueued 117 ms; lastToken->SpeakingStarted +2864 ms
    visible-answer phase (first visible token -> lastToken): 4513 ms
    projection (same synth time, no contention): live speech starts -1175 ms vs lastToken
-== presynth-run1.log
-   firstChunkQueued                -6059 ms
+== capture-s21-presynth-run1.log
    generate_called                    +0 ms
    engine_first_visible_token     +10117 ms
    vm_first_token                 +10120 ms
@@ -55,15 +54,15 @@
    sherpa_synth0_end              +15518 ms
    engine_lastToken               +19467 ms
    vm_complete_handler            +19473 ms
+   firstChunkQueued               +19520 ms
    SpeakingStarted                +19521 ms
    first sentence (51 chars): 'More.\n\nHere are three short facts about kiwi birds:'
    first chunk synth: 50 chars, 4154 ms for 3680 ms audio
    decode: 85 tokens @ 8.57 tok/s
-   lastToken->firstChunkQueued -25526 ms; lastToken->SpeakingStarted +54 ms
+   lastToken->firstChunkQueued 53 ms; lastToken->SpeakingStarted +54 ms
    visible-answer phase (first visible token -> lastToken): 9350 ms
    projection (same synth time, no contention): live speech starts -4056 ms vs lastToken
-== presynth-run2.log
-   firstChunkQueued                -5611 ms
+== capture-s21-presynth-run2.log
    generate_called                    +0 ms
    engine_first_visible_token     +10490 ms
    vm_first_token                 +10493 ms
@@ -71,15 +70,15 @@
    sherpa_synth0_end              +15619 ms
    engine_lastToken               +20236 ms
    vm_complete_handler            +20242 ms
+   firstChunkQueued               +20300 ms
    SpeakingStarted                +20301 ms
    first sentence (50 chars): 'More\n\nHere are three short facts about kiwi birds:'
    first chunk synth: 50 chars, 3983 ms for 3500 ms audio
    decode: 78 tokens @ 7.57 tok/s
-   lastToken->firstChunkQueued -25847 ms; lastToken->SpeakingStarted +65 ms
+   lastToken->firstChunkQueued 64 ms; lastToken->SpeakingStarted +65 ms
    visible-answer phase (first visible token -> lastToken): 9746 ms
    projection (same synth time, no contention): live speech starts -4661 ms vs lastToken
-== presynth-run3.log
-   firstChunkQueued                -5340 ms
+== capture-s21-presynth-run3.log
    generate_called                    +0 ms
    engine_first_visible_token     +10315 ms
    vm_first_token                 +10318 ms
@@ -87,10 +86,11 @@
    sherpa_synth0_end              +15752 ms
    engine_lastToken               +19766 ms
    vm_complete_handler            +19775 ms
+   firstChunkQueued               +19831 ms
    SpeakingStarted                +19832 ms
    first sentence (53 chars): 'More\n\nHere are three short facts about the kiwi bird:'
    first chunk synth: 53 chars, 3655 ms for 3207 ms audio
    decode: 78 tokens @ 7.82 tok/s
-   lastToken->firstChunkQueued -25106 ms; lastToken->SpeakingStarted +66 ms
+   lastToken->firstChunkQueued 65 ms; lastToken->SpeakingStarted +66 ms
    visible-answer phase (first visible token -> lastToken): 9451 ms
    projection (same synth time, no contention): live speech starts -4125 ms vs lastToken

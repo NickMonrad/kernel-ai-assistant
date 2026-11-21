@@ -261,7 +261,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         stopped = true
         clearStreamingPlayback()
         stopped = false
-        val playbackGate = if (held) CompletableDeferred<Boolean>() else null
+        val playbackGate = if (held) CompletableDeferred<VoiceSpeakRequest?>() else null
         val chunks = Channel<StreamingChunk>(Channel.UNLIMITED)
         val outcome = CompletableDeferred<StreamPlaybackOutcome>()
         val worker = scope.launch {
@@ -291,11 +291,12 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
             override val playbackOutcome: Deferred<StreamPlaybackOutcome> = outcome
 
-            override suspend fun release(): Boolean {
+            override suspend fun release(request: VoiceSpeakRequest): Boolean {
                 val gate = playbackGate ?: return false
                 if (!isStreamingPlaybackActive(playbackToken)) return false
-                gate.complete(true)
-                return gate.await()
+                // The request travels through the gate, so the consumer reads its text without a separate field.
+                gate.complete(request)
+                return gate.await() != null
             }
 
             override suspend fun cancel() {
@@ -473,7 +474,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         activeSid: Int,
         isKokoro: Boolean,
         outcome: CompletableDeferred<StreamPlaybackOutcome>,
-        playbackGate: CompletableDeferred<Boolean>?,
+        playbackGate: CompletableDeferred<VoiceSpeakRequest?>?,
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
@@ -539,7 +540,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         }
                     } finally {
                         // A held session that fails to synthesise must not be released into silence.
-                        playbackGate?.complete(false)
+                        playbackGate?.complete(null)
                         audioQueue.close()
                     }
                 }
@@ -547,10 +548,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // ── Playback consumer ─────────────────────────────────────────────────────
                 launch {
                     var stoppedEarly = false
-                    // A held session waits here until release(); completes false when synthesis ended first.
-                    val released = playbackGate?.await() ?: true
+                    // A held session waits here until release(), which supplies the text SpeakingStarted reports;
+                    // null when synthesis ended first.
+                    val releasedRequest = if (playbackGate == null) request else playbackGate.await()
                     for (chunk in audioQueue) {
-                        if (!released || stopped || !isStreamingPlaybackActive(playbackToken)) {
+                        if (releasedRequest == null || stopped || !isStreamingPlaybackActive(playbackToken)) {
                             stoppedEarly = true
                             break
                         }
@@ -570,7 +572,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                                 chunk.text.length,
                             )
                             speakingStopGate.markStarted(playbackToken)
-                            _events.emit(VoiceOutputEvent.SpeakingStarted(request.text.ifBlank { "" }))
+                            _events.emit(VoiceOutputEvent.SpeakingStarted(releasedRequest.text))
                             emittedStarted = true
                         }
                         if (!requestedAudioFocus) {

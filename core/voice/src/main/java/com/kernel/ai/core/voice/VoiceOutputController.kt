@@ -30,11 +30,12 @@ interface VoiceOutputStreamingSession {
     }
 
     /**
-     * Starts playback of a session from [VoiceOutputController.openPreSynthesisedSession] (#1923). Returns
-     * false when playback can no longer start (the held audio was cancelled or failed to synthesise), so the
-     * caller must speak the reply another way. Default: false, for sessions that are not held.
+     * Starts playback of a session from [VoiceOutputController.openPreSynthesisedSession] (#1923). [request]
+     * supplies the text SpeakingStarted reports: the full reply, not the blank open request. Returns false when
+     * playback can no longer start (the held audio was cancelled or failed to synthesise), so the caller must
+     * speak the reply another way. Default: false, for sessions that are not held.
      */
-    suspend fun release(): Boolean = false
+    suspend fun release(request: VoiceSpeakRequest): Boolean = false
 }
 
 sealed interface VoiceOutputResult {

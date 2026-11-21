@@ -44,7 +44,8 @@ suspend fun speakForDebugSpeechProbe(controller: VoiceOutputController, text: St
  * does not end a chunk. Returns once the chunks are queued, not when playback ends; callers that
  * need to know when speech finishes listen for [com.kernel.ai.core.voice.VoiceOutputEvent.SpeakingStopped].
  *
- * Splits at sentence ends. A short first chunk lets playback start while the
+ * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
+ * A short first chunk lets playback start while the
  * rest is synthesised (#1872). A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk,
  * so it is folded into the previous chunk. A [SpeechPause.MARKER] always ends a chunk and becomes
  * [SpeechPause.DURATION_MS] of silence.
@@ -58,6 +59,7 @@ internal suspend fun speakInSentenceChunks(
     presynthesised: PresynthesisedSpeech? = null,
 ): VoiceOutputResult {
     val segments = text.split(SpeechPause.MARKER).map(::normalizeChatTextForSpeech).filter { it.isNotBlank() }
+    val spokenText = segments.joinToString(" ")
     var held = presynthesised
     var session: VoiceOutputStreamingSession? = null
 
@@ -65,14 +67,14 @@ internal suspend fun speakInSentenceChunks(
         val pending = held
         held = null
         if (pending != null) {
-            if (chunk == pending.firstChunk && pending.session.release()) {
+            if (chunk == pending.firstChunk && pending.session.release(VoiceSpeakRequest(text = spokenText))) {
                 session = pending.session
                 return if (isFinal) pending.session.append("", isFinal = true) else VoiceOutputResult.Spoken
             }
             pending.session.cancel()
         }
         val current = session ?: controller
-            .openStreamingSession(VoiceSpeakRequest(text = segments.joinToString(" ")))
+            .openStreamingSession(VoiceSpeakRequest(text = spokenText))
             .also { session = it }
         return current.append(chunk, isFinal)
     }
