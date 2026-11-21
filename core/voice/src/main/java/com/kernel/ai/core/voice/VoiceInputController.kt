@@ -146,10 +146,16 @@ interface VoiceCaptureAdmissionController {
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult
 
-    /** Stops only [captureSessionId]; stale UI owners must never stop a replacement capture. */
+    /**
+     * Finalizes only [captureSessionId]: its final result still arrives before its terminal, on every
+     * engine. Stale UI owners must never stop a replacement capture.
+     */
     fun stopListening(captureSessionId: Long) {}
 
-    /** Discards only [captureSessionId], without finalizing or affecting a replacement. */
+    /**
+     * Discards only [captureSessionId]: late results are dropped and no final result arrives. Never
+     * affects a replacement.
+     */
     fun cancelListening(captureSessionId: Long) {}
 
     /** Waits until this capture's recorder and audio focus are released. */

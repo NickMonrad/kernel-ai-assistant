@@ -53,6 +53,9 @@ class Asr4allVoiceInputControllerTest {
     @Volatile private var firstFrame = CountDownLatch(1)
     @Volatile private var openFails = false
     @Volatile private var amplitude: Short = 8000
+    /** Amplitude by 1-based read count, for tests where the reader runs ahead of the engine. Overrides [amplitude]. */
+    @Volatile private var amplitudeForRead: ((Int) -> Int)? = null
+    private val readCount = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var renderGate: CountDownLatch? = null
     private val renderStarted = CountDownLatch(1)
     /** Partial text per acceptAudio call (1-based index); the default reports "Final" on every chunk. */
@@ -71,6 +74,8 @@ class Asr4allVoiceInputControllerTest {
     @Volatile private var tier = HardwareTier.FLAGSHIP
     private val storedSize = MutableStateFlow(Asr4AllSize.M)
     private val openLog = CopyOnWriteArrayList<Pair<Asr4AllSize, Int>>()
+    /** acceptAudio calls across every engine this test opened: one per capture chunk. */
+    private val acceptCalls = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun onFocusRequest(): Int {
         focusRequests.incrementAndGet()
@@ -128,7 +133,7 @@ class Asr4allVoiceInputControllerTest {
             every { release() } answers { micReleases.incrementAndGet(); micReleasedSignal.release() }
             every { read(any<ShortArray>(), any(), any()) } answers {
                 val buf = firstArg<ShortArray>()
-                buf.fill(amplitude)
+                buf.fill(amplitudeForRead?.invoke(readCount.incrementAndGet())?.toShort() ?: amplitude)
                 firstFrame.countDown()
                 readGate?.await()
                 buf.size
@@ -140,6 +145,7 @@ class Asr4allVoiceInputControllerTest {
         var calls = 0
         every { e.acceptAudio(any(), any(), any()) } answers {
             calls++
+            acceptCalls.incrementAndGet()
             partialForCall?.invoke(calls) ?: "Final"
         }
         every { e.reset() } answers { log += "reset#$index" }
@@ -412,55 +418,6 @@ class Asr4allVoiceInputControllerTest {
                 Dispatchers.resetMain()
             }
         }
-    @Test
-    fun `a reselect during the final preference read keeps the warm engine for the new capture`() =
-        runBlocking(Dispatchers.IO) {
-            val c = controller()
-            val preferenceReadEntered = CountDownLatch(1)
-            val allowPreferenceRead = CompletableDeferred<Boolean>()
-            try {
-                firstFrame = CountDownLatch(1)
-                startedId(c.startListening(VoiceCaptureMode.Command))
-                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
-
-                val releaseEpoch = c.supersedeCaptureIfAdmissionEpoch(c.admissionEpochNow())
-                assertTrue(releaseEpoch != null)
-                assertTrue(micReleasedSignal.tryAcquire(1, 5, TimeUnit.SECONDS))
-
-                var preferenceReads = 0
-                val release = async {
-                    c.releaseEngineIf(releaseEpoch!!) {
-                        preferenceReads++
-                        if (preferenceReads == 3) {
-                            preferenceReadEntered.countDown()
-                            allowPreferenceRead.await()
-                        } else {
-                            true
-                        }
-                    }
-                }
-                assertTrue(
-                    preferenceReadEntered.await(5, TimeUnit.SECONDS),
-                    "the stale release must be suspended at its final preference read",
-                )
-
-                c.supersedeCapture()
-                firstFrame = CountDownLatch(1)
-                val replacement = async { startedId(c.startListening(VoiceCaptureMode.Command)) }
-                allowPreferenceRead.complete(true)
-
-                assertFalse(release.await(), "the newer admission epoch must defeat the stale engine release")
-                replacement.await()
-                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
-                assertEquals(listOf("open#1"), log.filter { it.startsWith("open#") })
-                assertFalse(log.contains("close#1"), "the warm engine remains available to the replacement")
-                c.releaseEngine()
-            } finally {
-                allowPreferenceRead.complete(false)
-            }
-        }
-
-
 
     @Test
     fun `a new route opens focus and mic only after a blocked teardown abandons the old focus`() = runBlocking(Dispatchers.IO) {
@@ -742,10 +699,8 @@ class Asr4allVoiceInputControllerTest {
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            partialForCall = { calls ->
-                if (calls == 3) amplitude = 0 // speech ends after three chunks; RMS falls below threshold
-                "Final"
-            }
+            amplitudeForRead = { read -> if (read in 2..4) 8000 else 0 } // chunk 1 is the quiet reference
+            partialForCall = { "Final" }
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
@@ -753,6 +708,75 @@ class Asr4allVoiceInputControllerTest {
             assertEquals(listOf("Final text."), collected.transcripts())
             assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
             assertEquals(1, log.count { it == "finish#1" })
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `steady background noise endpoints once it becomes the noise floor instead of running to the cap`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                amplitude = 0
+                partialForCall = { calls ->
+                    if (calls == 1) amplitude = 1638 // steady hiss of about 5% full scale from chunk 2 on
+                    "Final"
+                }
+                firstFrame = CountDownLatch(1)
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+
+                // Chunk 1 is the only quiet reference; it leaves the 3 s window at chunk 31, after which the
+                // hiss is the floor and 10 quiet chunks endpoint. The old fixed gate ran to the 600-chunk cap.
+                assertTrue(acceptCalls.get() < 60, "steady noise ran ${acceptCalls.get()} chunks")
+                assertEquals(listOf("Final text."), collected.transcripts())
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a soft speaker is not cut off mid-utterance by a fixed loudness floor`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            // Quiet room, then soft speech at about 1% full scale (under the old 0.02 gate), then silence.
+            amplitudeForRead = { read -> if (read <= 30) 30 else if (read <= 60) 300 else 0 }
+            partialForCall = { calls -> if (calls <= 30) "" else "word$calls" }
+            firstFrame = CountDownLatch(1)
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
+            // 30 lead-in chunks, 30 speech chunks, then the 10-chunk quiet tail. The old gate endpointed during speech.
+            assertTrue(acceptCalls.get() >= 60, "soft speech was cut after ${acceptCalls.get()} chunks")
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a microphone open that throws reports one cancelled stop and abandons focus`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            c.recorderForTest = { throw SecurityException("microphone permission revoked") }
+            assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Unavailable)
+            collected.awaitStops(1)
+
+            assertEquals(
+                listOf(true),
+                collected.events.filterIsInstance<VoiceInputEvent.ListeningStopped>().map { it.cancelled },
+            )
+            assertEquals(focusRequests.get(), focusAbandons.get(), "every focus request must be abandoned")
         } finally {
             collected.job.cancel()
             scope.cancel()

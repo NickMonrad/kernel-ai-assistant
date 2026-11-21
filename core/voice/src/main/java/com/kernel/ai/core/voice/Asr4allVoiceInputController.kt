@@ -40,14 +40,20 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "Asr4allSTT"
 private const val SAMPLE_RATE = 16_000
 private const val CHUNK_SAMPLES = SAMPLE_RATE / 10 // 100 ms
-private const val SPEECH_RMS = 0.02f
+private const val SPEECH_RMS_MIN = 0.003f // speech floor in a very quiet room
+private const val SPEECH_NOISE_MARGIN = 2f // speech is at least this multiple of the quietest recent chunk
+private const val NOISE_WINDOW_CHUNKS = 30 // 3 s of chunk RMS for the quietest-level estimate
 private const val NO_SPEECH_TIMEOUT_CHUNKS = 100 // 10 s without decoded text
-private const val ENDPOINT_SILENCE_CHUNKS = 10 // 1.0 s of quiet (RMS below SPEECH_RMS) after decoded text
+private const val ENDPOINT_SILENCE_CHUNKS = 10 // 1.0 s without speech after decoded text
 private const val MAX_UTTERANCE_CHUNKS = 600 // 60 s hard cap
+private const val ASR4ALL_TIER = "stream_c16r4"
+/** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
+private const val CAPTURE_JOIN_TIMEOUT_MS = 3_000L
 
 /** Audio focus held by one capture. [request] is null before API 26. */
 private class FocusHold(val request: AudioFocusRequest?)
@@ -69,7 +75,25 @@ private class Capture(
 private data class EngineKey(val size: Asr4AllSize, val threads: Int)
 
 /**
- * Streaming STT with the asr4all model (FUTO, Kotlin port of the HF Python driver).
+ * Adaptive speech gate: a chunk is speech when it is well above the quietest of the last
+ * [NOISE_WINDOW_CHUNKS]. Steady background noise therefore does not hold an utterance open, and a
+ * soft speaker in a quiet room still counts. The window needs a quiet reference, which the pre-roll
+ * buffer normally supplies.
+ */
+private class SpeechGate {
+    private val window = FloatArray(NOISE_WINDOW_CHUNKS) { Float.MAX_VALUE }
+    private var next = 0
+
+    /** Records [rms] and returns whether it is speech. */
+    fun isSpeech(rms: Float): Boolean {
+        window[next] = rms
+        next = (next + 1) % window.size
+        return rms >= maxOf(SPEECH_RMS_MIN, window.min() * SPEECH_NOISE_MARGIN)
+    }
+}
+
+/**
+ * Streaming STT with the asr4all model (FUTO), run through [Asr4AllEngine].
  *
  * Capture follows the Sherpa online contract (see [SherpaOnnxVoiceInputController]):
  * - The model files are checked first. A stop, or a [isWanted] that turns false, before the mic
@@ -81,8 +105,8 @@ private data class EngineKey(val size: Asr4AllSize, val threads: Int)
  *   recorder and focus.
  *
  * Partials are the running text from [Asr4AllEngine.acceptAudio], emitted when it changes. The
- * engine has no endpoint signal, so an utterance ends after [ENDPOINT_SILENCE_CHUNKS] of quiet
- * (RMS below [SPEECH_RMS]) that follows decoded text. The final text is [Asr4AllEngine.finish].
+ * engine has no endpoint signal, so an utterance ends after [ENDPOINT_SILENCE_CHUNKS] chunks without
+ * speech (see [SpeechGate]) that follow decoded text. The final text is [Asr4AllEngine.finish].
  *
  * Two ways a capture ends:
  * - [stopListening] is an explicit finalize: the utterance so far is decoded and emitted.
@@ -109,7 +133,6 @@ class Asr4allVoiceInputController @Inject constructor(
     /** Guards the stop count and the mic-open decision, like Sherpa's captureLock. */
     private val captureLock = Any()
     private var stopCount = 0 // guarded by captureLock
-    private var admissionEpoch = 0L // guarded by captureLock
     @Volatile private var activeJob: Job? = null
     @Volatile private var activeStop: AtomicBoolean? = null
     @Volatile private var activeDiscard: AtomicBoolean? = null
@@ -156,8 +179,9 @@ class Asr4allVoiceInputController @Inject constructor(
     ): VoiceInputStartResult {
         val stopsAtCall = synchronized(captureLock) { stopCount }
         return startLock.withLock {
-            activeJob?.join()
-            lastCapture?.reader?.join()
+            if (!awaitCaptureEnded()) {
+                return@withLock VoiceInputStartResult.Unavailable("The previous microphone session is still closing. Try again.")
+            }
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model is not downloaded. Download it in Settings → Voice.",
@@ -205,9 +229,7 @@ class Asr4allVoiceInputController @Inject constructor(
                 loading.await()
             } catch (e: Throwable) {
                 halt(capture)
-                withContext(NonCancellable) {
-                    capture.reader.join()
-                }
+                joinReader(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 withContext(NonCancellable) {
                     loading.join()
@@ -217,9 +239,7 @@ class Asr4allVoiceInputController @Inject constructor(
             if (eng == null) {
                 halt(capture)
                 beforeFailedLoadJoinForTest?.invoke()
-                withContext(NonCancellable) {
-                    capture.reader.join()
-                }
+                joinReader(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
@@ -232,9 +252,7 @@ class Asr4allVoiceInputController @Inject constructor(
             if (discard.get() || stop.get()) {
                 halt(capture)
                 beforeCancelledStopJoinForTest?.invoke()
-                withContext(NonCancellable) {
-                    capture.reader.join()
-                }
+                joinReader(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
@@ -248,13 +266,29 @@ class Asr4allVoiceInputController @Inject constructor(
                     if (!discard.get()) _events.tryEmit(VoiceInputEvent.Error(mode, e.message ?: "Voice input error", sessionId))
                 } finally {
                     capture.buffer.close()
-                    capture.reader.join()
+                    joinReader(capture)
                     _inputLevel.value = 0f
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = discard.get()))
                 }
             }
             VoiceInputStartResult.Started(sessionId)
         }
+    }
+
+    /** Waits for [c]'s reader to exit, giving up after [CAPTURE_JOIN_TIMEOUT_MS]; a wedged reader is left running. */
+    private suspend fun joinReader(c: Capture) {
+        withContext(NonCancellable) { withTimeoutOrNull(CAPTURE_JOIN_TIMEOUT_MS) { c.reader.join() } }
+    }
+
+    /** Waits for the last capture's job and reader to end. False if either is still running after the bound. */
+    private suspend fun awaitCaptureEnded(): Boolean {
+        val job = activeJob
+        val reader = lastCapture?.reader
+        return withTimeoutOrNull(CAPTURE_JOIN_TIMEOUT_MS) {
+            job?.join()
+            reader?.join()
+            true
+        } ?: false
     }
 
     /**
@@ -264,16 +298,27 @@ class Asr4allVoiceInputController @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     private fun openCapture(sessionId: Long): Capture? {
-        val focus = requestAudioFocus()
-        val recorder = recorderForTest?.invoke() ?: createAudioRecord()
-        if (recorder == null) {
+        var focus: FocusHold? = null
+        var recorder: AudioRecord? = null
+        return try {
+            focus = requestAudioFocus()
+            recorder = recorderForTest?.invoke() ?: createAudioRecord()
+            if (recorder == null) {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
+                releaseAudioFocus(focus)
+                return null
+            }
+            val capture = Capture(sessionId, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
+            capture.reader = scope.launch { readLoop(capture) }
+            capture
+        } catch (e: Exception) {
+            // A throwing AudioRecord or focus request ends the start like a failed open, not as an exception.
+            Log.e(TAG, "asr4all mic open failed", e)
             JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
+            recorder?.let(::stopRecorder)
             releaseAudioFocus(focus)
-            return null
+            null
         }
-        val capture = Capture(sessionId, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
-        capture.reader = scope.launch { readLoop(capture) }
-        return capture
     }
 
     private fun readLoop(c: Capture) {
@@ -386,7 +431,7 @@ class Asr4allVoiceInputController @Inject constructor(
     }
 
     private fun open(key: EngineKey): Asr4AllEngine = engineOpenForTest?.invoke(key.size, key.threads)
-        ?: Asr4AllEngine.open(Asr4AllInstall.root(context, key.size), key.size, threads = key.threads)
+        ?: Asr4AllEngine.open(Asr4AllInstall.root(context, key.size), key.size, tierName = ASR4ALL_TIER, threads = key.threads)
 
     /** Null on a failed open (bad or partial model files). Cancellation is rethrown. */
     private fun openOrNull(key: EngineKey): Asr4AllEngine? = try {
@@ -417,7 +462,8 @@ class Asr4allVoiceInputController @Inject constructor(
         var textHeard = false // the engine has produced nonempty partial text
         var partial = ""
         var chunks = 0
-        var quietChunks = 0 // consecutive chunks below SPEECH_RMS
+        val gate = SpeechGate()
+        var quietChunks = 0 // consecutive chunks that are not speech
         while (!discard.get() && chunks < MAX_UTTERANCE_CHUNKS) {
             val pcm = nextCaptureChunk(preRoll, buffer) ?: break
             chunks++
@@ -431,7 +477,7 @@ class Asr4allVoiceInputController @Inject constructor(
             }
             val rms = sqrt(sumSquares / n).toFloat()
             _inputLevel.value = rms.coerceIn(0f, 1f)
-            if (rms >= SPEECH_RMS) {
+            if (gate.isSpeech(rms)) {
                 quietChunks = 0
                 if (!heard) {
                     heard = true
@@ -508,8 +554,7 @@ class Asr4allVoiceInputController @Inject constructor(
     }
 
     override suspend fun prewarm() {
-        val epoch = admissionEpochNow()
-        prewarmIfCurrent { epoch == admissionEpochNow() }
+        prewarmIfCurrent { true }
     }
 
     /**
@@ -520,92 +565,35 @@ class Asr4allVoiceInputController @Inject constructor(
         supersedeCaptureLocked()
     }
 
-    /**
-     * Discards the capture only if no newer asr4all admission intent has superseded this release.
-     * Engine-selection observers use this before waiting for [startLock] so a cold model load
-     * cannot keep the old microphone open.
-     */
-    fun supersedeCaptureIfAdmissionEpoch(expectedEpoch: Long): Long? = synchronized(captureLock) {
-        if (admissionEpoch != expectedEpoch) return null
-        supersedeCaptureLocked()
-        admissionEpoch
-    }
-
     private fun supersedeCaptureLocked() {
         stopCount++
-        admissionEpoch++
         activeDiscard?.set(true)
         activeStop?.set(true)
         activeCapture?.let(::halt)
     }
 
     /**
-     * Closes the engine only while the selection and admission intent still belong to this
-     * release. The capture itself was discarded before acquiring [startLock].
-     */
-    suspend fun releaseEngineIf(
-        expectedAdmissionEpoch: Long,
-        isStillUnselected: suspend () -> Boolean,
-    ): Boolean = startLock.withLock {
-        suspend fun releaseStillCurrent(): Boolean =
-            isStillUnselected() && admissionEpochNow() == expectedAdmissionEpoch
-
-        if (!releaseStillCurrent()) return@withLock false
-        activeJob?.join()
-        lastCapture?.reader?.join()
-        if (!releaseStillCurrent()) return@withLock false
-        withContext(Dispatchers.IO) {
-            if (!isStillUnselected()) {
-                false
-            } else {
-                // Claim the close while the epoch is locked. A tap that advanced the epoch during
-                // the suspending preference read keeps the warm engine; a later tap waits for this
-                // close under startLock and reopens it normally.
-                var ownershipCurrent = false
-                val engineToClose = synchronized(captureLock) {
-                    if (admissionEpoch != expectedAdmissionEpoch) {
-                        null
-                    } else {
-                        ownershipCurrent = true
-                        engine.also { engine = null }
-                    }
-                }
-                if (!ownershipCurrent) {
-                    false
-                } else {
-                    engineToClose?.close()
-                    true
-                }
-            }
-        }
-    }
-
-
-    /**
-     * The current admission epoch. Every supersede bumps it, and so does an engine release
-     * (selection switch or deletion). A start admitted under an older epoch never opens the mic.
-     */
-    fun admissionEpochNow(): Long = synchronized(captureLock) { admissionEpoch }
-
-    /**
      * Supersedes any capture without emitting its result, waits for its job and reader to end,
      * and closes the engine. Idempotent; a later start reopens the engine.
      */
-    suspend fun releaseEngine() = withEngineReleased {}
-
+    suspend fun releaseEngine() {
+        withEngineReleased {}
+    }
 
     /**
      * Runs [block] with no capture and no engine open: the capture is discarded, its job and
      * reader have ended, and the engine is closed, all under the start lock. Use this before
      * deleting model files so no start can open them during the deletion.
+     *
+     * Returns null without running [block] if the capture is still running after
+     * [CAPTURE_JOIN_TIMEOUT_MS]; the engine stays open in that case.
      */
-    suspend fun <T> withEngineReleased(block: () -> T): T {
+    suspend fun <T> withEngineReleased(block: () -> T): T? {
         supersedeCapture()
         releaseFencedForTest?.invoke()
         return startLock.withLock {
             supersedeCapture()
-            activeJob?.join()
-            lastCapture?.reader?.join()
+            if (!awaitCaptureEnded()) return@withLock null
             withContext(Dispatchers.IO) {
                 engine?.close()
                 engine = null

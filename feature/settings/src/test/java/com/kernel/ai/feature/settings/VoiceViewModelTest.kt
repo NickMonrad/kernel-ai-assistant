@@ -1201,4 +1201,20 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
         coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
     }
+
+    @Test
+    fun `a size switch that cannot release the engine keeps the old files and the stored size`() = runTest {
+        every { context.getExternalFilesDir(any()) } returns tempDir.toFile()
+        every { context.filesDir } returns tempDir.toFile()
+        val oldFiles = Asr4AllInstall.models(Asr4AllSize.M).map { it.localFile(context) }
+        oldFiles.forEach { it.parentFile.mkdirs(); it.writeText("x") }
+        every { modelDownloadManager.refreshState(any()) } just Runs
+        coEvery { asr4allVoiceInputController.withEngineReleased<Unit>(any()) } returns null
+
+        viewModel.setAsr4allSize(Asr4AllSize.L)
+        viewModel.uiState.first { it.asr4allSize == Asr4AllSize.M }
+
+        assertTrue(oldFiles.all { it.exists() }, "a wedged capture must keep the model it still reads")
+        coVerify(exactly = 0) { voiceInputPreferences.setAsr4allSize(any()) }
+    }
 }

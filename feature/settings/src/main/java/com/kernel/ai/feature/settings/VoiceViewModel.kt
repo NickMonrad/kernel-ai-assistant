@@ -43,6 +43,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -489,13 +490,15 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
-            modelDownloadManager.downloadStates.collect { states ->
+            combine(modelDownloadManager.downloadStates, voiceInputPreferences.asr4allSize) { states, stored ->
+                states to Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier)
+            }.collect { (states, asr4allSize) ->
                 val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
                     computeDownloadState(
                         spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
                         states,
                     )
-                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(_uiState.value.asr4allSize), states))
+                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(asr4allSize), states))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -665,7 +668,8 @@ class VoiceViewModel @Inject constructor(
             // asr4all's engine reads these files: discard its capture and close it under its start
             // lock first, so no start can reopen them while they are being deleted.
             if (engine == VoiceInputEngine.Asr4all) {
-                asr4allVoiceInputController.withEngineReleased(deleteFiles)
+                // A null result means the capture could not be released: nothing was deleted, so the engine stays selected.
+                if (asr4allVoiceInputController.withEngineReleased(deleteFiles) == null) return@launch
             } else {
                 deleteFiles()
             }
@@ -807,9 +811,17 @@ class VoiceViewModel @Inject constructor(
         if (previous == size) return
         _uiState.update { it.copy(asr4allSize = size) }
         viewModelScope.launch(Dispatchers.IO) {
-            // The engine reads the files being deleted; release it under its start lock first.
-            asr4allVoiceInputController.withEngineReleased {
+            Asr4AllInstall.models(previous)
+                .filter { modelDownloadManager.downloadStates.value[it] is DownloadState.Downloading }
+                .forEach { modelDownloadManager.cancelDownload(it) }
+            // The engine reads the files being deleted; release it under its start lock first. Null means the
+            // capture could not be released, so the old files stay and the selection reverts.
+            val deleted = asr4allVoiceInputController.withEngineReleased {
                 Asr4AllInstall.deleteFiles(context, previous)
+            }
+            if (deleted == null) {
+                _uiState.update { it.copy(asr4allSize = previous) }
+                return@launch
             }
             voiceInputPreferences.setAsr4allSize(size)
             (Asr4AllInstall.models(previous) + Asr4AllInstall.models(size))
