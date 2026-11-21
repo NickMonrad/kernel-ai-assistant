@@ -1,0 +1,122 @@
+package com.kernel.ai.core.skills.natives
+
+import android.content.Context
+import android.util.Log
+import com.kernel.ai.core.skills.SkillResult
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import okhttp3.OkHttpClient
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+
+/**
+ * #2033 — the model-facing forecast text labels high and low explicitly. A bare
+ * "30°C / 25°C" was read back as "high 25°C" by Gemma E-2B.
+ */
+class GetWeatherHighLowFormatTest {
+
+    private val context = mockk<Context>(relaxed = true)
+
+    @BeforeEach
+    fun setUp() {
+        mockkStatic(Log::class)
+        every { Log.d(any<String>(), any<String>()) } returns 0
+    }
+
+    @AfterEach
+    fun tearDown() {
+        unmockkStatic(Log::class)
+    }
+
+    private fun dailyJson(dates: List<String>, highs: List<Double>, lows: List<Double>): String = """
+        {"latitude":-13.83,"longitude":-171.76,
+         "daily":{
+            "time":[${dates.joinToString(",") { "\"$it\"" }}],
+            "temperature_2m_max":[${highs.joinToString(",")}],
+            "temperature_2m_min":[${lows.joinToString(",")}],
+            "precipitation_sum":[${dates.joinToString(",") { "0.0" }}],
+            "weather_code":[${dates.joinToString(",") { "0" }}],
+            "uv_index_max":[${dates.joinToString(",") { "6.0" }}],
+            "sunrise":[${dates.joinToString(",") { "\"${it}T06:00\"" }}],
+            "sunset":[${dates.joinToString(",") { "\"${it}T18:00\"" }}]
+         }}
+    """.trimIndent()
+
+    @Test
+    fun `forecastHighLowText labels high before low`() {
+        assertEquals(", high 30°C, low 25°C", forecastHighLowText(30.0, 25.0))
+    }
+
+    @Test
+    fun `forecastHighLowText rounds to whole degrees`() {
+        assertEquals(", high 31°C, low 24°C", forecastHighLowText(30.6, 24.4))
+    }
+
+    @Test
+    fun `forecastHighLowText marks a missing value instead of dropping its label`() {
+        assertEquals(", high ?°C, low 25°C", forecastHighLowText(Double.NaN, 25.0))
+        assertEquals(", high 30°C, low ?°C", forecastHighLowText(30.0, Double.NaN))
+    }
+
+    @Test
+    fun `forecastHighLowText is empty when both temperatures are missing`() {
+        assertEquals("", forecastHighLowText(Double.NaN, Double.NaN))
+    }
+
+    @Test
+    fun `multi-day forecast text labels each day's high and low`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(30.0, 28.0),
+            lows = listOf(25.0, 24.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Apia"),
+        )
+        assertTrue(direct.content.contains(", high 30°C, low 25°C"), "text=${direct.content}")
+        assertTrue(direct.content.contains(", high 28°C, low 24°C"), "text=${direct.content}")
+        assertFalse(direct.content.contains("30°C / 25°C"), "text=${direct.content}")
+    }
+
+    @Test
+    fun `single-day forecast text labels high and low`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(30.0, 28.0),
+            lows = listOf(25.0, 24.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastDayResponse(json, "Apia", dayIndex = 1),
+        )
+        // Tomorrow's row (index 1) must carry its own labelled values, not today's.
+        assertTrue(direct.content.contains(", high 28°C, low 24°C"), "text=${direct.content}")
+        assertFalse(direct.content.contains("30°C"), "text=${direct.content}")
+    }
+
+    @Test
+    fun `weekend forecast text labels high and low`() {
+        // 2026-11-21 is a Saturday, so the weekend is Saturday plus Sunday.
+        val json = dailyJson(
+            dates = listOf("2026-11-21", "2026-11-22"),
+            highs = listOf(30.0, 29.0),
+            lows = listOf(25.0, 23.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            parseWeekendResponse(json, "Apia"),
+        )
+        assertTrue(direct.content.contains(", high 30°C, low 25°C"), "text=${direct.content}")
+        assertTrue(direct.content.contains(", high 29°C, low 23°C"), "text=${direct.content}")
+    }
+}
