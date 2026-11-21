@@ -1,0 +1,530 @@
+{
+ "schema": 1,
+ "device": "S21 R5CR605B71K",
+ "rings": 1118,
+ "by_class_rings": {
+  "genuine": 375,
+  "near_miss": 420,
+  "background_speech": 290,
+  "non_speech": 33
+ },
+ "lanes": {
+  "whisper-tiny-en:prod (app probe)": {
+   "genuine": {
+    "n": 171,
+    "of": 375,
+    "pct": 45.6
+   },
+   "near_miss": {
+    "n": 3,
+    "of": 420,
+    "pct": 0.7
+   },
+   "background_speech": {
+    "n": 2,
+    "of": 290,
+    "pct": 0.7
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 67,
+     "of": 125,
+     "pct": 53.6
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 35,
+     "of": 125,
+     "pct": 28.0
+    },
+    "music10": {
+     "n": 69,
+     "of": 125,
+     "pct": 55.2
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 1,
+    "of": 3,
+    "pct": 33.3
+   },
+   "host_verdict_agreement": {
+    "n": 1108,
+    "of": 1118,
+    "pct": 99.1
+   },
+   "runs_consistent": {
+    "n": 1118,
+    "of": 1118,
+    "pct": 100.0
+   },
+   "verify_warm_p50_ms": 507.0,
+   "verify_warm_p95_ms": 713.2,
+   "verify_warm_max_ms": 1006.0,
+   "broadcast_overhead_median_ms": 82.0,
+   "cold_first_verify_est_ms": 1156.0,
+   "pss_delta_mib": 143.0,
+   "vm_hwm_mib": 497.9,
+   "same_process": true,
+   "rings_completed": 1118,
+   "probe_errors": 0
+  },
+  "asr4all-m-stream_c16r4:prod (ET probe)": {
+   "genuine": {
+    "n": 37,
+    "of": 375,
+    "pct": 9.9
+   },
+   "near_miss": {
+    "n": 12,
+    "of": 420,
+    "pct": 2.9
+   },
+   "background_speech": {
+    "n": 1,
+    "of": 290,
+    "pct": 0.3
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 11,
+     "of": 125,
+     "pct": 8.8
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 8,
+     "of": 125,
+     "pct": 6.4
+    },
+    "music10": {
+     "n": 18,
+     "of": 125,
+     "pct": 14.4
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 1,
+    "of": 3,
+    "pct": 33.3
+   },
+   "host_verdict_agreement": {
+    "n": 1111,
+    "of": 1118,
+    "pct": 99.4
+   },
+   "transcript_identical_to_host": {
+    "n": 989,
+    "of": 1118,
+    "pct": 88.5
+   },
+   "load_ms": 766.8,
+   "first_feed_ms": 154.2,
+   "verify_p50_ms": 418.1,
+   "verify_p95_ms": 472.6,
+   "verify_max_ms": 551.1,
+   "pss_load_delta_mib": 118.7,
+   "pss_peak_delta_mib": 170.3,
+   "vm_hwm_mib": 290.0,
+   "lane": "executorch-1.5.1/xnnpack-int8 m stream_c16r4 variant=default",
+   "extra_forms": []
+  },
+  "asr4all-m-stream_c16r4:prod+forms (ET probe)": {
+   "genuine": {
+    "n": 220,
+    "of": 375,
+    "pct": 58.7
+   },
+   "near_miss": {
+    "n": 15,
+    "of": 420,
+    "pct": 3.6
+   },
+   "background_speech": {
+    "n": 1,
+    "of": 290,
+    "pct": 0.3
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 83,
+     "of": 125,
+     "pct": 66.4
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 55,
+     "of": 125,
+     "pct": 44.0
+    },
+    "music10": {
+     "n": 82,
+     "of": 125,
+     "pct": 65.6
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 3,
+    "of": 3,
+    "pct": 100.0
+   },
+   "host_verdict_agreement": {
+    "n": 1106,
+    "of": 1118,
+    "pct": 98.9
+   },
+   "transcript_identical_to_host": {
+    "n": 989,
+    "of": 1118,
+    "pct": 88.5
+   },
+   "load_ms": 766.8,
+   "first_feed_ms": 154.2,
+   "verify_p50_ms": 418.1,
+   "verify_p95_ms": 472.6,
+   "verify_max_ms": 551.1,
+   "pss_load_delta_mib": 118.7,
+   "pss_peak_delta_mib": 170.3,
+   "vm_hwm_mib": 290.0,
+   "lane": "executorch-1.5.1/xnnpack-int8 m stream_c16r4 variant=default",
+   "extra_forms": [
+    "gendal",
+    "jand",
+    "jandle",
+    "janel",
+    "jendel"
+   ]
+  },
+  "asr4all-m-stream_c32r8:prod (ET probe)": {
+   "genuine": {
+    "n": 35,
+    "of": 375,
+    "pct": 9.3
+   },
+   "near_miss": {
+    "n": 8,
+    "of": 420,
+    "pct": 1.9
+   },
+   "background_speech": {
+    "n": 1,
+    "of": 290,
+    "pct": 0.3
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 9,
+     "of": 125,
+     "pct": 7.2
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 5,
+     "of": 125,
+     "pct": 4.0
+    },
+    "music10": {
+     "n": 21,
+     "of": 125,
+     "pct": 16.8
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 0,
+    "of": 3,
+    "pct": 0.0
+   },
+   "host_verdict_agreement": {
+    "n": 1111,
+    "of": 1118,
+    "pct": 99.4
+   },
+   "transcript_identical_to_host": {
+    "n": 996,
+    "of": 1118,
+    "pct": 89.1
+   },
+   "load_ms": 502.1,
+   "first_feed_ms": 4.5,
+   "verify_p50_ms": 383.6,
+   "verify_p95_ms": 461.6,
+   "verify_max_ms": 563.2,
+   "pss_load_delta_mib": 122.9,
+   "pss_peak_delta_mib": 178.6,
+   "vm_hwm_mib": 298.8,
+   "lane": "executorch-1.5.1/xnnpack-int8 m stream_c32r8 variant=default",
+   "extra_forms": []
+  },
+  "asr4all-m-stream_c32r8:prod+forms (ET probe)": {
+   "genuine": {
+    "n": 224,
+    "of": 375,
+    "pct": 59.7
+   },
+   "near_miss": {
+    "n": 12,
+    "of": 420,
+    "pct": 2.9
+   },
+   "background_speech": {
+    "n": 1,
+    "of": 290,
+    "pct": 0.3
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 83,
+     "of": 125,
+     "pct": 66.4
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 58,
+     "of": 125,
+     "pct": 46.4
+    },
+    "music10": {
+     "n": 83,
+     "of": 125,
+     "pct": 66.4
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 1,
+    "of": 3,
+    "pct": 33.3
+   },
+   "host_verdict_agreement": {
+    "n": 1110,
+    "of": 1118,
+    "pct": 99.3
+   },
+   "transcript_identical_to_host": {
+    "n": 996,
+    "of": 1118,
+    "pct": 89.1
+   },
+   "load_ms": 502.1,
+   "first_feed_ms": 4.5,
+   "verify_p50_ms": 383.6,
+   "verify_p95_ms": 461.6,
+   "verify_max_ms": 563.2,
+   "pss_load_delta_mib": 122.9,
+   "pss_peak_delta_mib": 178.6,
+   "vm_hwm_mib": 298.8,
+   "lane": "executorch-1.5.1/xnnpack-int8 m stream_c32r8 variant=default",
+   "extra_forms": [
+    "gandel",
+    "gendal",
+    "jand",
+    "jandle",
+    "janel",
+    "jendal"
+   ]
+  },
+  "kws-t0.08-s2.0 (KWS app_process)": {
+   "genuine": {
+    "n": 263,
+    "of": 375,
+    "pct": 70.1
+   },
+   "near_miss": {
+    "n": 5,
+    "of": 420,
+    "pct": 1.2
+   },
+   "background_speech": {
+    "n": 0,
+    "of": 290,
+    "pct": 0.0
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 104,
+     "of": 125,
+     "pct": 83.2
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 60,
+     "of": 125,
+     "pct": 48.0
+    },
+    "music10": {
+     "n": 99,
+     "of": 125,
+     "pct": 79.2
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 3,
+    "of": 3,
+    "pct": 100.0
+   },
+   "host_verdict_agreement": {
+    "n": 1114,
+    "of": 1118,
+    "pct": 99.6
+   },
+   "load_ms": 3502.8,
+   "first_call_ms": 346.4,
+   "verify_p50_ms": 216.7,
+   "verify_p95_ms": 252.1,
+   "verify_max_ms": 444.9,
+   "pss_load_delta_mib": 49.8,
+   "pss_peak_delta_mib": 80.4,
+   "vm_hwm_mib": 209.6
+  },
+  "kws-t0.25-s1.0 (KWS app_process)": {
+   "genuine": {
+    "n": 231,
+    "of": 375,
+    "pct": 61.6
+   },
+   "near_miss": {
+    "n": 4,
+    "of": 420,
+    "pct": 1.0
+   },
+   "background_speech": {
+    "n": 0,
+    "of": 290,
+    "pct": 0.0
+   },
+   "non_speech": {
+    "n": 0,
+    "of": 33,
+    "pct": 0.0
+   },
+   "genuine_by_condition": {
+    "clean": {
+     "n": 92,
+     "of": 125,
+     "pct": 73.6
+    },
+    "att12": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    },
+    "reverb": {
+     "n": 49,
+     "of": 125,
+     "pct": 39.2
+    },
+    "music10": {
+     "n": 90,
+     "of": 125,
+     "pct": 72.0
+    },
+    "babble10": {
+     "n": 0,
+     "of": 0,
+     "pct": null
+    }
+   },
+   "genuine_owner_natural": {
+    "n": 3,
+    "of": 3,
+    "pct": 100.0
+   },
+   "host_verdict_agreement": {
+    "n": 1107,
+    "of": 1118,
+    "pct": 99.0
+   },
+   "load_ms": 3289.7,
+   "first_call_ms": 238.0,
+   "verify_p50_ms": 212.2,
+   "verify_p95_ms": 247.6,
+   "verify_max_ms": 315.6,
+   "pss_load_delta_mib": 50.1,
+   "pss_peak_delta_mib": 81.3,
+   "vm_hwm_mib": 210.4
+  }
+ }
+}

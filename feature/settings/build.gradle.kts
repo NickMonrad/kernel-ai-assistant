@@ -69,6 +69,7 @@ dependencies {
         exclude(group = "org.junit.jupiter")
         exclude(group = "org.junit.platform")
     }
+    implementation(libs.aboutlibraries.compose.m3)
     implementation(libs.coil.compose)
 
     implementation(libs.datastore.preferences)

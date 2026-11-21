@@ -55,6 +55,7 @@ class SelectableVoiceInputHandoffTest {
         Dispatchers.setMain(dispatcher)
         every { voiceInputPreferences.selectedEngine } returns MutableStateFlow(VoiceInputEngine.AndroidNative)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(false)
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns true
         every { native.events } returns nativeEvents
         every { sherpa.events } returns sherpaEvents
         every { native.stopListening() } just runs
@@ -156,6 +157,21 @@ class SelectableVoiceInputHandoffTest {
 
         assertEquals(listOf(VoiceInputEvent.ListeningStarted(mode, 1L)), seen)
         assertEquals(listOf(VoiceNotice(1L, ZIPFORMER_START_NOTICE)), notices)
+    }
+
+    @Test
+    fun `release native failure is surfaced without a Sherpa hand-off`() = runTest(dispatcher) {
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        val c = controller()
+        val seen = eventsOf(c)
+
+        c.startListening(mode)
+        nativeEvents.emit(stalled(1L))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(stalled(1L)))
+        coVerify(exactly = 0) { sherpa.isSpecAvailable(any()) }
+        coVerify(exactly = 0) { sherpa.startListening(any(), any()) }
     }
 
     @Test

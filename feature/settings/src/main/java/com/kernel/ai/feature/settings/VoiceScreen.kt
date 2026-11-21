@@ -628,7 +628,7 @@ private fun VoiceScreenContent(
                     }
                     Text(
                         when {
-                            !uiState.isWakeWordModelAvailable -> "Wake word model not yet available — model training in progress (#984)"
+                            !uiState.isWakeWordModelAvailable -> "Wake word model unavailable in this build: its assets are excluded pending licence resolution."
                             !uiState.isDefaultAssistant -> "Set Jandal as default assistant first for reliable background mic access."
                             else -> "Say \"Hey Jandal\" to start talking, hands-free."
                         } + sizeLine,
