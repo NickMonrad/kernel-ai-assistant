@@ -842,6 +842,7 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
+                        voicePresynthesis.discard()
                         // #790: Retry once before surfacing the error to the user. #1853: not after
                         // a Zipformer hand-off; a retry would start the failing native recognizer again.
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
@@ -4189,6 +4190,8 @@ class ChatViewModel @Inject constructor(
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
                     // Flag needsHistoryReplay so the next user turn re-injects full context.
+                    // Defensive: a hold exists only on pass 1 (retry() disables holding), and this branch is reached
+                    // only after a blank pass 1, which opens none. The discard is a no-op today; keep it so no reset path leaks.
                     if (!resetInferenceConversation("resetConversationBeforeRetry")) {
                         voicePresynthesis.discard()
                         return@launch

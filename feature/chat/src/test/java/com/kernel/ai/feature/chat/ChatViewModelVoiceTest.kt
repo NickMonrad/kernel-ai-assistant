@@ -730,8 +730,9 @@ class ChatViewModelVoiceTest {
                 GenerationResult.Token("The first sentence here is long enough to stand alone. I've set the timer."),
                 GenerationResult.Complete(durationMs = 1L),
             ),
+            // The retried pass opens with the same first sentence, so only the retry discard stops that hold being released.
             flowOf(
-                GenerationResult.Token("Here is a short reply about kiwi birds."),
+                GenerationResult.Token("The first sentence here is long enough to stand alone. Here is a short reply about kiwi birds."),
                 GenerationResult.Complete(durationMs = 1L),
             ),
         )
@@ -745,7 +746,38 @@ class ChatViewModelVoiceTest {
 
         coVerify(atLeast = 1) { voiceHeldSession.cancel() }
         coVerify(exactly = 0) { voiceHeldSession.release(any()) }
-        assertEquals(listOf("Here is a short reply about kiwi birds." to true), streamedChunks)
+        assertEquals(
+            listOf("The first sentence here is long enough to stand alone." to false, "Here is a short reply about kiwi birds." to true),
+            streamedChunks,
+        )
+    }
+
+    @Test
+    fun `a voice error mid-reply discards the presynthesised first sentence before the reply ends`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me a story") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me a story")
+        coEvery { voiceOutputController.openPreSynthesisedSession(any()) } returns voiceHeldSession
+        val gate = CompletableDeferred<Unit>()
+        every { inferenceEngine.generate(any()) } returns flow {
+            emit(GenerationResult.Token("The first sentence here is long enough to stand alone. "))
+            gate.await()
+            emit(GenerationResult.Token("The second sentence follows after it and is spoken last."))
+            emit(GenerationResult.Complete(durationMs = 1L))
+        }
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        runCurrent()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "recognizer failed", captureSessionId = 1L))
+        runCurrent()
+
+        coVerify(atLeast = 1) { voiceHeldSession.cancel() }
+        gate.complete(Unit)
+        advanceUntilIdle()
+        coVerify(exactly = 0) { voiceHeldSession.release(any()) }
     }
 
     @Test
