@@ -35,8 +35,10 @@ ExecuTorch 1.5.1
   Copyright (c) Meta Platforms, Inc. and affiliates, and the other holders listed in the licence.
   Licensed under the BSD 3-Clause License
   https://github.com/pytorch/executorch/blob/v1.5.1/LICENSE
-  Used: Android ExecuTorch library and native runtime (org.pytorch:executorch-android),
-  including its bundled XNNPACK, cpuinfo and pthreadpool components.
+  Used: Android ExecuTorch library and native runtime (org.pytorch:executorch-android). Full
+  licence: legal/executorch-1.5.1-licence.txt. Third-party code statically linked into
+  libexecutorch.so (XNNPACK, cpuinfo, pthreadpool, pocketfft, SentencePiece with protobuf-lite
+  and Darts-clone, RE2, Abseil, PCRE2, nlohmann/json) with full texts: legal/executorch-1.5.1-third-party-notices.txt.
 
 fbjni 0.7.0 and SoLoader nativeloader 0.10.5
   Copyright (c) Meta Platforms, Inc. and affiliates.

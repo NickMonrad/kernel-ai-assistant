@@ -10,7 +10,7 @@ import org.pytorch.executorch.Tensor
 internal interface NativeModule {
     fun methodNames(): Set<String>
 
-    fun execute(method: String, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor>
+    fun execute(method: String, inputs: List<ExecuTorchTensor>, outputSpecs: List<TensorSpec>): List<ExecuTorchTensor>
 
     fun destroy()
 }
@@ -35,7 +35,11 @@ internal object PyTorchModuleLoader : NativeModuleLoader {
 private class PyTorchModule(private val module: Module) : NativeModule {
     override fun methodNames(): Set<String> = runtimeCall("list methods") { module.getMethods() }.toSet()
 
-    override fun execute(method: String, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> {
+    override fun execute(
+        method: String,
+        inputs: List<ExecuTorchTensor>,
+        outputSpecs: List<TensorSpec>,
+    ): List<ExecuTorchTensor> {
         val values = Array(inputs.size) { EValue.from(inputs[it].toNative()) }
         val outputs = runtimeCall("run method '$method'") { module.execute(method, *values) }
         return outputs.mapIndexed { index, value ->
@@ -45,7 +49,7 @@ private class PyTorchModule(private val module: Module) : NativeModule {
                         "${value.mTypeCode}); this module only returns tensors",
                 )
             }
-            value.toTensor().toKotlin(method, index)
+            value.toTensor().toKotlin(method, index, outputSpecs.getOrNull(index))
         }
     }
 
@@ -69,7 +73,7 @@ private fun ExecuTorchTensor.toNative(): Tensor {
     }
 }
 
-private fun Tensor.toKotlin(method: String, index: Int): ExecuTorchTensor {
+private fun Tensor.toKotlin(method: String, index: Int, spec: TensorSpec?): ExecuTorchTensor {
     val shape = shape()
     return when (val dtype = dtype()) {
         DType.FLOAT -> ExecuTorchTensor.Float32(dataAsFloatArray, shape)
@@ -78,7 +82,8 @@ private fun Tensor.toKotlin(method: String, index: Int): ExecuTorchTensor {
         DType.INT8 -> ExecuTorchTensor.Int8(dataAsByteArray, shape)
         DType.UINT8 -> ExecuTorchTensor.UInt8(dataAsUnsignedByteArray, shape)
         else -> throw ExecuTorchException(
-            "ExecuTorch method '$method' output $index has unsupported dtype $dtype",
+            "ExecuTorch method '$method' output $index ('${spec?.name ?: "undeclared"}') has unsupported " +
+                "dtype $dtype; expected ${spec ?: "no declared output"}",
         )
     }
 }

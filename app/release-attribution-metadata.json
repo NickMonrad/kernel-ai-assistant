@@ -55,6 +55,18 @@
       "source_component": "com.microsoft.onnxruntime:onnxruntime-android:1.24.3 (matched to Microsoft.ML.OnnxRuntime 1.24.3 Android JNI payload)",
       "license_expression": "MIT",
       "license_status": "reviewed"
+    },
+    {
+      "name": "libexecutorch.so",
+      "source_component": "org.pytorch:executorch-android:1.5.1 (published Android AAR; ExecuTorch v1.5.1 with the LLM tokenizers and XNNPACK statically linked; third-party components listed in executorch-1.5.1-third-party-notices.txt)",
+      "license_expression": "BSD-3-Clause AND Apache-2.0 AND MIT AND BSD-3-Clause WITH PCRE2-exception",
+      "license_status": "reviewed"
+    },
+    {
+      "name": "libfbjni.so",
+      "source_component": "com.facebook.fbjni:fbjni:0.7.0 (published Android AAR)",
+      "license_expression": "Apache-2.0",
+      "license_status": "reviewed"
     }
   ],
   "native_notice_assets": {
@@ -63,7 +75,10 @@
     "ndk-r28c-libcxx-licence.txt": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
     "ndk-r28c-libcxxabi-licence.txt": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
     "onnxruntime-1.24.3-licence.txt": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
-    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    "onnxruntime-1.24.3-third-party-notices.txt": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+    "executorch-1.5.1-licence.txt": "c58707ea5d5c0ee17af7e16f1377e4d31ad1533492ab0bf9b87ebd9f718f9e7b",
+    "executorch-1.5.1-third-party-notices.txt": "acca9c57b5b8c96498e5e290520c973e2f322441a79459df338f8ce1b280019c",
+    "fbjni-0.7.0-licence.txt": "f62d190c08e2b300b45780f0b3cabcacc78d0e373f7a0de79d31f82b084d35ea"
   },
   "wake_word_assets": []
 }

@@ -34,22 +34,24 @@ class TensorContractTest {
     }
 
     @Test
-    fun `spec wildcard matches any size in that dimension only`() {
-        val spec = TensorSpec("logits", TensorDType.FLOAT32, 1, TensorSpec.ANY, 3)
+    fun `spec range matches sizes inside its bounds only`() {
+        val spec = TensorSpec("logits", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.between(1, 8), TensorDim.exact(3))
         assertTrue(spec.matches(ExecuTorchTensor.Float32(FloatArray(15), longArrayOf(1, 5, 3))))
         assertTrue(!spec.matches(ExecuTorchTensor.Float32(FloatArray(20), longArrayOf(1, 5, 4))))
+        assertTrue(!spec.matches(ExecuTorchTensor.Float32(FloatArray(27), longArrayOf(1, 9, 3))))
     }
 
     @Test
     fun `spec rejects dtype and rank mismatches`() {
-        val spec = TensorSpec("ids", TensorDType.INT64, 2)
+        val spec = TensorSpec("ids", TensorDType.INT64, TensorDim.exact(2))
         assertTrue(!spec.matches(ExecuTorchTensor.Int32(IntArray(2), longArrayOf(2))))
         assertTrue(!spec.matches(ExecuTorchTensor.Int64(LongArray(2), longArrayOf(1, 2))))
     }
 
     @Test
-    fun `spec rejects dims other than sizes and ANY`() {
-        assertThrows<IllegalArgumentException> { TensorSpec("x", TensorDType.FLOAT32, -2) }
+    fun `dim rejects negative sizes and inverted ranges`() {
+        assertThrows<IllegalArgumentException> { TensorDim.exact(-2) }
+        assertThrows<IllegalArgumentException> { TensorDim.between(4, 2) }
     }
 
     @Test
@@ -58,7 +60,7 @@ class TensorContractTest {
             assertOutputShapes(
                 "encode",
                 listOf(ExecuTorchTensor.Float32(FloatArray(8), longArrayOf(2, 4))),
-                listOf(TensorSpec("features", TensorDType.FLOAT32, 2, 3)),
+                listOf(TensorSpec("features", TensorDType.FLOAT32, TensorDim.exact(2), TensorDim.exact(3))),
             )
         }
         val message = error.message!!
@@ -77,7 +79,7 @@ class TensorContractTest {
                     ExecuTorchTensor.Float32(FloatArray(1), longArrayOf(1)),
                     ExecuTorchTensor.Float32(FloatArray(1), longArrayOf(1)),
                 ),
-                listOf(TensorSpec("y", TensorDType.FLOAT32, 1)),
+                listOf(TensorSpec("y", TensorDType.FLOAT32, TensorDim.exact(1))),
             )
         }
     }

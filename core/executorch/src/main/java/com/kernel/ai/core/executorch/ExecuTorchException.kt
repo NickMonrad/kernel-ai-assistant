@@ -11,3 +11,6 @@ class ExecuTorchException(
     val errorCode: Int? = null,
     cause: Throwable? = null,
 ) : RuntimeException(message, cause)
+
+/** [ExecuTorchModel] was used after [ExecuTorchModel.close]; nothing reached native code. */
+class ExecuTorchClosedException(path: String) : IllegalStateException("ExecuTorch model $path is closed")

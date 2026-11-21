@@ -48,8 +48,17 @@ internal object PteHeader {
         val programSize = buffer.getLong(16)
         val segmentBase = buffer.getLong(24)
         val segmentSize = if (length >= 32) buffer.getLong(32) else 0L
-        val required = maxOf(programSize, if (segmentSize > 0) segmentBase + segmentSize else segmentBase)
-        if (programSize < 0 || segmentBase < 0 || segmentSize < 0 || required > size) {
+        if (programSize < 0 || segmentBase < 0 || segmentSize < 0) {
+            throw ExecuTorchException("${file.path} has a malformed extended header ($size bytes)")
+        }
+        // An overflowing segment end must reject: wrapping it negative would pass the size check.
+        val segmentEnd = try {
+            Math.addExact(segmentBase, segmentSize)
+        } catch (e: ArithmeticException) {
+            throw ExecuTorchException("${file.path} has a malformed extended header ($size bytes)", cause = e)
+        }
+        val required = maxOf(programSize, segmentEnd)
+        if (required > size) {
             throw ExecuTorchException(
                 "${file.path} is truncated: its header declares $required bytes but the file has $size",
             )

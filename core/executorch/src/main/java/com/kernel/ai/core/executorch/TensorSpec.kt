@@ -1,38 +1,52 @@
 package com.kernel.ai.core.executorch
 
 /**
+ * One expected tensor dimension: a size in [min]..[max], inclusive.
+ *
+ * Dynamic dimensions must carry the bounds the program was exported with. The runtime aborts
+ * the process on a shape it cannot handle, so [TensorSpec] rejects out-of-range sizes before
+ * native code runs; an unbounded dimension would defeat that check.
+ */
+class TensorDim private constructor(val min: Long, val max: Long) {
+    init {
+        require(min >= 0 && max >= min) { "TensorDim range must satisfy 0 <= min <= max, got $min..$max" }
+    }
+
+    fun matches(size: Long): Boolean = size in min..max
+
+    override fun toString(): String = if (min == max) "$min" else "$min..$max"
+
+    companion object {
+        /** A fixed size. */
+        fun exact(size: Long): TensorDim = TensorDim(size, size)
+
+        /** A size that varies within [min]..[max] inclusive. */
+        fun between(min: Long, max: Long): TensorDim = TensorDim(min, max)
+    }
+}
+
+/**
  * The dtype and shape expected for one method input or output.
  *
- * ExecuTorch's Java API exposes no input/output shape metadata, so callers declare it. Use
- * [ANY] for a dimension that legitimately varies (for example a frame count that follows the
- * input length); a dynamic dimension must still stay within the bounds the program was
- * exported with.
+ * ExecuTorch's Java API exposes no input/output shape metadata, so callers declare it.
  *
  * @param name label used in error messages, e.g. "logits".
  */
-class TensorSpec(val name: String, val dtype: TensorDType, vararg dims: Long) {
-    /** Expected dimensions; [ANY] matches any size. */
-    val dims: List<Long> = dims.toList()
+class TensorSpec(val name: String, val dtype: TensorDType, vararg dims: TensorDim) {
+    /** Expected dimensions, each a fixed size or a bounded range. */
+    val dims: List<TensorDim> = dims.toList()
 
     init {
         require(name.isNotBlank()) { "TensorSpec name must not be blank" }
-        require(this.dims.all { it >= 0 || it == ANY }) {
-            "TensorSpec '$name' dims must be >= 0 or TensorSpec.ANY, got ${this.dims}"
-        }
     }
 
     fun matches(tensor: ExecuTorchTensor): Boolean =
         tensor.dtype == dtype &&
             tensor.shape.size == dims.size &&
-            dims.indices.all { dims[it] == ANY || dims[it] == tensor.shape[it] }
+            dims.indices.all { dims[it].matches(tensor.shape[it]) }
 
     override fun toString(): String =
-        "$name: $dtype${dims.joinToString(prefix = "[", postfix = "]") { if (it == ANY) "*" else it.toString() }}"
-
-    companion object {
-        /** Wildcard dimension. */
-        const val ANY: Long = -1L
-    }
+        "$name: $dtype${dims.joinToString(prefix = "[", postfix = "]")}"
 }
 
 /**

@@ -299,7 +299,7 @@ android {
                 "lib/armeabi-v7a/libonnxruntime.so",
                 "lib/x86/libonnxruntime.so",
                 "lib/x86_64/libonnxruntime.so",
-                // ExecuTorch's fbjni 0.7.0 (NDK r27b) and :core:memory (NDK r28c) both ship
+                // ExecuTorch's fbjni 0.7.0 and :core:memory (NDK r28c) both ship
                 // libc++_shared.so. Merge order puts project modules first, so the newer r28c
                 // runtime is kept; libc++ is backward compatible with older-NDK binaries.
                 "lib/arm64-v8a/libc++_shared.so",
@@ -1053,4 +1053,56 @@ tasks.register("verifyReleaseAttributionMetadata") {
             "Release attribution verification failed. See ${report.relativeTo(rootProject.projectDir)}:\n- ${errors.joinToString("\n- ")}"
         }
     }
+}
+
+// Single-version guard for the ExecuTorch runtime (#2003 AC1). The ExecuTorch AAR must be
+// declared directly exactly once across the build, and fbjni must resolve to one version in the
+// app's runtime graphs. Resolution happens in :app because Gradle forbids resolving another
+// project's configurations from a task. Wired into :app:check and CI.
+val executorchGuardedArtifacts = listOf(
+    // group, name, must be declared directly exactly once (fbjni arrives transitively via executorch-android)
+    Triple("org.pytorch", "executorch-android", true),
+    Triple("com.facebook.fbjni", "fbjni", false),
+)
+val appRuntimeConfigurations = listOf("debugRuntimeClasspath", "releaseRuntimeClasspath")
+
+val verifyExecuTorchSingleVersion by tasks.registering {
+    group = "verification"
+    description = "Fails if ExecuTorch or fbjni is declared more than once, or the app runtime graph resolves either to more than one version."
+    doLast {
+        val problems = mutableListOf<String>()
+        executorchGuardedArtifacts.forEach { (group, name, requiresDirectDeclaration) ->
+            val declarations = rootProject.allprojects.flatMap { p ->
+                p.configurations.flatMap { c ->
+                    c.dependencies
+                        .filter { it.group == group && it.name == name }
+                        .map { "${p.path}:${c.name} -> ${it.version}" }
+                }
+            }
+            if (declarations.size > 1) {
+                problems += "$group:$name declared ${declarations.size} times: ${declarations.joinToString(", ")}"
+            }
+            if (requiresDirectDeclaration && declarations.size != 1) {
+                problems += "$group:$name must be declared exactly once, found ${declarations.size}"
+            }
+            appRuntimeConfigurations.forEach { cfgName ->
+                val versions = project.configurations.getByName(cfgName).incoming.resolutionResult.allComponents
+                    .mapNotNull { it.moduleVersion }
+                    .filter { it.group == group && it.name == name }
+                    .map { it.version }
+                    .toSortedSet()
+                if (versions.size != 1) {
+                    problems += ":app:$cfgName resolves $group:$name to $versions (expected exactly one version)"
+                }
+            }
+        }
+        if (problems.isNotEmpty()) {
+            throw GradleException("ExecuTorch single-version guard failed:\n  " + problems.joinToString("\n  "))
+        }
+        println("ExecuTorch single-version guard passed: ${executorchGuardedArtifacts.joinToString { "${it.first}:${it.second}" }}")
+    }
+}
+
+tasks.matching { it.name == "check" }.configureEach {
+    dependsOn(verifyExecuTorchSingleVersion)
 }

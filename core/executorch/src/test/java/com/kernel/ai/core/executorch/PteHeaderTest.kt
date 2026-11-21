@@ -48,6 +48,15 @@ class PteHeaderTest {
     }
 
     @Test
+    fun `rejects segment offsets whose end overflows`() {
+        // Wrapping Long.MAX_VALUE + 1 to a negative end would pass the size check.
+        val error = assertThrows<ExecuTorchException> {
+            PteHeader.check(file(pte(programSize = 64, segmentBase = Long.MAX_VALUE, segmentSize = 1, total = 3084)))
+        }
+        assertTrue(error.message!!.contains("malformed"), error.message)
+    }
+
+    @Test
     fun `rejects an empty file`() {
         assertThrows<ExecuTorchException> { PteHeader.check(file(ByteArray(0))) }
     }

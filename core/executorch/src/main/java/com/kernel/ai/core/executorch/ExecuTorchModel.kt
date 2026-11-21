@@ -19,7 +19,8 @@ enum class LoadMode(internal val nativeCode: Int) {
  *
  * Threading: every call blocks, so call from a background dispatcher, never the main thread.
  * Calls are serialised per model; [close] waits for an in-flight [run] to return. After
- * [close], [run] throws [IllegalStateException]; it never reaches freed native memory.
+ * [close], [run] throws [ExecuTorchClosedException]; it never reaches freed native memory.
+ * A model that is never closed keeps its thread-pool slot until the process exits.
  *
  * Thread pool: [threads] sizes ExecuTorch's single, process-wide XNNPACK pool. While any model
  * is open, every load must use the same count; a different count throws before loading,
@@ -48,25 +49,25 @@ class ExecuTorchModel private constructor(
      * Runs [signature]'s method. Checks [inputs] against [MethodSignature.inputs] before calling
      * the runtime and every output against [MethodSignature.outputs] before returning them.
      *
+     * @throws ExecuTorchClosedException if the model is closed (checked first).
      * @throws IllegalArgumentException if the program has no such method.
      * @throws InputShapeMismatchException if [inputs] differ from the signature.
-     * @throws IllegalStateException if the model is closed.
      * @throws OutputShapeMismatchException if the outputs differ from the signature.
-     * @throws ExecuTorchException if an output has a dtype this module does not support.
+     * @throws ExecuTorchException if the runtime fails, or an output has a dtype this module
+     *   does not support.
      */
-    fun run(signature: MethodSignature, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> {
-        val method = signature.method
-        require(method in methodNames) {
-            "ExecuTorch program $path has no method '$method'; it exports $methodNames"
-        }
-        requireInputShapes(method, inputs, signature.inputs)
+    fun run(signature: MethodSignature, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> =
         lock.withLock {
-            check(!closed) { "ExecuTorch model $path is closed" }
-            val outputs = native.execute(method, inputs)
+            if (closed) throw ExecuTorchClosedException(path)
+            val method = signature.method
+            require(method in methodNames) {
+                "ExecuTorch program $path has no method '$method'; it exports $methodNames"
+            }
+            requireInputShapes(method, inputs, signature.inputs)
+            val outputs = native.execute(method, inputs, signature.outputs)
             assertOutputShapes(method, outputs, signature.outputs)
-            return outputs
+            outputs
         }
-    }
 
     /** Frees the native program. Idempotent; blocks until an in-flight [run] returns. */
     override fun close() {

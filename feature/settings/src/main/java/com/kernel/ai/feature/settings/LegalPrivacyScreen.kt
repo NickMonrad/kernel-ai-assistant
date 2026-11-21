@@ -44,6 +44,9 @@ private val RUNTIME_NOTICES = listOf(
     "Android NDK r28c libc++abi licence" to "ndk-r28c-libcxxabi-licence.txt",
     "ONNX Runtime 1.24.3 licence" to "onnxruntime-1.24.3-licence.txt",
     "ONNX Runtime 1.24.3 third-party notices" to "onnxruntime-1.24.3-third-party-notices.txt",
+    "ExecuTorch 1.5.1 licence" to "executorch-1.5.1-licence.txt",
+    "ExecuTorch 1.5.1 third-party notices" to "executorch-1.5.1-third-party-notices.txt",
+    "fbjni 0.7.0 licence" to "fbjni-0.7.0-licence.txt",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -33,10 +33,11 @@ program with `core/executorch/tools/generate_smoke_pte.py` and run the instrumen
 ## API
 
 ```kotlin
+// MAX_FRAMES: the upper bound the program was exported with; the runtime cannot check it.
 val encoder = MethodSignature(
     "forward",
-    inputs = listOf(TensorSpec("features", TensorDType.FLOAT32, 1, TensorSpec.ANY, 80)),
-    outputs = listOf(TensorSpec("logits", TensorDType.FLOAT32, 1, TensorSpec.ANY, 1025)),
+    inputs = listOf(TensorSpec("features", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.between(1, MAX_FRAMES), TensorDim.exact(80))),
+    outputs = listOf(TensorSpec("logits", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.between(1, MAX_FRAMES), TensorDim.exact(1025))),
 )
 ExecuTorchModel.load(file, threads = 4).use { model ->
     val logits = model.run(encoder, listOf(ExecuTorchTensor.Float32(data, longArrayOf(1, frames, 80))))
@@ -121,9 +122,9 @@ The shared native file is `libc++_shared.so`; see packaging.
 ## Packaging
 
 - ExecuTorch ships `arm64-v8a` and `x86_64` only. In `app/build.gradle.kts`:
-  - `pickFirsts` for `lib/{arm64-v8a,x86_64}/libc++_shared.so`: fbjni 0.7.0 (NDK r27b) and
-    `:core:memory`'s `libkernelvec` (NDK r28c) both ship it. The packaged copy is the r28c one
-    (verified by hash; libc++ is backward compatible with older-NDK binaries).
+  - `pickFirsts` for `lib/{arm64-v8a,x86_64}/libc++_shared.so`: fbjni 0.7.0 and `:core:memory`'s
+    `libkernelvec` (NDK r28c) both ship it. The kept copy is the `:core:memory` one (r28c, verified
+    by hash; libc++ is backward compatible with older-NDK binaries).
   - `excludes` for fbjni's `armeabi-v7a`/`x86` `libfbjni.so` and `libc++_shared.so`: no 32-bit
     library uses them, and there is no 32-bit `libexecutorch.so`. On a 32-bit-only device
     `ExecuTorchModel.load` throws `ExecuTorchException` (runtime unavailable).

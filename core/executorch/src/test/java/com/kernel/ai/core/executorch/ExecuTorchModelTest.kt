@@ -44,8 +44,8 @@ class ExecuTorchModelTest {
     private val input = ExecuTorchTensor.Float32(FloatArray(4), longArrayOf(1, 4))
     private val forward = MethodSignature(
         "forward",
-        inputs = listOf(TensorSpec("x", TensorDType.FLOAT32, 1, 4)),
-        outputs = listOf(TensorSpec("y", TensorDType.FLOAT32, 1, 3)),
+        inputs = listOf(TensorSpec("x", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(4))),
+        outputs = listOf(TensorSpec("y", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(3))),
     )
 
     @Test
@@ -79,7 +79,7 @@ class ExecuTorchModelTest {
     @Test
     fun `run fails fast when the output shape differs from the signature`() {
         val model = load { FakeNativeModule(outputs = listOf(output)) }
-        val wrongOutputs = MethodSignature("forward", forward.inputs, listOf(TensorSpec("y", TensorDType.FLOAT32, 1, 4)))
+        val wrongOutputs = MethodSignature("forward", forward.inputs, listOf(TensorSpec("y", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(4))))
         assertThrows<OutputShapeMismatchException> { model.run(wrongOutputs, listOf(input)) }
     }
 
@@ -108,7 +108,11 @@ class ExecuTorchModelTest {
         val model = load { FakeNativeModule(outputs = listOf(output)) }
         model.close()
         model.close()
-        assertThrows<IllegalStateException> { model.run(forward, listOf(input)) }
+        assertThrows<ExecuTorchClosedException> { model.run(forward, listOf(input)) }
+        // Closure is reported first, even for a method the program does not export.
+        assertThrows<ExecuTorchClosedException> {
+            model.run(MethodSignature("decode", forward.inputs, forward.outputs), listOf(input))
+        }
         assertTrue(model.isClosed)
         assertTrue(loads.single().executed.isEmpty())
         assertEquals(1, loads.single().destroyCount)
@@ -176,7 +180,11 @@ class ExecuTorchModelTest {
 
         override fun methodNames(): Set<String> = methodsError?.let { throw it } ?: methods
 
-        override fun execute(method: String, inputs: List<ExecuTorchTensor>): List<ExecuTorchTensor> {
+        override fun execute(
+            method: String,
+            inputs: List<ExecuTorchTensor>,
+            outputSpecs: List<TensorSpec>,
+        ): List<ExecuTorchTensor> {
             onExecute()
             executed += method
             events += "execute:$method"

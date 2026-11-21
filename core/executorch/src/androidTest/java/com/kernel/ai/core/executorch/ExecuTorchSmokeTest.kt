@@ -25,13 +25,13 @@ class ExecuTorchSmokeTest {
 
     private val forward = MethodSignature(
         "forward",
-        inputs = listOf(TensorSpec("x", TensorDType.FLOAT32, 1, 4)),
-        outputs = listOf(TensorSpec("y", TensorDType.FLOAT32, 1, 3)),
+        inputs = listOf(TensorSpec("x", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(4))),
+        outputs = listOf(TensorSpec("y", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(3))),
     )
     private val triple = MethodSignature(
         "triple",
-        inputs = listOf(TensorSpec("x", TensorDType.INT64, 2)),
-        outputs = listOf(TensorSpec("y", TensorDType.INT64, TensorSpec.ANY)),
+        inputs = listOf(TensorSpec("x", TensorDType.INT64, TensorDim.exact(2))),
+        outputs = listOf(TensorSpec("y", TensorDType.INT64, TensorDim.exact(2))),
     )
 
     @Before
@@ -69,7 +69,7 @@ class ExecuTorchSmokeTest {
 
     @Test
     fun wrongExpectedOutputShapeFailsFast() {
-        val wrongOutputs = MethodSignature("forward", forward.inputs, listOf(TensorSpec("y", TensorDType.FLOAT32, 1, 4)))
+        val wrongOutputs = MethodSignature("forward", forward.inputs, listOf(TensorSpec("y", TensorDType.FLOAT32, TensorDim.exact(1), TensorDim.exact(4))))
         assertThrows(OutputShapeMismatchException::class.java) {
             model.run(wrongOutputs, listOf(ExecuTorchTensor.Float32(FloatArray(4), longArrayOf(1, 4))))
         }
@@ -87,7 +87,7 @@ class ExecuTorchSmokeTest {
     @Test
     fun runAfterCloseIsRejected() {
         model.close()
-        assertThrows(IllegalStateException::class.java) {
+        assertThrows(ExecuTorchClosedException::class.java) {
             model.run(triple, listOf(ExecuTorchTensor.Int64(longArrayOf(1, 1), longArrayOf(2))))
         }
     }
