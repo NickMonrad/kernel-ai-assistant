@@ -114,7 +114,7 @@ import java.time.ZoneId
         FavouriteShortcutEntity::class,
         RecentShortcutEntity::class,
     ],
-    version = 59,
+    version = 60,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
@@ -1056,6 +1056,16 @@ abstract class KernelDatabase : RoomDatabase() {
         val MIGRATION_58_59 = object : Migration(58, 59) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `quick_actions` ADD COLUMN `spokenSummary` TEXT DEFAULT NULL")
+            }
+        }
+        /**
+         * Raises E-2B rows still at the old MID_RANGE default of 3072 to 4000 (#1961): the tool-path prompt
+         * is ~3.4k tokens and 3072 was rejected by LiteRT. The settings slider only snaps to multiples of 500
+         * from 4000, so 3072 can only come from that default.
+         */
+        val MIGRATION_59_60 = object : Migration(59, 60) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE `model_settings` SET `contextWindowSize` = 4000 WHERE `contextWindowSize` = 3072")
             }
         }
     }

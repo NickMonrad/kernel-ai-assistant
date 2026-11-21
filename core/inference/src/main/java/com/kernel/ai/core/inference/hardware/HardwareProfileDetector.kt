@@ -12,6 +12,13 @@ import javax.inject.Singleton
 private const val TAG = "HardwareProfileDetector"
 
 /**
+ * Default E-2B context window (LiteRT `maxNumTokens`) for [HardwareTier.MID_RANGE].
+ * Must be at least the settings slider minimum (4000, ModelSettingsScreen) and large enough for the
+ * tool-path prompt (~3.4k tokens measured on S21, #1961). 4000 is not a power of 2 (see safeTokenCount).
+ */
+const val MID_RANGE_RECOMMENDED_MAX_TOKENS = 4000
+
+/**
  * Detects hardware capabilities at startup and returns an immutable [HardwareProfile].
  *
  * Detection logic:
@@ -53,7 +60,7 @@ class HardwareProfileDetector @Inject constructor(
 
         val recommendedMaxTokens = when (tier) {
             HardwareTier.FLAGSHIP -> 8000
-            HardwareTier.MID_RANGE -> 3072
+            HardwareTier.MID_RANGE -> MID_RANGE_RECOMMENDED_MAX_TOKENS
             HardwareTier.LOW_POWER -> 1000
         }
 

@@ -2,6 +2,8 @@ package com.kernel.ai.feature.chat
 
 import android.util.Log
 import com.kernel.ai.core.inference.BackendType
+import com.kernel.ai.core.inference.ContextWindowManager
+import com.kernel.ai.core.inference.MINIMAL_SYSTEM_PROMPT
 import com.kernel.ai.core.inference.EmbeddingEngine
 import com.kernel.ai.core.inference.GenerationResult
 import com.kernel.ai.core.inference.InferenceEngine
@@ -11,6 +13,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.inference.hardware.MID_RANGE_RECOMMENDED_MAX_TOKENS
 import com.kernel.ai.core.memory.entity.ConversationEntity
 import com.kernel.ai.core.memory.rag.RagRepository
 import com.kernel.ai.core.memory.repository.ConversationRepository
@@ -286,5 +289,19 @@ class ChatViewModelToolUsePromptTest {
         val hasRetain = p.contains("retain their existing intents") || p.contains("retain their existing")
         assertTrue(hasAlarmsTimers && hasRetain,
             "Calendar rule must clarify alarms/timers/reminders retain their intents\n$p")
+    }
+
+    // #1961: E-2B (MID_RANGE) rejected a ~3.4k-token tool-path prompt against a 3072-token window.
+    // Estimate uses the app's conservative 3 chars/token heuristic on the fixed tool-path text
+    // (system prompt + tool-use rules + turn instruction). Native tool declarations are not included
+    // here; their size is verified on device.
+    @Test
+    fun `tool-path fixed prompt fits within E-2B mid-range context window`() {
+        val fixedToolPath = MINIMAL_SYSTEM_PROMPT +
+            createViewModel().buildToolUsePrompt() +
+            toolTurnInstruction(isFirstReply = true).orEmpty()
+        val estimated = ContextWindowManager().estimateTokens(fixedToolPath)
+        assertTrue(estimated <= MID_RANGE_RECOMMENDED_MAX_TOKENS,
+            "Tool-path fixed prompt estimate $estimated tokens exceeds $MID_RANGE_RECOMMENDED_MAX_TOKENS\n")
     }
 }
