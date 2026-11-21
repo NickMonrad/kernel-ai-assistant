@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import android.util.Log
 import com.kernel.ai.core.skills.SpeechPause
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import kotlinx.coroutines.CancellationException
@@ -44,16 +45,40 @@ suspend fun speakForDebugSpeechProbe(controller: VoiceOutputController, text: St
  * need to know when speech finishes listen for [com.kernel.ai.core.voice.VoiceOutputEvent.SpeakingStopped].
  *
  * Splits at sentence ends only (never at a comma or word boundary), so a chunk is never cut mid-sentence.
- * A short first chunk lets playback start while the rest is synthesised (#1872). A tail under ~20
- * characters ("Thanks.") would be a separate, barely audible chunk, so it is folded into the previous chunk.
- * A [SpeechPause.MARKER] always ends a chunk and becomes [SpeechPause.DURATION_MS] of silence.
+ * A short first chunk lets playback start while the
+ * rest is synthesised (#1872). A tail under ~20 characters ("Thanks.") would be a separate, barely audible chunk,
+ * so it is folded into the previous chunk. A [SpeechPause.MARKER] always ends a chunk and becomes
+ * [SpeechPause.DURATION_MS] of silence.
+ *
+ * [presynthesised] is a first chunk already synthesised from the streamed reply (#1923). It is played only when it is
+ * exactly this reply's first chunk and its session releases; otherwise it is cancelled and the reply is spoken as usual.
  */
 internal suspend fun speakInSentenceChunks(
     controller: VoiceOutputController,
     text: String,
+    presynthesised: PresynthesisedSpeech? = null,
 ): VoiceOutputResult {
     val segments = text.split(SpeechPause.MARKER).map(::normalizeChatTextForSpeech).filter { it.isNotBlank() }
-    val session = controller.openStreamingSession(VoiceSpeakRequest(text = segments.joinToString(" ")))
+    val spokenText = segments.joinToString(" ")
+    var held = presynthesised
+    var session: VoiceOutputStreamingSession? = null
+
+    suspend fun appendChunk(chunk: String, isFinal: Boolean): VoiceOutputResult {
+        val pending = held
+        held = null
+        if (pending != null) {
+            if (chunk == pending.firstChunk && pending.session.release(VoiceSpeakRequest(text = spokenText))) {
+                session = pending.session
+                return if (isFinal) pending.session.append("", isFinal = true) else VoiceOutputResult.Spoken
+            }
+            pending.session.cancel()
+        }
+        val current = session ?: controller
+            .openStreamingSession(VoiceSpeakRequest(text = spokenText))
+            .also { session = it }
+        return current.append(chunk, isFinal)
+    }
+
     try {
         var isFirst = true
         for ((index, segment) in segments.withIndex()) {
@@ -82,11 +107,11 @@ internal suspend fun speakInSentenceChunks(
                 isFirst = false
                 isFirstInSegment = false
                 val isLast = isLastSegment && buffer.isBlank()
-                val result = session.append(chunk, isFinal = isLast)
+                val result = appendChunk(chunk, isFinal = isLast)
                 if (result is VoiceOutputResult.Unavailable) {
                     // Close the session so the engine finishes what it already queued and still
                     // reports SpeakingStopped; otherwise listeners wait for a final chunk forever.
-                    if (!isLast) session.append("", isFinal = true)
+                    if (!isLast) appendChunk("", isFinal = true)
                     return result
                 }
                 if (isLast) return VoiceOutputResult.Spoken
@@ -96,22 +121,49 @@ internal suspend fun speakInSentenceChunks(
                 if (isFirst) logFirstChunkQueued(buffer.length)
                 isFirst = false
                 val residual = finalizeChatTextForSpeech(buffer.toString())
-                if (isLastSegment) return session.append(residual, isFinal = true)
-                val result = session.append(residual, isFinal = false)
+                if (isLastSegment) return appendChunk(residual, isFinal = true)
+                val result = appendChunk(residual, isFinal = false)
                 if (result is VoiceOutputResult.Unavailable) {
-                    session.append("", isFinal = true)
+                    appendChunk("", isFinal = true)
                     return result
                 }
             }
-            if (!isLastSegment) session.appendPause(SpeechPause.DURATION_MS)
+            if (!isLastSegment) session?.appendPause(SpeechPause.DURATION_MS)
         }
         // Nothing to say: close the session so it still reports SpeakingStopped.
         if (isFirst) logFirstChunkQueued(0)
-        return session.append(finalizeChatTextForSpeech(""), isFinal = true)
+        return appendChunk(finalizeChatTextForSpeech(""), isFinal = true)
     } catch (e: CancellationException) {
         // Close the streaming session so the controller doesn't wait forever for a final
         // chunk (stuck Speaking state / unclosed chunk channel).
-        withContext(NonCancellable) { runCatching { session.cancel() } }
+        withContext(NonCancellable) {
+            runCatching { held?.session?.cancel() }
+            runCatching { session?.cancel() }
+        }
         throw e
     }
+}
+
+/**
+ * A first chunk synthesised from a streamed reply before it was confirmed (#1923). [session] holds [firstChunk]
+ * unplayed until it is released.
+ */
+internal class PresynthesisedSpeech(
+    val session: VoiceOutputStreamingSession,
+    val firstChunk: String,
+)
+
+/**
+ * The first chunk [speakInSentenceChunks] would cut from the streamed [prefix] of a reply, or null while the prefix is
+ * too short to decide it (#1923). It uses the confirmed reply's rules, but a prefix can end before a sentence does, so
+ * the caller must still check the chunk matches the confirmed reply's first chunk before playing it.
+ */
+internal fun firstStreamedSpeechChunk(prefix: String): String? {
+    if (prefix.contains(SpeechPause.MARKER)) return null
+    return popNextStreamingSpeechChunk(
+        buffer = StringBuilder(normalizeChatTextForSpeech(prefix)),
+        minChunkLength = VOICE_FIRST_CHUNK_MIN_LENGTH,
+        preferredChunkLength = Int.MAX_VALUE,
+        force = false,
+    )
 }

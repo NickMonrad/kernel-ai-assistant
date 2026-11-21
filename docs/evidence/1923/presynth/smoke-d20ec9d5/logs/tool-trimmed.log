@@ -1,0 +1,62 @@
+         1795294674.923 25999 25999 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:log -t Evidence1923 smoke_mode=tool thermal_status_at_start=0'
+         1795294674.974 11673 11673 I Evidence1923: smoke_mode=tool thermal_status_at_start=0
+         1795294675.134  7976  7976 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+         1795294675.536  7976  7976 D VoiceTiming: firstChunkQueued epochMs=1795294675535 chars=34
+         1795294675.701  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=accepted t_ms=0
+         1795294675.701  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=coroutine_started t_ms=0
+         1795294678.542  7976  8564 D LiteRtInferenceEngine: TTFT_STAGE engine conversation_reset lock_wait_ms=0 close_ms=280 create_ms=2468 backend=GPU
+         1795294678.599  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=first_feedback_visible t_ms=2897
+         1795294678.635  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=route_done t_ms=2933
+         1795294678.657  7976  7976 D KernelAI: llm_tools_route: result=fallthrough best_guess=null confidence=0.0
+         1795294678.658  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=model_ready t_ms=2957
+         1795294678.663  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=rag_done t_ms=2961
+         1795294678.667  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=generate_called t_ms=2966
+         1795294678.668  7976  8564 D LiteRtInferenceEngine: TTFT_STAGE engine generation_lock_wait_ms=0
+         1795294678.676  7976  8564 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=1 stage=initial_prompt event=send_start
+         1795294686.682  7976  8731 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=1 stage=initial_prompt event=tool_call_received tool_names=query_wikipedia count=1
+         1795294689.413  7976  8731 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=1 stage=initial_prompt event=tool_dispatch_result tool=query_wikipedia returned=true serialized_result_tokens_estimate=104
+         1795294689.415  7976  8768 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=1 stage=initial_prompt event=on_done tool_response_pending=true
+         1795294689.415  7976  8768 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=2 stage=tool_response event=send_start
+         1795294690.058  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=1 type=callback channels=[] thought="" raw="Kiwi" toolCalls=
+         1795294690.059  7976  8731 I LiteRtInferenceEngine: TTFT (Time to First Token): 11391ms [backend=GPU]
+         1795294690.059  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=first_token t_ms=14358
+         1795294690.078  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=first_ui_update t_ms=14377
+         1795294690.121  7976  7976 D KernelAI: TTFT_STAGE commandId=f99e24af-1 stage=first_answer_token_visible t_ms=14419
+         1795294690.215  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=2 type=callback channels=[] thought="" raw=" are" toolCalls=
+         1795294690.375  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=3 type=callback channels=[] thought="" raw=" flightless birds endemic" toolCalls=
+         1795294690.531  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=4 type=callback channels=[] thought="" raw=" to New Zealand" toolCalls=
+         1795294690.680  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=5 type=callback channels=[] thought="" raw="." toolCalls=
+         1795294690.828  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=6 type=callback channels=[] thought="" raw="\n" toolCalls=
+         1795294690.976  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=7 type=callback channels=[] thought="" raw="They are the smallest" toolCalls=
+         1795294691.139  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=8 type=callback channels=[] thought="" raw=" ratites" toolCalls=
+         1795294691.293  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=9 type=callback channels=[] thought="" raw=".\n" toolCalls=
+         1795294691.443  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=10 type=callback channels=[] thought="" raw="There are five" toolCalls=
+         1795294691.594  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=11 type=callback channels=[] thought="" raw=" extant" toolCalls=
+         1795294691.744  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=12 type=callback channels=[] thought="" raw=" species" toolCalls=
+         1795294691.898  7976  8731 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=13 type=callback channels=[] thought="" raw="." toolCalls=
+         1795294691.899  7976  8768 D LiteRtInferenceEngine: generation_diagnostic generation_id=f99e24af-1-g1 send_attempt=2 stage=tool_response event=on_done tool_response_pending=false
+         1795294691.900  7976  8768 I LiteRtInferenceEngine: LiteRT benchmark: init=12.062271297999999s, TTFT=7.400940389s, prefill=88 tokens @ 214.29904744365638 tokens/s, decode=26 tokens @ 12.635354374885948 tokens/s [backend=GPU]
+         1795294691.900  7976  8768 I LiteRtInferenceEngine: Generation complete: total=13231ms, TTFT=11391ms, visibleChunks=13 [backend=GPU]
+         1795294691.900  7976  8768 D LiteRtInferenceEngine: event_seq: f99e24af-1-g1 seq=14 type=complete callbacks=13 thinkingChars=0
+         1795294691.900  7976  8768 D LiteRtInferenceEngine: VoiceTiming lastToken epochMs=1795294691900
+         1795294691.904  7976  7976 D KernelAI: llm_tools_tool_sequence: attempt=query_wikipedia turn=query_wikipedia terminal=query_wikipedia
+         1795294691.904  7976  7976 D KernelAI: thinking_save: thinkingLen=0, contentLen=111
+         1795294691.904  7976  7976 D KernelAI: llm_tools_assistant_reply: len=297
+         1795294691.933  7976  7976 D VoiceTiming: firstChunkQueued epochMs=1795294691933 chars=90
+         1795294696.042  7976 11732 I VoiceTiming: synth token=3 chunk=0 chars=89 sid=0 startEpochMs=1795294692029 endEpochMs=1795294696042 synthMs=4013 audioMs=5803 rtf=0.69
+         1795294696.043  7976 11734 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=89 part=1/1 text=Kiwi, bird. Kiwi are flightless birds endemic to New Zealand of the order Apterygiformes.
+         1795294696.043  7976 11734 I KernelAI: SpeakingStarted engine=sherpa chars=89 epochMs=1795294696043
+         1795294696.139  7976 11734 I VoiceTiming: playStart token=3 chunk=0 epochMs=1795294696139
+         1795294699.388  7976 11732 I VoiceTiming: synth token=3 chunk=1 chars=75 sid=0 startEpochMs=1795294696042 endEpochMs=1795294699388 synthMs=3346 audioMs=5596 rtf=0.60
+         1795294702.230  7976 11732 I VoiceTiming: synth token=3 chunk=2 chars=76 sid=0 startEpochMs=1795294699388 endEpochMs=1795294702230 synthMs=2842 audioMs=4437 rtf=0.64
+         1795294702.245  7976 11734 I VoiceTiming: playEnd token=3 chunk=0 epochMs=1795294702245
+         1795294702.246  7976 11734 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=75 part=1/1 text=The five extant species fall into the family Apterygidae and genus Apteryx.
+         1795294702.246  7976 11734 I VoiceTiming: playStart token=3 chunk=1 epochMs=1795294702246 gapMs=1
+         1795294706.319  7976 11732 I VoiceTiming: synth token=3 chunk=3 chars=53 sid=0 startEpochMs=1795294702231 endEpochMs=1795294706318 synthMs=4087 audioMs=6846 rtf=0.60
+         1795294707.963  7976 11734 I VoiceTiming: playEnd token=3 chunk=1 epochMs=1795294707963
+         1795294707.967  7976 11734 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=76 part=1/1 text=Approximately the size of a domestic chicken, kiwi are the smallest ratites.
+         1795294707.967  7976 11734 I VoiceTiming: playStart token=3 chunk=2 epochMs=1795294707967 gapMs=4
+         1795294712.550  7976 11734 I VoiceTiming: playEnd token=3 chunk=2 epochMs=1795294712550
+         1795294712.551  7976 11734 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=53 part=1/1 text=Read more. https://en.wikipedia.org/wiki/Kiwi_, bird.
+         1795294712.551  7976 11734 I VoiceTiming: playStart token=3 chunk=3 epochMs=1795294712551 gapMs=1
+         1795294719.530  7976 11734 I VoiceTiming: playEnd token=3 chunk=3 epochMs=1795294719530

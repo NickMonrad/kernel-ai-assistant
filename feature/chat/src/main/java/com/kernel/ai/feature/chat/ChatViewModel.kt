@@ -404,6 +404,7 @@ class ChatViewModel @Inject constructor(
     private var activeStreamingThinking = StringBuilder()
     private var assistantSpeechJob: Job? = null
     private var suppressVoiceOutputForCurrentResponse = false
+    private val voicePresynthesis = VoicePresynthesis(voiceOutputController, viewModelScope)
     private var spokenResponsesEnabled = true
     private var autoSpeakEnabled = true
     private val _isSpeakingResponse = MutableStateFlow(false)
@@ -841,6 +842,7 @@ class ChatViewModel @Inject constructor(
                         if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
+                        voicePresynthesis.discard()
                         // #790: Retry once before surfacing the error to the user. #1853: not after
                         // a Zipformer hand-off; a retry would start the failing native recognizer again.
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
@@ -2043,6 +2045,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
+        voicePresynthesis.discard()
     }
 
     fun stopVoiceOutput() {
@@ -3540,6 +3543,7 @@ class ChatViewModel @Inject constructor(
                     safeModelTestScope = kernelAIToolSet.beginSafeModelTestSandbox()
                 }
                 kernelAIToolSet.resetTurnState(userMessage = text)
+                voicePresynthesis.startTurn()
                 hallucinationRetryAttempted = false
                 var rawToolCallRetryAttempted = false
                 var systemOnlyToolRetryAttempted = false
@@ -3580,7 +3584,9 @@ class ChatViewModel @Inject constructor(
                 }
 
             var debugGenerationAttempt = 0
+            var generationPasses = 0
             do {
+                if (++generationPasses > 1) voicePresynthesis.retry()
                 val debugGenerationId = if (BuildConfig.DEBUG) {
                     "$commandId-g${++debugGenerationAttempt}"
                 } else {
@@ -3651,6 +3657,11 @@ class ChatViewModel @Inject constructor(
                                 terminalToolStartOffset = accumulatedContent.length
                             }
                             accumulatedContent.append(result.text)
+                            voicePresynthesis.onStreamedText(
+                                text = accumulatedContent.toString(),
+                                eligible = pendingVoiceReply && autoSpeakEnabled && !suppressVoiceOutputForCurrentResponse,
+                                toolCalled = kernelAIToolSet.wasToolCalled(),
+                            )
                             _messages.update { msgs ->
                                 msgs.map { msg ->
                                     if (msg.id == assistantMsgId) {
@@ -3684,6 +3695,7 @@ class ChatViewModel @Inject constructor(
                             val shouldCalibrateToolDeclarations = shouldMeasureToolDeclarations
                             if (shouldCalibrateToolDeclarations) shouldMeasureToolDeclarations = false
                             val fullContent = accumulatedContent.toString()
+                            if (kernelAIToolSet.wasToolCalled()) voicePresynthesis.discard()
                             val thinking = accumulatedThinking.toString().takeIf { it.isNotBlank() }
                                 ?: preservedThinkingText
                             kernelAIToolSet.logToolSequence()
@@ -4178,7 +4190,12 @@ class ChatViewModel @Inject constructor(
                     // KV cache was corrupted (model emitted EOS immediately).
                     // Reset conversation so the retry gets a clean cache.
                     // Flag needsHistoryReplay so the next user turn re-injects full context.
-                    if (!resetInferenceConversation("resetConversationBeforeRetry")) return@launch
+                    // Defensive: a hold exists only on pass 1 (retry() disables holding), and this branch is reached
+                    // only after a blank pass 1, which opens none. The discard is a no-op today; keep it so no reset path leaks.
+                    if (!resetInferenceConversation("resetConversationBeforeRetry")) {
+                        voicePresynthesis.discard()
+                        return@launch
+                    }
                     needsHistoryReplay = true
                 }
             } while (needsHallucinationRetry)
@@ -4371,6 +4388,7 @@ class ChatViewModel @Inject constructor(
     private fun stopChatSpeech(reason: SpeechStopReason? = null) {
         assistantSpeechJob?.cancel()
         assistantSpeechJob = null
+        voicePresynthesis.discard()
         if (reason != null) voiceOutputController.stopFor(reason) else voiceOutputController.stop()
     }
 
@@ -4598,6 +4616,7 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        voicePresynthesis.discard()
         awaitingVoicePlaybackCompletion = false
         _voiceMode.value = null
         pendingVoiceReply = false
@@ -4666,6 +4685,7 @@ class ChatViewModel @Inject constructor(
         pendingVoiceReply = false
         _voiceCaptureState.value = VoiceCaptureState.Idle
         if (!shouldSpeak || !autoSpeakEnabled) {
+            voicePresynthesis.discard()
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
@@ -4675,6 +4695,7 @@ class ChatViewModel @Inject constructor(
         // normalised form, so a reply that normalises to nothing is never sent to the chunker.
         val spokenText = spokenOverride?.trim()?.takeIf { it.isNotBlank() } ?: content.trim()
         if (normalizeChatTextForSpeech(spokenText).isBlank()) {
+            voicePresynthesis.discard()
             awaitingVoicePlaybackCompletion = false
             _voiceMode.value = null
             return
@@ -4684,7 +4705,7 @@ class ChatViewModel @Inject constructor(
         assistantSpeechJob?.cancel()
         assistantSpeechJob = viewModelScope.launch {
             val result = try {
-                speakInSentenceChunks(voiceOutputController, spokenText)
+                speakInSentenceChunks(voiceOutputController, spokenText, voicePresynthesis.take())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
