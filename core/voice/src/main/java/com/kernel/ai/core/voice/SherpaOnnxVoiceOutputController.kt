@@ -223,7 +223,16 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
 
     override suspend fun openStreamingSession(
         request: VoiceSpeakRequest,
-    ): VoiceOutputStreamingSession = withContext(Dispatchers.IO) {
+    ): VoiceOutputStreamingSession = openSession(request, held = false)
+
+    override suspend fun openPreSynthesisedSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
+        openSession(request, held = true)
+
+    /**
+     * [held] sessions synthesise their first chunk but play nothing until [VoiceOutputStreamingSession.release]
+     * (#1923). A held session cancelled before release never reaches `markStarted`, so it emits no SpeakingStopped.
+     */
+    private suspend fun openSession(request: VoiceSpeakRequest, held: Boolean): VoiceOutputStreamingSession = withContext(Dispatchers.IO) {
         PronunciationLexicon.ensureLoaded(context)
         val isKokoro =
             voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental
@@ -252,6 +261,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         stopped = true
         clearStreamingPlayback()
         stopped = false
+        val playbackGate = if (held) CompletableDeferred<Boolean>() else null
         val chunks = Channel<StreamingChunk>(Channel.UNLIMITED)
         val outcome = CompletableDeferred<StreamPlaybackOutcome>()
         val worker = scope.launch {
@@ -263,6 +273,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 activeSid = activeSid,
                 isKokoro = isKokoro,
                 outcome = outcome,
+                playbackGate = playbackGate,
             )
         }
         // A worker cancelled before it ran, or one that returned early, still reports an outcome.
@@ -279,6 +290,26 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             private var closed = false
 
             override val playbackOutcome: Deferred<StreamPlaybackOutcome> = outcome
+
+            override suspend fun release(): Boolean {
+                val gate = playbackGate ?: return false
+                if (!isStreamingPlaybackActive(playbackToken)) return false
+                gate.complete(true)
+                return gate.await()
+            }
+
+            override suspend fun cancel() {
+                if (playbackGate == null) {
+                    append("", isFinal = true)
+                    return
+                }
+                // A held reply that was never released plays nothing; its worker's unwind emits no
+                // SpeakingStopped because markStarted never ran. A released reply is stopped like any playback.
+                closed = true
+                synchronized(playbackLock) {
+                    if (activeStreamingPlayback?.token == playbackToken) clearStreamingPlayback()
+                }
+            }
 
             override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
                 if (closed) return VoiceOutputResult.Spoken
@@ -442,6 +473,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         activeSid: Int,
         isKokoro: Boolean,
         outcome: CompletableDeferred<StreamPlaybackOutcome>,
+        playbackGate: CompletableDeferred<Boolean>?,
     ) {
         val tts = ttsInstance ?: return
         val genMethod = generateMethod ?: return
@@ -506,6 +538,8 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                             if (chunk.isFinal) break
                         }
                     } finally {
+                        // A held session that fails to synthesise must not be released into silence.
+                        playbackGate?.complete(false)
                         audioQueue.close()
                     }
                 }
@@ -513,8 +547,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 // ── Playback consumer ─────────────────────────────────────────────────────
                 launch {
                     var stoppedEarly = false
+                    // A held session waits here until release(); completes false when synthesis ended first.
+                    val released = playbackGate?.await() ?: true
                     for (chunk in audioQueue) {
-                        if (stopped || !isStreamingPlaybackActive(playbackToken)) {
+                        if (!released || stopped || !isStreamingPlaybackActive(playbackToken)) {
                             stoppedEarly = true
                             break
                         }
