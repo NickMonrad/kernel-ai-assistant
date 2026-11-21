@@ -2,7 +2,7 @@
 
 Status: research only. No code, model, or asset is added or released by this document.
 Survey date: 2026-11-21. Scope: custom "Hey Jandal" wake word on Android (min SDK 35).
-Companion: the openWakeWord asset review is in PR #2020 (`docs/legal/wakeword-licence-review.md`, pinned upstream `v0.5.1` = `1eec2158c5c54150ac5f4c15065adacb1003b1e7`). The current non-commercial release ships those wake-word assets under CC BY-NC-SA 4.0, per the 21 Nov owner decision (#2017, tracked in #2025; implemented in #2022; see `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`). That decision is not reopened here. This survey (#2021) covers only a future commercial path, where those assets are not usable.
+Companion: the openWakeWord asset review is `docs/legal/wakeword-licence-review.md` (merged in #2020, pinned upstream `v0.5.1` = `1eec2158c5c54150ac5f4c15065adacb1003b1e7`). The current non-commercial release ships those wake-word assets under CC BY-NC-SA 4.0, per the 21 Nov owner decision (#2025; implemented in #2022; see `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`). That decision is not reopened here. This survey (#2021) covers only a future commercial path, where those assets are not usable.
 
 Legend: **[V]** verified from a primary source in this survey. **[I]** `[INFERENCE]`. **[NC]** not checked.
 
