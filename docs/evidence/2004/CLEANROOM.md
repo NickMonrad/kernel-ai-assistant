@@ -335,3 +335,5 @@ encoding tried; the renderer drops it.
   encoder file name must be a plain name; config I/O errors typed; engine range checks overflow-safe;
   buffer read index; PythonBridgeBackend bounded wait; `et_bridge.py` exits after a failed request.
 - The S4 licence copy and the smoke `.pte` are under `core/voice/src/test/resources/asr4all/`; the README there was corrected.
+- Implementer session (review follow-up): inputs read were the asr4all model card, `config.json`, `release_geom.json`, `preprocessor_config.json`, tokenizer files, `benchmarks.json`, `executorch/xnnpack_int8/metadata.json`, the `.pte` I/O shapes observed by the engine tests, and the PR review comments named in the decision record. No FUTO `.py`, no upstream write-ups, and no other agents' worktrees or logs were read.
+- Verification: `:core:voice:testDebugUnitTest --tests 'com.kernel.ai.core.voice.asr4all.*'` passed after rebase onto `237fcd64`; `:app:verifyExecuTorchSingleVersion` and `:app:verifyReleaseAttributionMetadata` passed. Host harness skipped (Python bridge absent).
