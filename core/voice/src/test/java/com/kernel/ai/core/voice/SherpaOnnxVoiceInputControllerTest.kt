@@ -52,6 +52,7 @@ class SherpaOnnxVoiceInputControllerTest {
 
     init {
         every { voiceInputPreferences.selectedEngine } returns selectedEngine
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns true
     }
 
     @AfterEach
@@ -138,6 +139,20 @@ class SherpaOnnxVoiceInputControllerTest {
         ).forEach { engine ->
             selectedEngine.value = engine
             assertEquals(SherpaSttModelSpec.ZIPFORMER, controller.resolveWakeVerifierSpec())
+        }
+    }
+
+    @Test
+    fun `release resolves Whisper for wake verification and never Zipformer, even when Zipformer is installed`() = runTest {
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        createAllStubModelFiles() // Zipformer only; Whisper absent
+        listOf(
+            VoiceInputEngine.SherpaZipformer,
+            VoiceInputEngine.Auto,
+            VoiceInputEngine.SherpaParaformer,
+        ).forEach { engine ->
+            selectedEngine.value = engine
+            assertEquals(SherpaSttModelSpec.WHISPER, controller.resolveWakeVerifierSpec())
         }
     }
 

@@ -79,3 +79,5 @@ scripts/private-battery-runs/
 !scripts/testdata/fixtures/*
 scripts/private-acoustic-fixtures/
 scripts/private-acoustic-runs/
+# asr4all tier measurement: the ExecuTorch lane (EtLane) wraps the private, unlicensed FUTO driver. Never commit it.
+tools/asr4all-tier-measurement/probe/src/et/

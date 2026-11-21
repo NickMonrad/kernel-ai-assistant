@@ -50,20 +50,19 @@ class LegalPrivacySurfaceTest {
     }
 
     @Test
-    fun unresolvedWakeWordAssetsAreMarkedDebugOnly() {
+    fun wakeWordAssetsAreBundledInReleaseWithCcByNcSaStatus() {
         composeRule.setContent {
             MaterialTheme {
                 ModelsVoicesWakeWordScreen(onBack = {})
             }
         }
         composeRule.onNodeWithText("openWakeWord melspectrogram stage").assertExists()
-        // Two wake-word stages (melspectrogram, embedding) share this terms text, so expect both.
-        composeRule.onAllNodesWithText(
-            "Terms for this exported model are unresolved; it is not distributed in v0.1.",
-            substring = true,
-        ).assertCountEquals(2)
-        // All three wake-word entries (melspectrogram, embedding, Hey Jandal) carry this status.
-        composeRule.onAllNodesWithText("Debug-only · excluded from v0.1 release", substring = true).assertCountEquals(3)
+        // The three wake-word entries (melspectrogram, embedding, Hey Jandal) carry this release status.
+        // The screen is a verticalScroll Column (not LazyColumn), so rows below the fold are composed and counted.
+        // Not executed on a device in this PR; compile-checked only.
+        composeRule.onAllNodesWithText("Bundled in release · CC BY-NC-SA 4.0", substring = true).assertCountEquals(3)
+        // Stage 1/2 terms stay flagged as unresolved at file level (PR #2020).
+        composeRule.onAllNodesWithText("file-level terms unresolved", substring = true).assertCountEquals(2)
     }
 
     @Test

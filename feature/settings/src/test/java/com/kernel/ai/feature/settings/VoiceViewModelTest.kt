@@ -477,12 +477,12 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            emptyList<SherpaPiperVoice>(),
+            listOf(SherpaPiperVoice.CoriHigh),
             releaseViewModel.uiState.value.sherpaVoices.map { it.voice },
         )
     }
     @Test
-    fun `release builds expose only Android TTS while debug builds keep Inflect`() = runTest {
+    fun `release builds expose Android TTS and Sherpa while debug builds keep Inflect`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -509,7 +509,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            listOf(VoiceOutputEngine.AndroidTts),
+            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental),
             releaseViewModel.uiState.value.availableOutputEngines,
         )
     }

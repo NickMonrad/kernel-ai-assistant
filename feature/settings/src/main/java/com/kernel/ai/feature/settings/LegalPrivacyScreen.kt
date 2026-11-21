@@ -37,13 +37,19 @@ internal const val PRIVACY_POLICY_URL = "https://nickmonrad.github.io/kernel-ai-
 internal const val TERMS_OF_USE_URL = "https://nickmonrad.github.io/kernel-ai-assistant/terms/"
 private const val NOTICE_ASSET_PATH = "legal/NOTICE.txt"
 private const val FUTO_LICENCE_ASSET_PATH = "legal/FUTO-Model-Weights-License-1.0.txt"
-private val RUNTIME_NOTICES = listOf(
+internal val RUNTIME_NOTICES = listOf(
     "LiteRT 2.1.0 licence" to "litert-2.1.0-licence.txt",
     "LiteRT-LM 0.19.1 third-party notices" to "litert-lm-0.19.1-third-party-notices.txt",
     "Android NDK r28c libc++ licence" to "ndk-r28c-libcxx-licence.txt",
     "Android NDK r28c libc++abi licence" to "ndk-r28c-libcxxabi-licence.txt",
     "ONNX Runtime 1.24.3 licence" to "onnxruntime-1.24.3-licence.txt",
     "ONNX Runtime 1.24.3 third-party notices" to "onnxruntime-1.24.3-third-party-notices.txt",
+    "ExecuTorch 1.5.1 licence" to "executorch-1.5.1-licence.txt",
+    "ExecuTorch 1.5.1 third-party notices" to "executorch-1.5.1-third-party-notices.txt",
+    "fbjni 0.7.0 licence" to "fbjni-0.7.0-licence.txt",
+    "Sherpa-ONNX 1.13.0 Inflect third-party notices" to "sherpa-onnx-1.13.0-inflect-third-party-notices.txt",
+    "openWakeWord 0.5.1 notices" to "openwakeword-0.5.1-notices.txt",
+    "CC BY-NC-SA 4.0 legal code (Hey Jandal and openWakeWord models)" to "cc-by-nc-sa-4.0-legalcode.txt",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
