@@ -28,4 +28,14 @@ tar -xzf third_party/sherpa-onnx/sherpa-onnx-v1.13.0-inflect-source-inputs.tar.g
 
 The inner `SHA256SUMS` covers the packaged source snapshot, patch, build scripts/manifest, and dependency archives. The archive is assembled with sorted paths, normalized timestamps/ownership, and gzip without a timestamp. These checks verify package integrity and unpacking, not an offline AAR rebuild. CMake/NDK toolchain inputs, the ONNX Runtime binary build input, and the stock base AAR are not bundled.
 
+To regenerate the archive byte-for-byte from the extracted contents (GNU tar 1.35, gzip 1.15), run this from the directory that contains `sherpa-onnx-v1.13.0-inflect-source-inputs/`:
+
+```sh
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --format=gnu \
+  -cf - sherpa-onnx-v1.13.0-inflect-source-inputs | gzip -n -6 > sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
+sha256sum sherpa-onnx-v1.13.0-inflect-source-inputs.tar.gz
+```
+
+The last command must print `bd1649beeaa3baaf4eaf7c0a6b8b67e2a6d3c743bb0d96aa49348f61f4b4d645`. `-6` is gzip's default level; `-n` omits the name and timestamp. Levels 1 and 9 produce different digests.
+
 The archive and source metadata do not complete the separate #1474/#1263 requirements for release-specific native-payload reconciliation, voice-pack `espeak-ng-data` provenance, recipient-facing notices/SBOM, final signed-release reconciliation, or legal/release approval. No legal-sufficiency or release-approval claim is made.
