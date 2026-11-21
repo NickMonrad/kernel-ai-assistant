@@ -1,19 +1,23 @@
-# Wake-word model licence review (#2017)
+# Wake-word model licence review (#2021, #2025)
 
-Checked 2026-11-21. Engineering record, not legal advice. Scope: the three wake-word ONNX files in `app/src/main/assets/models/wakeword/`, the Stage 3 training provenance in `training/wakeword/README.md`, and the Whisper ONNX export used by the STT path. Docs only: no code, asset, NOTICE or release change follows from this review.
+Checked 2026-11-21. Engineering record, not legal advice. Scope: the three wake-word ONNX files in `app/src/main/assets/models/wakeword/`, the Stage 3 training provenance in `training/wakeword/README.md`, and the Whisper ONNX export used by the STT path. This review does not itself change code, assets, NOTICE or release configuration. The shipping position is the owner decision on #2025, implemented in #2022.
 
 Pinned upstream: openWakeWord tag `v0.5.1` = commit [`1eec2158c5c54150ac5f4c15065adacb1003b1e7`](https://github.com/dscripka/openWakeWord/commit/1eec2158c5c54150ac5f4c15065adacb1003b1e7) (2023-09-02).
 
 ## Result
 
-| File | Licence position | Verdict |
-|---|---|---|
-| `melspectrogram.onnx` (Stage 1) | No file-level licence. Upstream README's model-licence sentence (CC BY-NC-SA 4.0) literally covers "all of the included pre-trained models". | **unclear** (literal reading: NC-SA, blocks release) |
-| `embedding_model.onnx` (Stage 2) | Upstream says the backbone is Google's `speech_embedding` under Apache-2.0, but also says it was "manually re-implemented". Weight origin is not stated. The same NC-SA sentence applies literally. | **unclear** |
-| `hey_jandal.onnx` (Stage 3) | Jandal-trained. Depends on the frozen Stage 1/2 backbone and on Piper-voice audio whose lineage is non-releasable per `docs/legal/piper-voice-review.md`. Negative-corpus source is not recorded in the README. | **unclear** (blocking in practice) |
-| Whisper `tiny.en` encoder/decoder/tokens (`csukuangfj/sherpa-onnx-whisper-tiny.en`) | Export repo has no licence. OpenAI's code is MIT; OpenAI's HF card for the weights declares Apache-2.0. | **unclear** (likely release-OK with notice once lineage is confirmed) |
+Verdicts assume the non-commercial basis adopted by the owner decision on #2025. Whether Play distribution fits that basis is the owner's call (`docs/RELEASE_ATTRIBUTION_SIGNOFF.md` line 83). "Unclear" below marks commercial-path questions only.
 
-Consistent with the current signoff: all three wake-word assets stay excluded from release (`docs/RELEASE_ATTRIBUTION_SIGNOFF.md` line 45 and line 78). No verdict here changes that.
+| File | Licence position | Verdict (non-commercial basis) |
+|---|---|---|
+| `melspectrogram.onnx` (Stage 1) | No file-level licence. Upstream README's model-licence sentence (CC BY-NC-SA 4.0) literally covers "all of the included pre-trained models". | **Acceptable with CC BY-NC-SA 4.0 notices.** Commercial path: unclear (literal NC-SA reading). |
+| `embedding_model.onnx` (Stage 2) | Upstream says the backbone is Google's `speech_embedding` under Apache-2.0, but also says it was "manually re-implemented". Weight origin is not stated. The same NC-SA sentence applies literally. | **Acceptable with CC BY-NC-SA 4.0 notices.** Commercial path: unclear (Google Apache-2.0 claim not verified; weight origin unstated). |
+| `hey_jandal.onnx` (Stage 3) | Jandal-trained on frozen Stage 1/2 outputs. Positives include Piper-voice audio from 11 voices that are not named in the README. Negative-corpus source is not recorded in the README. | **Acceptable with CC BY-NC-SA 4.0 notices.** Commercial path: unclear (grey-area lineage risks, below). |
+| Whisper `tiny.en` encoder/decoder/tokens (`csukuangfj/sherpa-onnx-whisper-tiny.en`) | Export repo has no licence. OpenAI's code is MIT; OpenAI's HF card for the weights declares Apache-2.0. The owner accepted this attribution basis (#2025). | **Acceptable with MIT (code) / Apache-2.0 (weights card) attribution.** Commercial path: export lineage not stated for these exact files. |
+
+## Current position
+
+Per the owner decision on #2025 (21 Nov), the openWakeWord Stage 1/2 files and `hey_jandal.onnx` ship in release builds under CC BY-NC-SA 4.0, with attribution, licence text and NC/SA terms (implemented in #2022). The Whisper tiny.en verifier ships with attribution to OpenAI (MIT code; Apache-2.0 weights card). The signoff records this at `docs/RELEASE_ATTRIBUTION_SIGNOFF.md` lines 16, 45 and 83. Every "unclear" verdict in this document applies only to a future commercial path, which is not decided here.
 
 ## Repo files and hashes
 
@@ -37,7 +41,7 @@ The GitHub release API reports `digest: null` for these assets; the hashes above
 - Upstream ships it as a release asset next to the wake-word heads (`v0.5.1` release, [assets list](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1)). [INFERENCE] The file is "included" in the literal sense.
 - [INFERENCE] The stated reason for NC-SA ("datasets with unknown or restrictive licensing as part of the training data") does not obviously apply to a fixed-parameter DSP filterbank export that has no trained weights. The maintainer has not said so.
 
-Verdict: **unclear**. Literal reading of line 242 is CC BY-NC-SA 4.0, which would block a commercial release. Resolution:
+Verdict: **acceptable with CC BY-NC-SA 4.0 notices** on the non-commercial basis. Literal reading of line 242 is CC BY-NC-SA 4.0 for this file, so the commercial path stays open. Commercial-path resolution (not required for the current basis):
 - Written file-level statement from the upstream maintainer (dscripka) on the licence of `melspectrogram.onnx`, citing the v0.5.1 hash above; or
 - Replace with a fixed filterbank export whose spec and licence are documented upstream of any NC data, with a parity test against the current model output (the repo already has `parity_reference.json` and `generate_parity_reference.py` for this path). Replacement needs the same output to within the existing parity tolerance.
 
@@ -49,7 +53,7 @@ Verdict: **unclear**. Literal reading of line 242 is CC BY-NC-SA 4.0, which woul
 - Google primary source: `https://tfhub.dev/google/speech_embedding/1` returns 404 and redirects to Kaggle, [`https://www.kaggle.com/models/google/speech-embedding`](https://www.kaggle.com/models/google/speech-embedding). The Kaggle page is JavaScript-rendered and the licence field could not be read with the tools available here, so the Apache-2.0 claim is **not verified from Google's page**. The only support found is the openWakeWord README and the PyPI description (`https://pypi.org/project/openwakeword/`), both secondary.
 - Line 242 (quoted above) applies literally to this file as well.
 
-Verdict: **unclear**. Resolution:
+Verdict: **acceptable with CC BY-NC-SA 4.0 notices** on the non-commercial basis. Commercial-path resolution (not required for the current basis):
 - Capture the licence field from the Kaggle (or TF Hub) model page for `google/speech-embedding` at a recorded date, using a browser or authenticated Kaggle API. Record the URL and the licence text.
 - Written statement from dscripka on whether `embedding_model.onnx` weights are ported from Google's module or retrained, and on what data. If ported, Google's Apache-2.0 terms (with NOTICE obligations) plausibly apply to the weights. [INFERENCE] Line 242 would still need a file-level answer, because the upstream README says the pre-trained models are NC-SA as a whole.
 
@@ -60,21 +64,21 @@ Verdict: **unclear**. Resolution:
   - Lines 34–36: 954 positive clips: 174 from real recordings (29 originals, augmented), and 780 "from Piper TTS across 11 voices and 13 phonetic variants". The 11 voices are not named.
   - Lines 83–86: outputs `hey_jandal.onnx`, `melspectrogram.onnx`, `embedding_model.onnx`.
 - `training/train.py` (tracked), [lines 293–330](../../training/train.py):
-  - Negatives: first choice is `openwakeword_features_ACAV100M_2000_hrs_16bit.npy`, read from a path in the working directory or from a hard-coded maintainer path (`/home/lokhor/Documents/...`). This file is not tracked. Fallback is `openwakeword.utils.get_negative_clips`. The README does not name the negative corpus.
+  - Negatives: first choice is `openwakeword_features_ACAV100M_2000_hrs_16bit.npy`, read from a path in the working directory or from a hard-coded local maintainer path. This file is not tracked. Fallback is `openwakeword.utils.get_negative_clips`. The README does not name the negative corpus.
   - Positives and negatives are embedded through the same Stage 2 backbone (`compute_embeddings`).
 - `training/wakeword/generate_hey_jandal.py` (tracked), lines 1–12: voice-clones the maintainer's reference clip with Qwen3-TTS-12Hz-1.7B-Base. The README does not say whether its outputs are in the 954-clip set. [INFERENCE] They probably are not, but this is not recorded. The Qwen3-TTS model card on Hugging Face declares `apache-2.0` (`https://huggingface.co/api/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base`, sha `fd4b2543…`).
-- Real-recording consent is stated in `app/src/main/assets/legal/NOTICE.txt` lines 72–73 ("consented maintainer/spouse recordings and Piper-generated synthetic clips").
-- Piper voices: `docs/legal/piper-voice-review.md` finds that the Sherpa-packaged Piper voices are Lessac- or Ryan-derived and not releasable as downloaded. The 11 voices used for the 780 clips are not recorded, so their lineage cannot be checked.
+- Real-recording consent is recorded in `app/src/main/assets/legal/NOTICE.txt`.
+- Piper voices: `docs/legal/piper-voice-review.md` finds that the Sherpa-packaged Piper voices are Lessac- or Ryan-derived and not releasable as downloaded. The 11 voices used for the 780 clips are not identified, so their lineage cannot be checked.
 
-Verdict: **unclear** (blocking in practice). Reasons, each [INFERENCE] where marked:
-1. Audio from unidentified Piper voices, some of which may be Lessac/Ryan-derived, is in the positive set.
-2. The classifier is trained on embeddings from the frozen Stage 2 backbone (item 2 above). [INFERENCE] Whether the upstream NC-SA sentence reaches a classifier trained on top of it is a legal question not answered upstream.
+Verdict: **acceptable with CC BY-NC-SA 4.0 notices** on the non-commercial basis. Grey-area risks for the commercial path, each stated lightly rather than as a finding:
+1. The positive set includes audio from 11 unnamed Piper voices. Some Sherpa-packaged Piper voices are Lessac/Ryan-derived. Whether a trained classifier inherits that lineage is a grey area, not an established fact, and the 11 voices are not checked.
+2. The classifier is trained on embeddings from the frozen Stage 2 backbone (item 2 above). Whether the upstream NC-SA sentence reaches a classifier trained on top of it is not answered upstream. ShareAlike is addressed by offering `hey_jandal.onnx` under CC BY-NC-SA 4.0 (`docs/RELEASE_ATTRIBUTION_SIGNOFF.md` line 45).
 3. The negative corpus source (ACAV100M features or `get_negative_clips`) is not recorded and its licence was not checked.
 
-Resolution:
-- Name the 11 Piper voices and the negative corpus in `training/wakeword/README.md`, with per-voice licence records from `docs/legal/piper-voice-review.md`.
+Commercial-path resolution (not required for the current basis):
+- The #1669 retrain (OpenWakeWord V5) will use licence-clean voices only: the owner voice cloned via Qwen3-TTS, Cori, Inflect, retrained Piper voices, Qwen3-TTS designed voices, and LibriTTS-R clones. Record each voice's licence record from `docs/legal/piper-voice-review.md` or its own source.
+- Name the negative corpus in `training/wakeword/README.md`.
 - Record whether any Qwen3-TTS clips are in the training set.
-- Resolve item 2 with the upstream maintainer's answer on file 1 and 2, or retrain Stage 3 only on releasable audio over a releasable backbone.
 
 ### 4. Whisper `tiny.en` ONNX export (STT path)
 
@@ -84,7 +88,7 @@ Resolution:
 - OpenAI weights: HF card for [`openai/whisper-tiny.en`](https://huggingface.co/openai/whisper-tiny.en), revision `87c7102498dcde7456f24cfd30239ca606ed9063`, front matter line 45: `license: apache-2.0`. **The MIT licence covers the code; the published weight card says Apache-2.0.** The issue's premise that Whisper is MIT is correct for code only.
 - Export lineage: [sherpa-onnx Whisper export recipe](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/whisper/export-onnx.html), as cited in the signoff. sherpa-onnx code is Apache-2.0 (GitHub licence API `spdx_id: Apache-2.0`). This establishes lineage, not an express grant for the exported files.
 
-Verdict: **unclear**. [INFERENCE] The upstream weights are declared Apache-2.0 at source, so an ONNX conversion of them is likely release-OK with notice. That needs the export's lineage to be stated for these exact files. Resolution:
+Verdict: **acceptable with MIT (code) / Apache-2.0 (weights card) attribution.** The owner has accepted this attribution basis (#2025). [INFERENCE] The upstream weights are declared Apache-2.0 at source, so an ONNX conversion of them is likely covered by that notice. Optional hardening, not required for the current basis:
 - A written statement from csukuangfj (or a LICENSE/notice added to the export repo) that the exported files are derived from `openai/whisper-tiny.en` under Apache-2.0; or
 - Re-export locally from `openai/whisper-tiny.en` at the pinned revision with the recorded export recipe, and ship the Apache-2.0 notice (plus OpenAI's attribution) in `NOTICE`.
 
@@ -98,6 +102,7 @@ Verdict: **unclear**. [INFERENCE] The upstream weights are declared Apache-2.0 a
 - csukuangfj Whisper export: https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/tree/d026532c022fa99fd789d6b32446a1df7b6bfc43.
 - OpenAI Whisper code: https://github.com/openai/whisper/blob/main/LICENSE. OpenAI weights card: https://huggingface.co/openai/whisper-tiny.en (rev `87c7102498dcde7456f24cfd30239ca606ed9063`).
 - Repo: `training/wakeword/README.md`, `training/train.py`, `training/wakeword/generate_hey_jandal.py`, `docs/RELEASE_ATTRIBUTION_SIGNOFF.md`, `docs/legal/piper-voice-review.md`, `app/src/main/assets/legal/NOTICE.txt`.
+- Issues: #2025 (owner decision, closed), #2021 (licence clarification and commercial-safe alternatives, open), #1669 (Hey Jandal retrain, open).
 
 ## Not checked
 
