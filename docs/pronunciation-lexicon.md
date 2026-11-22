@@ -75,3 +75,18 @@ Not in the lexicon: Ōtaki, Waikanae, Hāwera, Rotorua (not clearly wrong, not l
 Hotwords for the Zipformer STT were investigated (#1852) and are not enabled in this PR. The
 conclusion and the blocker are recorded at the `createStream` call in
 `SherpaOnnxVoiceInputController.kt`, and a follow-up issue tracks enabling them.
+
+## STT glossary (#2063)
+
+The reverse direction lives in `core/voice/src/lexicon/assets/stt_glossary.json` and `SttGlossary`. It
+corrects known recogniser mis-hearings of NZ place names, Māori words and "Jandal" after every engine
+returns a final or partial transcript. `SelectableVoiceInputController` applies it once, so Android
+native, Sherpa and asr4all all get the same correction.
+
+- Entries are `{correct, wrong[]}`. Add a wrong form only when it is unambiguous: never a common English
+  word (for example "gal", "gender", "gentle", "in", "set").
+- Matching is whole-word, case-insensitive and macron-insensitive, using `PronunciationLexicon.fold`.
+  Any whitespace between the words of a wrong form matches.
+- Each final logs `STT glossary raw="…" corrected="…"` under `SelectableVoiceInput`. The diagnostics
+  redactor drops everything from the first quote, so the text stays out of exports.
+- Only the text changes. Engine state, the journal and the wake path are unaffected.

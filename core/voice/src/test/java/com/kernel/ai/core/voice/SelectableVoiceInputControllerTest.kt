@@ -93,12 +93,13 @@ class SelectableVoiceInputControllerTest {
         Dispatchers.resetMain()
     }
 
-    private fun controller() = SelectableVoiceInputController(
+    private fun controller(glossary: SttGlossary = SttGlossary.fromJson("""{"entries":[]}""")) = SelectableVoiceInputController(
         voiceInputPreferences = voiceInputPreferences,
         nativeAndroidVoiceInputController = nativeAndroidVoiceInputController,
         sherpaOnnxVoiceInputController = sherpaOnnxVoiceInputController,
         asr4allVoiceInputController = asr4allVoiceInputController,
         androidNativeRecognitionSupport = recognitionSupport,
+        sttGlossary = glossary,
     )
 
     private fun selectEngine(engine: VoiceInputEngine) {
@@ -1595,5 +1596,59 @@ class SelectableVoiceInputControllerTest {
         assertTrue(start.await() is VoiceInputStartResult.Cancelled)
         prewarm.await()
         assertEquals(false, prewarmAdmitted)
+    }
+
+    @Test
+    fun `partial and final transcripts are glossary-corrected before they reach consumers`() = runTest {
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        val glossary = SttGlossary.fromJson(java.io.File("src/lexicon/assets/stt_glossary.json").readText())
+        val c = controller(glossary)
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+        nativeEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
+        nativeEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "todang", 1L))
+        nativeEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L))
+        nativeEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "gender", 1L))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "Tauranga", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Kia ora Jandal", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "gender", 1L)))
+        assertFalse(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L)))
+    }
+
+    @Test
+    fun `a throwing glossary still delivers the raw transcript and keeps later events flowing`() = runTest {
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        val glossary = mockk<SttGlossary>()
+        every { glossary.apply(any()) } throws IllegalStateException("glossary boom")
+        val c = controller(glossary)
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+        nativeEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
+        nativeEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "todang", 1L))
+        nativeEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L))
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "todang", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L)))
     }
 }
