@@ -32,7 +32,6 @@ class VoiceInputEngineTest {
         }
     }
 
-
     @Test
     fun `provisioner downloads asr4all only for engines that use it`() {
         assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Auto))
@@ -40,7 +39,6 @@ class VoiceInputEngineTest {
         assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaParaformer))
         assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.AndroidNative))
     }
-
 
     @Test
     fun `legacy Vosk cleanup only targets voice folders holding the Vosk model`(@TempDir tmp: File) {

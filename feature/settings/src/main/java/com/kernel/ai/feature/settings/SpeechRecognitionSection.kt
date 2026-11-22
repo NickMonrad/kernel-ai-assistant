@@ -60,6 +60,17 @@ import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 internal fun speechEngineTestTag(engine: VoiceInputEngine): String = "speech_engine_${engine.name}"
 
 /**
+ * Automatic's card note while the offline asr4all model is not on disk and not downloading: Automatic cannot use
+ * it until it is downloaded from the asr4all row. Null when it is downloaded, downloading, or its state is unknown (#2051).
+ */
+internal fun automaticOfflineModelNote(asr4all: SherpaSttDownloadState?): String? =
+    if (asr4all != null && !asr4all.isDownloaded && !asr4all.isDownloading) {
+        "The offline speech model isn't downloaded yet. Download it in asr4all streaming below."
+    } else {
+        null
+    }
+
+/**
  * Settings › Voice "Speech recognition" section (#1937). Stateless apart from the More sheet, so previews
  * and tests can drive it. The online switch and the Sherpa download card sit inside their engine's card.
  */
@@ -105,9 +116,14 @@ internal fun SpeechRecognitionSection(
                     null
                 }
                 val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
+                val automaticNote = if (engine == VoiceInputEngine.Auto) {
+                    automaticOfflineModelNote(uiState.sherpaSttStates[VoiceInputEngine.Asr4all])
+                } else {
+                    null
+                }
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
                 val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
-                val hasSub = nativeWarning != null || engineWarning != null || showOnline || showDownloadCard
+                val hasSub = nativeWarning != null || engineWarning != null || automaticNote != null || showOnline || showDownloadCard
                 val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
                 } else if (sttState != null && engine.hasDownloadableModel) {
@@ -137,6 +153,13 @@ internal fun SpeechRecognitionSection(
                         if (engineWarning != null) {
                             Text(
                                 text = engineWarning,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (automaticNote != null) {
+                            Text(
+                                text = automaticNote,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -53,6 +53,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceNotice
@@ -1943,6 +1944,33 @@ class ChatViewModelVoiceTest {
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
+    @Test
+    fun `silent chat capture is not retried and shows no speech heard`() = runTest(dispatcher) {
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
+            }
+        }
+        // asr4all silence is not a recognizer failure: the category stops the silent retry (#2051).
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        errorState.await()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
 
     @Test
     fun `stop phrase in back-and-forth loop ends the session without submitting a message`() = runTest(dispatcher) {

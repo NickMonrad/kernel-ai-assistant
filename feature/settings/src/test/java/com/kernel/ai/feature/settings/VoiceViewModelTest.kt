@@ -243,7 +243,6 @@ class VoiceViewModelTest {
         assertTrue(viewModel.uiState.value.autoStartAlertVoiceCommandsEnabled)
     }
 
-
     @Test
     fun `spoken responses default to enabled when preference flow emits true`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
@@ -432,7 +431,6 @@ class VoiceViewModelTest {
         assertEquals(false, viewModel.uiState.value.autoStartAlertVoiceCommandsEnabled)
         coVerify { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(false) }
     }
-
 
     @Test
     fun `setSpokenResponsesEnabled updates ui state immediately`() = runTest {
@@ -647,7 +645,6 @@ class VoiceViewModelTest {
         assertFalse(viewModel.uiState.value.isInflectMicroReady)
     }
 
-
     @Test
     fun `setVoiceOutputEngine updates ui state immediately`() = runTest {
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.SherpaExperimental)
@@ -659,7 +656,6 @@ class VoiceViewModelTest {
         )
         coVerify { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
     }
-
 
     @Test
     fun `setVoiceOutputEngine accepts Inflect before prerequisites and starts no downloads`() = runTest {
@@ -1001,8 +997,6 @@ class VoiceViewModelTest {
         io.mockk.verify { sherpaVoicePackDownloadManager.deleteVoice(SherpaPiperVoice.NorthernEnglishMale) }
     }
 
-
-
     @Test
     fun `downloadInflectMicro starts each missing graph and frontend exactly once`() = runTest {
         viewModel.downloadInflectMicro()
@@ -1147,7 +1141,6 @@ class VoiceViewModelTest {
         assertEquals(false, viewModel.uiState.value.heyJandalEnabled)
         coVerify { wakeWordPreferences.setHeyJandalEnabled(false) }
     }
-
 
     // ── Hey Jandal mic readiness enforcement ─────────────────────────────
 

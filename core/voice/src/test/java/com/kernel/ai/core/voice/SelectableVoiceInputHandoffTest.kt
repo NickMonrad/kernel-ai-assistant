@@ -222,7 +222,7 @@ class SelectableVoiceInputHandoffTest {
     }
 
     @Test
-    fun `release native failure is surfaced without a Sherpa hand-off`() = runTest(dispatcher) {
+    fun `release native failure is surfaced without an asr4all hand-off`() = runTest(dispatcher) {
         every { voiceInputPreferences.allowsSherpaRuntime() } returns false
         val c = controller()
         val seen = eventsOf(c)
@@ -826,7 +826,6 @@ class SelectableVoiceInputHandoffTest {
             asr4allStartsAs(3L)
 
             assertEquals(VoiceInputStartResult.Started(3L), c.startListening(mode))
-            asr4allEvents.emit(VoiceInputEvent.ListeningStarted(mode, 3L))
             // UnconfinedTestDispatcher queues each collector hop (asr4all -> pipeline -> seen);
             // suspending lets the queued hops run before the snapshot is read.
             repeat(3) { yield() }

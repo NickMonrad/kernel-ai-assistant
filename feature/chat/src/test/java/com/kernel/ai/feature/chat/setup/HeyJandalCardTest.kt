@@ -174,7 +174,6 @@ class HeyJandalCardTest {
         assertTrue(c.caveat!!.endsWith("download. Uses a little battery."))
     }
 
-
     @Test
     fun `the default assistant never blocks Hey Jandal`() {
         val noRole = ready.copy(assistantRoleAvailable = false, assistantRoleHeld = false)
