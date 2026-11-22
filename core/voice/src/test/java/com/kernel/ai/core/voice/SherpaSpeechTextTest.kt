@@ -34,7 +34,7 @@ class SherpaSpeechTextTest {
             "It costs $345                               | It costs three hundred and forty five dollars.",
             "About 50% done                              | About 50% done.",
             "Version 2.14.1                              | Version 2.14.1.",
-            "See https://example.com/page-2              | See https://example.com/page-2.",
+            "See https://example.com/page-2 for details   | See for details.",
             "Takes 5-10 minutes                          | Takes five to ten minutes.",
             "It takes 5–10 minutes                       | It takes five to ten minutes.",
             "Open 9–5                                    | Open nine to five.",

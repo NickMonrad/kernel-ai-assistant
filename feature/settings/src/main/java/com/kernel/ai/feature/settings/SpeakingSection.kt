@@ -38,6 +38,7 @@ import com.kernel.ai.core.ui.InfoTag
 import com.kernel.ai.core.ui.InfoTagStyle
 import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.StatusChip
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -173,6 +174,7 @@ internal fun SpeakingSection(
                                 null
                             },
                             subContent = {
+                                TermsOfUseLinkWithSheet()
                                 if (sherpaSelected) {
                                     when (downloadState) {
                                         is VoicePackDownloadState.NotDownloaded -> Button(
@@ -291,6 +293,7 @@ internal fun SpeakingSection(
                                 else -> null
                             },
                             subContent = {
+                                TermsOfUseLinkWithSheet()
                                 when {
                                     state is ModelAvailabilityState.Preparing -> OutlinedButton(
                                         onClick = onCancelInflectMicro,
@@ -340,6 +343,7 @@ internal fun SpeakingSection(
                             tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
                             extraLine = downloadStatusLine(downloadState),
                             subContent = {
+                                TermsOfUseLinkWithSheet()
                                 if (kokoroSelected) {
                                     when (downloadState) {
                                         is VoicePackDownloadState.NotDownloaded -> Button(

@@ -12,6 +12,9 @@ import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.inference.terms.TERMS_VERSION
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -58,6 +61,7 @@ class SetupWizardViewModelTest {
     private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner = mockk(relaxed = true)
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val platformReader: MakeYoursPlatformReader = mockk(relaxed = true)
+    private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
@@ -86,6 +90,7 @@ class SetupWizardViewModelTest {
             assistantRoleAvailable = true,
             assistantRoleHeld = true,
         )
+        every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord(acceptedVersion = TERMS_VERSION))
         device(nativeReady = true, hasTts = true, tier = HardwareTier.FLAGSHIP)
     }
 
@@ -125,6 +130,7 @@ class SetupWizardViewModelTest {
             voiceDefaultsProvisioner = voiceDefaultsProvisioner,
             wakeWordPreferences = wakeWordPreferences,
             platformReader = platformReader,
+            termsAcceptancePreferences = termsAcceptancePreferences,
             savedStateHandle = handle,
         )
 
@@ -148,7 +154,9 @@ class SetupWizardViewModelTest {
     fun `skipping with no saved choice saves Wi-Fi only so models still download`() {
         var done = false
 
-        viewModel().onSkip { done = true }
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onSkip { done = true }
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) { downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY) }
@@ -160,7 +168,9 @@ class SetupWizardViewModelTest {
     fun `skipping keeps an explicit earlier download choice`() {
         every { downloadNetworkPreferences.choice } returns flowOf(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
 
-        viewModel().onSkip {}
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onSkip {}
         dispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(any()) }
@@ -949,5 +959,44 @@ class SetupWizardViewModelTest {
         val restored = viewModel(handle)
         dispatcher.scheduler.advanceUntilIdle()
         assertTrue(restored.uiState.value.notificationsAsked)
+    }
+
+    @Test
+    fun `without accepted terms the wizard resumes at Welcome and Continue does nothing`() {
+        every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord())
+        every { setupWizardPreferences.progress } returns flowOf(
+            SetupWizardProgress(decided = true, completed = false, step = SetupStep.DOWNLOAD),
+        )
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.uiState.value.termsAccepted)
+        assertEquals(SetupStep.HOW_IT_WORKS, vm.uiState.value.step)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(SetupStep.HOW_IT_WORKS, vm.uiState.value.step)
+    }
+
+    @Test
+    fun `skipping without accepted terms does nothing`() {
+        every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord())
+        var done = false
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onSkip { done = true }
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(done)
+        coVerify(exactly = 0) { setupWizardPreferences.markCompleted() }
+        coVerify(exactly = 0) { downloadNetworkPreferences.setChoice(DownloadNetworkChoice.WIFI_ONLY) }
+    }
+
+    @Test
+    fun `ticking the terms stores the acceptance for the current version`() {
+        every { termsAcceptancePreferences.record } returns flowOf(TermsAcceptanceRecord())
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onTermsAcceptedChanged(true)
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.termsAccepted)
+        coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, any()) }
     }
 }
