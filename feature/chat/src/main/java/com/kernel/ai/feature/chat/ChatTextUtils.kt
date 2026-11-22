@@ -528,6 +528,37 @@ internal fun containsExplicitToolActionVerb(query: String): Boolean {
 }
 
 /**
+ * Weather wording that routes to get_weather when the phrase classifier has no best guess (cold start).
+ *
+ * Three tiers keep knowledge, music, idiom and creative uses of the same words non-tool:
+ * - [WEATHER_STRONG_REGEX]: "weather" or "forecast" in a weather frame. "under the weather",
+ *   "weather the storm" and "sales forecast" do not count.
+ * - [WEATHER_FRAME_REGEX]: "will/is/was it rain|snow|sunny|hotter|...".
+ * - [WEATHER_AMBIGUOUS_REGEX] (rain, snow, temperature, umbrella, the wind, ...) counts only with a
+ *   time anchor ([WEATHER_TIME_ANCHOR_REGEX]). Without one, "Purple Rain", "Snow White" and
+ *   "cooking temperature" stay non-tool.
+ *
+ * Input is lowercased by the caller. Word-bounded ICU-safe constructs only (see #1968).
+ */
+private val WEATHER_STRONG_REGEX = Regex(
+    """\b(?<!under the )weather\b(?!\s+(?:the|out)\s+(?:storm|crisis|challenges?|bad|rough|tough|hard|tricky|difficult)\b)|\bforecast\s+(?=(?:for|in|at|on|tomorrow|today|tonight|this|next|over)\b)""",
+)
+private val WEATHER_FRAME_REGEX = Regex(
+    """\b(?:will|is|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:rain|raining|snow|snowing|sunny|windy|humid|hotter|colder)\b""",
+)
+private val WEATHER_AMBIGUOUS_REGEX = Regex(
+    """\b(?:rain(?:y|ing|fall)?|snow(?:y|ing)?|temperature|hotter|colder|umbrella|humidity|sunny|windy|wind\s+(?:speed|chill|gusts?)|the\s+wind)\b""",
+)
+private val WEATHER_TIME_ANCHOR_REGEX = Regex(
+    """\b(?:today|tomorrow|tonight|this\s+(?:week|weekend|morning|afternoon|evening)|right\s+now|later|outside)\b""",
+)
+
+private fun looksLikeWeatherQuery(lower: String): Boolean =
+    WEATHER_STRONG_REGEX.containsMatchIn(lower) ||
+        WEATHER_FRAME_REGEX.containsMatchIn(lower) ||
+        (WEATHER_AMBIGUOUS_REGEX.containsMatchIn(lower) && WEATHER_TIME_ANCHOR_REGEX.containsMatchIn(lower))
+
+/**
  * Returns true if [query] looks like it involves a device-native tool action
  * (alarm, list, toggle, memory, etc.) rather than a pure LLM question.
  */
@@ -537,6 +568,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
     val hasRememberAction = !isRecallQuestion && REMEMBER_ACTION_REGEX.containsMatchIn(lower)
     val hasCallAction =
         !NEGATED_CALL_REGEX.containsMatchIn(lower) && CALL_ACTION_REGEX.containsMatchIn(lower)
+    val hasWeatherTerm = !isRecallQuestion && looksLikeWeatherQuery(lower)
     val toolKeywords = listOf(
         "save", "note that", "don't forget", "store",
         "add to", "put on", "put in", "add .+ to .+ list",
@@ -565,7 +597,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "\\bwant\\s+to\\s+hear\\b",
         "\\bwant\\s+some\\s+music\\b",
     )
-    return hasRememberAction || hasCallAction || toolKeywords.any { keyword ->
+    return hasRememberAction || hasCallAction || hasWeatherTerm || toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {
             Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
         } else {
