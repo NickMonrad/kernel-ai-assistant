@@ -20,7 +20,7 @@ class SpeakableCardTextTest {
             "☀️ Oakland — Clear sky / 🌡 Today ; Oakland, Clear sky, Today",
             "Mostly sunny ☀️ ; Mostly sunny",
             "Clock 8:31 and 14/03 stay ; Clock 8:31 and 14/03 stay",
-            "See https://example.com/page-2 ; See https://example.com/page-2",
+            "See https://example.com/page-2 for details ; See for details",
             "Note: it's late ; Note: it's late",
             "Shipping → Auckland ; Shipping to Auckland",
             "H:17°F / L:9°F ; high 17 Fahrenheit, low 9 Fahrenheit",
@@ -34,5 +34,14 @@ class SpeakableCardTextTest {
     fun `line breaks after clause punctuation do not double the full stop`() {
         assertEquals("Done. Next", SpeechCardText.speakable("Done.\nNext"))
         assertEquals("list: - milk", SpeechCardText.speakable("list:\n- milk"))
+    }
+
+    @Test
+    fun `wikipedia read-more link and its title are not spoken`() {
+        assertEquals(
+            "Kiwi are flightless birds.",
+            SpeechCardText.speakable("Kiwi are flightless birds.\n\nRead more: https://en.wikipedia.org/wiki/Kiwi_(bird)"),
+        )
+        assertEquals("Kiwi (bird) is a bird.", SpeechCardText.speakable("Kiwi_(bird) is a bird."))
     }
 }
