@@ -8,6 +8,7 @@ import dagger.Lazy
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.slot
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
@@ -169,6 +170,54 @@ class KernelAIToolSetTest {
         assertTrue(toolSet.wasToolCalled())
         assertTrue(toolSet.lastToolWasDirectReply())
         assertEquals("get_weather", toolSet.lastToolName())
+    }
+
+    private fun weatherArgsSentFor(userMessage: String, modelForecastDays: String): Map<String, String> {
+        val skill = mockk<Skill>()
+        val sent = slot<SkillCall>()
+        every { skill.name } returns "get_weather"
+        coEvery { skill.execute(capture(sent)) } returns SkillResult.DirectReply("Sunny, 22C")
+        every { registry.get("get_weather_gps") } returns skill
+
+        toolSet.resetTurnState(userMessage = userMessage)
+        toolSet.getWeather("Apia", modelForecastDays)
+        return sent.captured.arguments
+    }
+
+    @Test
+    fun `getWeather asks for today and tomorrow when the turn compares tomorrow with today`() {
+        assertEquals(
+            mapOf("location" to "Apia", "forecast_days" to "2"),
+            weatherArgsSentFor("Will it be hotter in Apia tomorrow than today", modelForecastDays = "1"),
+        )
+    }
+
+    @Test
+    fun `getWeather asks for tomorrow alone with day=tomorrow and no forecast_days`() {
+        assertEquals(
+            mapOf("location" to "Apia", "day" to "tomorrow"),
+            weatherArgsSentFor("What is the weather in Apia tomorrow", modelForecastDays = "1"),
+        )
+    }
+
+    @Test
+    fun `getWeather matches tomorrow and today case-insensitively on whole words only`() {
+        assertEquals(
+            mapOf("location" to "Apia", "day" to "tomorrow"),
+            weatherArgsSentFor("WEATHER IN APIA TOMORROW?", modelForecastDays = "0"),
+        )
+        assertEquals(
+            mapOf("location" to "Apia", "forecast_days" to "1"),
+            weatherArgsSentFor("Is Tomorrowland weather in Apia good today", modelForecastDays = "1"),
+        )
+    }
+
+    @Test
+    fun `getWeather keeps an explicit multi-day model request over the turn window`() {
+        assertEquals(
+            mapOf("location" to "Apia", "forecast_days" to "5"),
+            weatherArgsSentFor("Weather in Apia tomorrow", modelForecastDays = "5"),
+        )
     }
 
     @Test

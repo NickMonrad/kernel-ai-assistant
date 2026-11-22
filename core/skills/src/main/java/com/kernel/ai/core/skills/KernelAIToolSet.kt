@@ -32,6 +32,11 @@ data class LocalToolCallDiagnostic(
     val toolResult: Map<String, String>? = null,
     val succeeded: Boolean? = null,
     val directReply: Boolean? = null,
+    /**
+     * Set when the @Tool method returned this map to the LiteRT tool manager (DirectReply included).
+     * The send can still be dropped after that point, for example by stream cancellation, so this is
+     * not proof the model received the result. false only for a load_skill result withheld by the budget.
+     */
     val deliveredToModel: Boolean? = null,
 )
 
@@ -187,6 +192,8 @@ class KernelAIToolSet @Inject constructor(
         /** The single non-terminal internal-only tool name. */
         private const val LOAD_SKILL_NAME = "load_skill"
         private val SAFE_IDENTIFIER_ARG = Regex("\"(skill_name|intent_name)\":\"([^\"]*)\"")
+        private val TOMORROW_WORD = Regex("\\btomorrow\\b", RegexOption.IGNORE_CASE)
+        private val TODAY_WORD = Regex("\\btoday\\b", RegexOption.IGNORE_CASE)
         // E4B sometimes omits "stop" when naming the stopwatch status action.
         private val RUN_INTENT_NAME_ALIASES =
             mapOf("getwatchstatus" to "get_stopwatch_status")
@@ -786,14 +793,30 @@ class KernelAIToolSet @Inject constructor(
         if (location.isNotBlank()) {
             args["location"] = location
         }
-        if (forecastDays.isNotBlank() && forecastDays != "0") {
-            args["forecast_days"] = forecastDays
-        }
+        args.putAll(forecastWindowArgs(forecastDays, turnUserMessage))
 
         val result = executeSkill("get_weather_gps", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_weather")
         return result
+    }
+
+    /**
+     * Forecast window for get_weather_gps, decided from the user's turn rather than the model (#2033).
+     * A model forecastDays of 3 or more is an explicit multi-day request and is kept. Otherwise "tomorrow"
+     * with "today" gives forecast_days=2 (today and tomorrow), and "tomorrow" alone gives day=tomorrow
+     * (one row, the same request the QuickIntentRouter path sends).
+     */
+    private fun forecastWindowArgs(modelForecastDays: String, userMessage: String?): Map<String, String> {
+        val message = userMessage.orEmpty()
+        val modelDays = modelForecastDays.trim().toIntOrNull() ?: 0
+        val asksTomorrow = TOMORROW_WORD.containsMatchIn(message) && modelDays < 3
+        return when {
+            asksTomorrow && TODAY_WORD.containsMatchIn(message) -> mapOf("forecast_days" to "2")
+            asksTomorrow -> mapOf("day" to "tomorrow")
+            modelForecastDays.isNotBlank() && modelForecastDays != "0" -> mapOf("forecast_days" to modelForecastDays)
+            else -> emptyMap()
+        }
     }
 
     @Tool(description = "Look up a named person, place, organisation, event, or other encyclopedia topic on Wikipedia. Use ONLY for explicit Wikipedia searches or fact lookups about a specific named entity. NOT for unit, measurement, or cooking conversions (cups, grams, ml, tbsp), arithmetic, weather, date/time, definitions, or how-to questions — answer those directly without a tool.")

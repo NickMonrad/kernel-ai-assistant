@@ -1,6 +1,6 @@
 # Sanitized logcat excerpts for #2033 S21 weather runs (serial R5CR605B71K, SM-G991B, gemma-4-E2B GPU).
-# run1/r2_1 = before the fix (APK md5 10c67b90...). a1..a6 = after the fix (APK md5 e384b0ef...).
-# Timestamps and pids removed. Locations are synthetic test inputs. 'E-2B text' is the model text after the tool response; DirectReply discards it.
+# run1/r2_1 = before the fix (APK md5 10c67b90...). a1..a6 = after the fix (APK md5 e384b0ef...). b1..b4 = after the review fix (APK md5 9166e865...).
+# Timestamps and pids removed. Locations are synthetic test inputs. Lines starting 'E-2B text' are NOT raw log lines: they are notes joined by hand from the LiteRtInferenceEngine `event_seq: ... type=callback raw=` lines, in order. DirectReply discards that text; the card lines are the user-visible answer.
 
 ## run1
 ADB_ROUTE_DECISION commandId=17760c6f-1 result=fallthrough best_guess=get_weather confidence=0.54440105
@@ -117,3 +117,34 @@ verbose_params: intent=get_weather params={location=Hamilton, New Zealand, day=t
 GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
 verbose_direct_reply: Mon 23 Nov: ☁️ Overcast, high 22°C, low 12°C, 0mm rain | UV max: 9 (Very High) | 🌅 05:53 / 20:16
 E-2B text (discarded by DirectReply): 
+
+## b1 (APK 9166e865): Apia, tomorrow than today
+ADB_ROUTE_DECISION commandId=d69b680f-1 result=fallthrough best_guess=get_weather confidence=0.54440105
+event_seq: tool_call name=get_weather argsLen=39 args={}
+verbose_tool_call: name=get_weather request={"location":"Apia","forecast_days":"2"}
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true deliveredToModel=true contentLen=218
+verbose_tool_result: name=get_weather_gps content=Apia, Samoa forecast:
+Sun 22 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 10 (Very High) | 🌅 05:48 / 18:37
+Mon 23 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 8 (Very High) | 🌅 05:48 / 18:37
+E-2B text (note, joined from type=callback lines; discarded by DirectReply): Tomorrow in Apia will be cooler than today. Today's high is 3°C, and tomorrow's high is 1°C. Both days look like they will have drizzle and rain.
+
+## b2 (APK 9166e865): Wellington, tomorrow than today
+ADB_ROUTE_DECISION commandId=d08711e4-1 result=fallthrough best_guess=get_weather confidence=0.7165007
+event_seq: tool_call name=get_weather argsLen=45 args={}
+verbose_tool_call: name=get_weather request={"location":"Wellington","forecast_days":"2"}
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true deliveredToModel=true contentLen=220
+verbose_tool_result: name=get_weather_gps content=Wellington, New Zealand forecast:
+Sun 22 Nov: 🌫️ Fog, high 21°C, low 13°C, 0mm rain | UV max: 8 (Very High) | 🌅 05:47 / 20:27
+Mon 23 Nov: ☁️ Overcast, high 18°C, low 15°C, 0mm rain | UV max: 6 (High) | 🌅 05:46 / 20:28
+E-2B text (note, joined from type=callback lines; discarded by DirectReply): There is a chance it will be much hotter tomorrow in Wellington than today, as the forecast shows a high of 18°C tomorrow compared to 1°C today.
+
+## b3 (APK 9166e865): "What is the weather in Apia tomorrow" (deterministic QIR path, no E-2B call)
+ADB_ROUTE_DECISION commandId=cd13f3c2-1 result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Apia, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 8 (Very High) | 🌅 05:48 / 18:37
+
+## b4 (APK 9166e865): "What is the weather in Apia today and tomorrow" (deterministic QIR path, no E-2B call)
+ADB_ROUTE_DECISION commandId=e7238e30-1 result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Apia today and, day=tomorrow}
+verbose_direct_reply: I couldn't find that location for weather. Try another city, like "weather in Brisbane".
