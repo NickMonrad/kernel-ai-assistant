@@ -149,6 +149,8 @@ internal fun SpeakingSection(
                             uiState.inflectMicroAvailability is ModelAvailabilityState.Preparing &&
                             uiState.selectedSherpaVoice == voice
                         val isSelectedVoice = uiState.selectedSherpaVoice == voice
+                        // Wi-Fi waiting and Cancel show under any engine for the selected voice, unless Inflect owns it.
+                        val cardActionsVisible = (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
                         ChoiceCard(
                             title = if (isCori) {
                                 VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
@@ -164,6 +166,8 @@ internal fun SpeakingSection(
                             onSelect = {
                                 if (downloaded) onSherpaVoiceSelected(voice)
                                 onOutputEngineSelected(VoiceOutputEngine.SherpaExperimental)
+                                // Tapping a card that isn't downloaded starts its download, as its Download button does.
+                                if (downloadState.needsDownloadOnTap()) onDownloadSherpaVoice(voice)
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
@@ -183,21 +187,17 @@ internal fun SpeakingSection(
                                                 contentDescription = "Download ${voice.displayName}"
                                             },
                                         ) { Text("Download") }
-                                        is VoicePackDownloadState.Downloading -> if (downloadState.waitingForWifi) {
-                                            Text(
-                                                text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                            Button(onClick = { onUseMobileDataForVoice(voice) }) {
-                                                Text("Use mobile data")
-                                            }
-                                        }
+                                        is VoicePackDownloadState.Downloading -> Unit // Wi-Fi waiting shows below.
                                         is VoicePackDownloadState.Downloaded -> Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             if (isSelectedVoice) {
-                                                Button(onClick = { onPlaySherpaSample(voice) }) { Text("Play sample") }
+                                                Button(
+                                                    onClick = { onPlaySherpaSample(voice) },
+                                                    modifier = Modifier.semantics {
+                                                        contentDescription = "Play ${voice.displayName} sample"
+                                                    },
+                                                ) { Text("Play sample") }
                                                 Spacer(modifier = Modifier.width(8.dp))
                                             }
                                             OutlinedButton(
@@ -217,10 +217,21 @@ internal fun SpeakingSection(
                                         ) { Text("Retry") }
                                     }
                                 }
-                                // Cancel shows under any engine for the selected voice, as the old status line did.
-                                if (downloadState is VoicePackDownloadState.Downloading &&
-                                    (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
-                                ) {
+                                // Wi-Fi waiting and Cancel show under any engine for the selected voice, as the old status line did.
+                                if (downloadState is VoicePackDownloadState.Downloading && downloadState.waitingForWifi && cardActionsVisible) {
+                                    Text(
+                                        text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this voice only.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        onClick = { onUseMobileDataForVoice(voice) },
+                                        modifier = Modifier.semantics {
+                                            contentDescription = "Use mobile data for ${voice.displayName}"
+                                        },
+                                    ) { Text("Use mobile data") }
+                                }
+                                if (downloadState is VoicePackDownloadState.Downloading && cardActionsVisible) {
                                     OutlinedButton(
                                         onClick = { onCancelSherpaVoice(voice) },
                                         colors = accentOutlinedColors,
@@ -281,7 +292,13 @@ internal fun SpeakingSection(
                             description = "${VoiceOutputCopy.body(VoiceOutputEngine.InflectMicroExperimental)} " +
                                 "Also needs the ${uiState.selectedSherpaVoice.displayName} voice pack.",
                             selected = selected,
-                            onSelect = { onOutputEngineSelected(VoiceOutputEngine.InflectMicroExperimental) },
+                            onSelect = {
+                                onOutputEngineSelected(VoiceOutputEngine.InflectMicroExperimental)
+                                // Inflect needs the Cori pack; its Download button starts it, so a tap does the same.
+                                if (state !is ModelAvailabilityState.Ready && state !is ModelAvailabilityState.Preparing) {
+                                    onDownloadInflectMicro()
+                                }
+                            },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
                             tag = if (state is ModelAvailabilityState.Ready) downloadedChip() else null,
@@ -337,11 +354,17 @@ internal fun SpeakingSection(
                             onSelect = {
                                 if (downloaded) onKokoroVoiceSelected(voice)
                                 onOutputEngineSelected(VoiceOutputEngine.KokoroExperimental)
+                                if (downloadState.needsDownloadOnTap()) onDownloadKokoroVoice(voice)
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
                             tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
-                            extraLine = downloadStatusLine(downloadState),
+                            extraLine = downloadStatusLine(downloadState) ?: if (kokoroSelected && uiState.selectedKokoroVoice == voice && !downloaded) {
+                                // Kokoro is debug-only (absent from the release catalogue), so this hint never reaches release.
+                                "Selected. Download this voice first; the phone's voice speaks until then."
+                            } else {
+                                null
+                            },
                             subContent = {
                                 TermsOfUseLinkWithSheet()
                                 if (kokoroSelected) {
@@ -464,3 +487,10 @@ private fun downloadStatusLine(state: VoicePackDownloadState): String? = when (s
     is VoicePackDownloadState.Error -> "Download failed"
     else -> null
 }
+
+/**
+ * A tap on a card starts its download only when nothing has been downloaded or started yet; a failed download
+ * retries, as its Retry button does. A downloaded or downloading voice is only selected.
+ */
+private fun VoicePackDownloadState.needsDownloadOnTap(): Boolean =
+    this is VoicePackDownloadState.NotDownloaded || this is VoicePackDownloadState.Error
