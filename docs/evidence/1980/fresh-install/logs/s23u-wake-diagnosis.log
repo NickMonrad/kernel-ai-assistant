@@ -1,0 +1,47 @@
+# S23U (RFCW11265XH) wake diagnosis, read-only state first, then diagnostic-gated replays.
+# Diagnostics enabled via log.tag.WakeWordDiag=DEBUG 19:25:51 (cleared after the run). No transcript text included.
+## Service and permission state (dumpsys, 19:2x)
+WakeWordService: running, isForeground=true, types=0x80 (microphone), channel kernel_wake_word
+RECORD_AUDIO: granted; appops RECORD_AUDIO=foreground, RUN_ANY_IN_BACKGROUND=allow, START_FOREGROUND=allow
+Standby bucket: 10 (active); not in deviceidle whitelist (not required while foreground)
+Prefs: hey_jandal_enabled present (datastore wake_word_preferences)
+Models: sherpa-whisper-tiny.en encoder/decoder/tokens downloaded 18:46; wake models loaded on each start
+Audio input: client pid 6752 uid 11001 VOICE_RECOGNITION active, not silenced
+## Events (files/jandal_events.log)
+wake_word STARTED 18:46:43; STOPPED 19:04:47; STARTED 19:04:50
+## Logcat, pid 6752, 19:25:50 onward, wake and voice lines
+11-22 19:25:51.749  6752  6752 D KernelAI: WakeWordDetector: stopped
+11-22 19:25:51.750  6752  6752 D LeakCanary: Watching instance of com.kernel.ai.assistant.WakeWordService (com.kernel.ai.assistant.WakeWordService received Service#onDestroy() callback) with key 3fab61ad-207e-42f0-b901-ad679d320726
+11-22 19:25:54.726  6752  6752 I KernelAI: WakeWordService: starting wake word detection
+11-22 19:25:54.729  6752  6752 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 19:25:54.882  6752 18537 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 19:25:54.920  6752 18537 D KernelAI: WakeWordDetector: recording started
+11-22 19:26:28.561  6752 18537 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=6 stage3Evals=66 maxConfidence=0.0010347664 maxConfidenceOffsetFrames=8 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=22 episodePeakRms=432.18475 maxWindowPeakRms=432.18475 maxWindowMeanRms=86.85321
+11-22 19:27:13.677  6752 18537 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=6 stage3Evals=67 maxConfidence=0.0010729134 maxConfidenceOffsetFrames=48 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=38 episodePeakRms=886.0774 maxWindowPeakRms=112.235 maxWindowMeanRms=49.04947
+11-22 19:27:17.292  6752 18537 I KernelAI: WakeWordDetector: detected (high confidence=0.86974764)
+11-22 19:27:17.352  6752 18537 D WakeWordDiag: WakeWordDetector: diagnostics final elapsedMs=82545 audioFrames=1029 stage1=1029 stage2=262 stage3=247 stage2PerHour=11426.49463928766 stage3PerHour=10772.306014900963 silenceSkips=758 silenceSkipRatio=0.7431372549019608 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=1 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unver
+11-22 19:27:17.352  6752 18537 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=6 stage3Evals=10 maxConfidence=0.86974764 maxConfidenceOffsetFrames=9 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=3 episodePeakRms=2354.583 maxWindowPeakRms=2354.583 maxWindowMeanRms=717.8881
+11-22 19:27:17.353  6752  8287 D KernelAI: WakeWordDetector: stopped
+11-22 19:27:17.377  6752  6752 I SelectableVoiceInput: Auto STT route=Asr4all mode=AlertCommand native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 19:27:17.380  6752  8287 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 19:27:17.380  6752  8287 D KernelAI: WakeWordDetector: stopped
+11-22 19:27:27.875  6752  8295 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 19:27:27.887  6752  6752 I Toast   : show: caller = com.kernel.ai.assistant.WakeWordService.showWakeWordError$lambda$0:1022 
+11-22 19:27:27.889  6752  6752 I Toast   : show: contextDispId = 0 mCustomDisplayId = -1 focusedDisplayId = 0 isActivityContext = false
+11-22 19:27:27.896  6752 18725 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 19:27:27.899  6752 18725 D KernelAI: WakeWordDetector: recording started
+11-22 19:27:27.979  6752  6752 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-22 19:27:54.783  6752 18725 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=7 stage3Evals=66 maxConfidence=9.370744E-4 maxConfidenceOffsetFrames=4 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=15 episodePeakRms=535.1564 maxWindowPeakRms=535.1564 maxWindowMeanRms=86.85298
+11-22 19:28:08.159  6752 18725 I KernelAI: WakeWordDetector: detected (high confidence=0.89366984)
+11-22 19:28:08.200  6752 18725 D WakeWordDiag: WakeWordDetector: diagnostics final elapsedMs=40316 audioFrames=502 stage1=502 stage2=160 stage3=145 stage2PerHour=14287.131659886894 stage3PerHour=12947.713066772498 silenceSkips=333 silenceSkipRatio=0.6754563894523327 verifier=0 verifierPasses=0 verifierRejects=0 highActivations=1 verifiedActivations=0 embeddingProvider=session_created_nnapi_requested_assignment_unveri
+11-22 19:28:08.200  6752 18725 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=7 stage3Evals=11 maxConfidence=0.89366984 maxConfidenceOffsetFrames=10 lowVerifyEntered=false lowVerifyAccepted=false gatedProbeExecutions=12 episodePeakRms=2414.9207 maxWindowPeakRms=2414.9207 maxWindowMeanRms=721.2133
+11-22 19:28:08.201  6752  9626 D KernelAI: WakeWordDetector: stopped
+11-22 19:28:08.212  6752  6752 I SelectableVoiceInput: Auto STT route=Asr4all mode=AlertCommand native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 19:28:08.219  6752  9626 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 19:28:08.219  6752  9626 D KernelAI: WakeWordDetector: stopped
+11-22 19:28:18.651  6752  6791 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 19:28:18.670  6752 18835 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 19:28:18.673  6752 18835 D KernelAI: WakeWordDetector: recording started
+11-22 19:28:19.308  6752  6752 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 19:28:19.467  6752  6752 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-22 19:28:20.847  6752  9626 I KernelAI: SpeakingStarted engine=sherpa chars=28 epochMs=1795339700847
