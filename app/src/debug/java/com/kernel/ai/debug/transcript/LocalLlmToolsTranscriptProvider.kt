@@ -105,7 +105,7 @@ class LocalLlmToolsTranscriptProvider : ContentProvider() {
         put("tool_result", toolResult?.let { JSONObject(it) } ?: JSONObject.NULL)
         putNullable("succeeded", succeeded)
         putNullable("direct_reply", directReply)
-        putNullable("returned_to_gemma", returnedToGemma)
+        putNullable("delivered_to_model", deliveredToModel)
     }
 
     private fun LocalGenerationAttemptDiagnostic.toDiagnosticJson(): JSONObject = JSONObject().apply {

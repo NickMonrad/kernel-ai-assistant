@@ -1180,7 +1180,7 @@
    "name": "load_skill",
    "resultType": "Success",
    "directReply": false,
-   "returnedToGemma": true,
+   "deliveredToModel": true,
    "content": "run_intent: Perform a native Android device action.\\n\\nParameters (pass as JSON in the 'parameters' argument):\\n- intent_name (required, string): The action to perform.\\n\\nAvailable intents:\\n\\nFLASHLIGHT:\\n  toggle_flashlight_on, toggle_flashlight_off — No params",
    "seq": 147
   },
@@ -3175,7 +3175,7 @@
    "name": "run_intent",
    "resultType": "Success",
    "directReply": false,
-   "returnedToGemma": true,
+   "deliveredToModel": true,
    "content": "Opening Calculator",
    "seq": 397
   },

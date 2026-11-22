@@ -37,7 +37,7 @@ def _discovery_log(
     load_skill_name: str = "run_intent",
     run_intent_name: str = "get_date",
     load_result_type: str = "Success",
-    returned_to_gemma: str = "true",
+    delivered_to_model: str = "true",
     terminal_result_type: str = "DirectReply",
 ) -> str:
     return "\n".join(
@@ -45,12 +45,12 @@ def _discovery_log(
             f'event_seq: tool_call name=load_skill argsLen=40 args={{"skill_name":"{load_skill_name}"}}',
             "event_seq: tool_result name=load_skill "
             f"resultType={load_result_type} directReply=false "
-            f"returnedToGemma={returned_to_gemma} "
+            f"deliveredToModel={delivered_to_model} "
             "content=Available model-callable intents: private instruction text",
             f'event_seq: tool_call name=run_intent argsLen=40 args={{"intent_name":"{run_intent_name}"}}',
             "event_seq: tool_result name=run_intent "
             f"resultType={terminal_result_type} directReply=true "
-            "returnedToGemma=false content=It's 12:00 on Monday, 1 June 2026.",
+            "deliveredToModel=true content=It's 12:00 on Monday, 1 June 2026.",
             "llm_tools_tool_sequence: attempt=load_skill turn=load_skill terminal=load_skill",
             "llm_tools_tool_sequence: attempt=run_intent "
             "turn=load_skill>run_intent terminal=run_intent",
@@ -90,24 +90,24 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
 
         self.assertEqual(4, len(events))
         self.assertTrue(all(set(event).issubset({
-            "event", "name", "skill_name", "intent_name", "result_type", "direct_reply", "returned_to_gemma",
+            "event", "name", "skill_name", "intent_name", "result_type", "direct_reply", "delivered_to_model",
         }) for event in events))
         self.assertEqual("run_intent", events[0]["skill_name"])
         self.assertEqual("get_date", events[2]["intent_name"])
         self.assertNotIn("content", repr(events))
         self.assertNotIn("args", repr(events))
-        self.assertTrue(events[1]["returned_to_gemma"])
+        self.assertTrue(events[1]["delivered_to_model"])
 
     def test_failed_or_non_returning_skill_load_fails_contract(self) -> None:
         events = extract_llm_tool_events(
-            _discovery_log(load_result_type="Failure", returned_to_gemma="false")
+            _discovery_log(load_result_type="Failure", delivered_to_model="false")
         )
         failures = validate_llm_tool_sequence(
             ("load_skill", "run_intent"), ["load_skill", "run_intent"], events
         )
 
         self.assertIn("load_skill result was not successful", failures)
-        self.assertIn("load_skill result did not return to Gemma", failures)
+        self.assertIn("load_skill result was not delivered to the model", failures)
 
     def test_wrong_loaded_skill_fails_contract(self) -> None:
         log = _discovery_log(load_skill_name="meal_planner")
@@ -163,7 +163,7 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
                 "event": "tool_result",
                 "name": "load_skill",
                 "result_type": "Success",
-                "returned_to_gemma": True,
+                "delivered_to_model": True,
             },
         ]
         failures = validate_llm_tool_sequence(
@@ -180,7 +180,7 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
                 "event": "tool_result",
                 "name": "load_skill",
                 "result_type": "Success",
-                "returned_to_gemma": True,
+                "delivered_to_model": True,
             },
             {"event": "tool_call", "name": "run_intent"},
             {"event": "tool_result", "name": "run_intent", "result_type": "Failure"},
@@ -198,7 +198,7 @@ class LLMToolsSequenceEvidenceTest(unittest.TestCase):
                 "event": "tool_result",
                 "name": "load_skill",
                 "result_type": "Success",
-                "returned_to_gemma": True,
+                "delivered_to_model": True,
             },
             {"event": "tool_call", "name": "run_intent"},
         ]
