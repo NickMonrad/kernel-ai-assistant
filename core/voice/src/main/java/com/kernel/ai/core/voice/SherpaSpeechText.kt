@@ -17,8 +17,9 @@ import android.util.Log
  *   point nine five" and "8:00" as "eight zero zero". Both are spelled out here.
  *
  * Everything else is left to eSpeak, which already reads minus signs, decimals, years,
- * ordinals, phone numbers and URLs: a wider normaliser (the Inflect frontend) broke
- * several of those. Only plain integers, dollar amounts and clock times are spelled out.
+ * ordinals and phone numbers: a wider normaliser (the Inflect frontend) broke several of those.
+ * Page links never reach here: [SpeechCardText.speakable] removes them first (#2041).
+ * Only plain integers, dollar amounts and clock times are spelled out.
  */
 internal object SherpaSpeechText {
     private const val TAG = "KernelAI"
