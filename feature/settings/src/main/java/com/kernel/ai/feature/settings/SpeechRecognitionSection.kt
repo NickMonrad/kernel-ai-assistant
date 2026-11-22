@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
@@ -95,6 +96,9 @@ internal fun SpeechRecognitionSection(
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
     var termsSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var termsRowScrolled by rememberSaveable { mutableStateOf(false) }
+    val termsRowRequester = remember { BringIntoViewRequester() }
+    val sttStatesLoaded = uiState.sherpaSttStates.isNotEmpty()
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -185,9 +189,15 @@ internal fun SpeechRecognitionSection(
                             )
                         }
                         if (termsRowShown) {
-                            val termsRowRequester = remember { BringIntoViewRequester() }
-                            LaunchedEffect(Unit) {
-                                if (scrollToTermsRow) termsRowRequester.bringIntoView()
+                            LaunchedEffect(scrollToTermsRow, sttStatesLoaded) {
+                                // Once per back-stack entry, after the download states (and so the rows above the
+                                // asr4all card) have loaded and one frame has laid out. Scrolling on the first
+                                // composition stopped short: the placeholder state had no download cards above.
+                                if (scrollToTermsRow && sttStatesLoaded && !termsRowScrolled) {
+                                    withFrameNanos { }
+                                    termsRowRequester.bringIntoView()
+                                    termsRowScrolled = true
+                                }
                             }
                             TermsAcceptRow(
                                 accepted = uiState.termsAccepted,

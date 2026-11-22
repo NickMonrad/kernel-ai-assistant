@@ -1,6 +1,15 @@
 package com.kernel.ai.feature.settings
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
@@ -54,6 +63,44 @@ class SpeechRecognitionSectionTest {
         composeTestRule
             .onAllNodesWithText(OnlineSpeechCopy.TITLE, useUnmergedTree = true)
             .assertCountEquals(0)
+    }
+
+    @Test
+    fun termsRowScrollsIntoViewWhenDownloadStatesArriveAfterFirstFrame() {
+        var uiState by mutableStateOf(
+            VoiceUiState(sherpaVoices = emptyList(), selectedInputEngine = VoiceInputEngine.Auto, termsAccepted = false),
+        )
+        composeTestRule.setContent {
+            KernelAITheme(darkTheme = true, dynamicColor = false) {
+                Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    SpeechRecognitionSection(
+                        uiState = uiState,
+                        onSelect = {},
+                        onAllowOnline = {},
+                        onDownload = {},
+                        onCancel = {},
+                        onDelete = {},
+                        onAsr4allSize = {},
+                        scrollToTermsRow = true,
+                    )
+                }
+            }
+        }
+        // The ViewModel's first frame has no download states; they arrive later and grow the cards above asr4all.
+        composeTestRule.runOnIdle {
+            uiState = uiState.copy(
+                sherpaSttStates = VoiceInputEngine.entries
+                    .filter { it.hasDownloadableModel }
+                    .associateWith { SherpaSttDownloadState(isDownloaded = false) },
+            )
+        }
+        composeTestRule
+            .onNode(
+                hasText("Read the Terms of Use") and
+                    hasAnyAncestor(hasTestTag(speechEngineTestTag(VoiceInputEngine.Asr4all))),
+                useUnmergedTree = true,
+            )
+            .assertIsDisplayed()
     }
 
     private fun setSection(
