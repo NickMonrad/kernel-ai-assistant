@@ -1566,4 +1566,31 @@ class SelectableVoiceInputControllerTest {
         assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "gender", 1L)))
         assertFalse(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L)))
     }
+
+    @Test
+    fun `a throwing glossary still delivers the raw transcript and keeps later events flowing`() = runTest {
+        val selected = MutableStateFlow(VoiceInputEngine.AndroidNative)
+        every { voiceInputPreferences.selectedEngine } returns selected
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } coAnswers {
+            thirdArg<(Long) -> Unit>().invoke(1L)
+            VoiceInputStartResult.Started(1L)
+        }
+        val glossary = mockk<SttGlossary>()
+        every { glossary.apply(any()) } throws IllegalStateException("glossary boom")
+        val c = controller(glossary)
+        val seen = mutableListOf<VoiceInputEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { c.events.collect { seen += it } }
+        advanceUntilIdle()
+
+        assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
+        nativeEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
+        nativeEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "todang", 1L))
+        nativeEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L))
+        nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
+        advanceUntilIdle()
+
+        assertTrue(seen.contains(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "todang", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "kyotogendo", 1L)))
+        assertTrue(seen.contains(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L)))
+    }
 }

@@ -16,7 +16,6 @@
     {"correct": "Waikato", "wrong": ["wikato", "wayketo"]},
     {"correct": "Rotorua", "wrong": ["rotarua", "rotua"]},
     {"correct": "Raglan", "wrong": ["reglin"]},
-    {"correct": "Dunedin", "wrong": ["don eden"]},
     {"correct": "Kia ora Jandal", "wrong": ["kyotogendo", "kyotgeandal", "kyota jando"]},
     {"correct": "Jandals", "wrong": ["jandles", "jandales", "jandlales", "chandles"]},
     {"correct": "Jandal", "wrong": ["gandal", "gendle", "gentlele", "jander", "jandel", "jando", "chando", "jandle"]}

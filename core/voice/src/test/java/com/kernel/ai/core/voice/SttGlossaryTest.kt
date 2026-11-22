@@ -57,6 +57,13 @@ class SttGlossaryTest {
     }
 
     @Test
+    fun `leaves near-neighbours of wrong forms unchanged`() {
+        listOf("handles", "candles", "chandler", "chandlery", "Don Eden").forEach { phrase ->
+            assertEquals(phrase, glossary.apply(phrase), phrase)
+        }
+    }
+
+    @Test
     fun `leaves correct forms and ordinary text unchanged`() {
         listOf(
             "Tauranga",

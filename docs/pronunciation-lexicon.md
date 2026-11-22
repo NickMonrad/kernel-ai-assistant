@@ -88,5 +88,5 @@ native, Sherpa and asr4all all get the same correction.
 - Matching is whole-word, case-insensitive and macron-insensitive, using `PronunciationLexicon.fold`.
   Any whitespace between the words of a wrong form matches.
 - Each final logs `STT glossary raw="…" corrected="…"` under `SelectableVoiceInput`. The diagnostics
-  redactor keeps only the first quoted span, so the text stays out of exports.
+  redactor drops everything from the first quote, so the text stays out of exports.
 - Only the text changes. Engine state, the journal and the wake path are unaffected.

@@ -1045,18 +1045,26 @@ class SelectableVoiceInputController @Inject constructor(
 
     /**
      * The one place STT text is corrected before routing and display (#2063), for every engine. Only the
-     * text changes. Each final logs raw and corrected text, as other engine results do; the diagnostics
-     * redactor keeps the first quoted span only, so the logged text stays out of exports.
+     * text changes. Each final logs raw and corrected text, as other engine results do. The diagnostics
+     * redactor drops everything from the first quote, so the logged text stays out of exports.
+     *
+     * A glossary failure must never stop voice events: the raw text is delivered instead.
      */
     private fun withSttGlossary(event: VoiceInputEvent): VoiceInputEvent = when (event) {
         is VoiceInputEvent.Transcript -> {
-            val corrected = sttGlossary.apply(event.text)
+            val corrected = correctSttText(event.text)
             Log.i(TAG, "STT glossary raw=\"${event.text}\" corrected=\"$corrected\"")
             event.copy(text = corrected)
         }
-        is VoiceInputEvent.PartialTranscript -> event.copy(text = sttGlossary.apply(event.text))
+        is VoiceInputEvent.PartialTranscript -> event.copy(text = correctSttText(event.text))
         else -> event
     }
+
+    private fun correctSttText(text: String): String = runCatching { sttGlossary.apply(text) }
+        .getOrElse { error ->
+            Log.e(TAG, "STT glossary failed; delivering raw text", error)
+            text
+        }
 
     /**
      * Routes one controller event. Each event is isolated: if routing throws, the original
