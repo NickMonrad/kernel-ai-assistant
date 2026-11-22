@@ -1192,15 +1192,16 @@ Sherpa-ONNX VITS replaced Android `TextToSpeech` as the on-device TTS engine, pr
 
 #### 6.2.2 STT Engine — Sherpa-ONNX Family (#1022, PR #1044)
 
-Sherpa-ONNX replaced Android native STT and Vosk as the primary on-device STT engine,
-providing four selectable model families in Settings → Voice. All engines run entirely
-on-device via the Sherpa-ONNX AAR; access is through reflection (no compile-time dependency).
+Current speech input includes Android native recognition, Automatic routing (offline
+asr4all when downloaded, then Android native), and selectable Sherpa-ONNX SenseVoice,
+Whisper tiny.en and Paraformer. Zipformer was removed in #1982. Whisper tiny.en is the
+only wake-word verifier.
 
 **Sherpa STT family:**
 
 | Engine | Mode | Size | Latency | Quality Notes |
 |--------|------|------|---------|---------------|
-| **Zipformer** (default) | Streaming (online) | ~72 MB | ~200ms end-of-speech | Best NZ English accuracy; also used as fallback for wake-word verification when the selected engine is offline-only |
+| **Zipformer** (removed in #1982) | Removed | — | — | Removed from Jandal; Whisper tiny.en is now the only wake-word verifier |
 | **SenseVoice** | Offline (final only) | ~100 MB | ~500ms after stop | Good multilingual coverage (ZH/EN/JA/KO/YUE); gated HF downloads from `csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` |
 | **Whisper tiny.en** | Offline (final only) | ~117 MB | ~1s after stop | Strong single-shot accuracy; pauses until speech ends or timeout |
 | **Paraformer** | Streaming (online) | ~226 MB | ~200ms | Continuous decoding; largest footprint |
@@ -1217,24 +1218,22 @@ normalisation pipeline:
 - Case is lowered via `Locale.ROOT`
 - Whisper's trailing `?` insertion (e.g. "what's the weather?" → "what's the weather")
   is handled by the punctuation-strip rule above
-- Zipformer produces live partial results; SenseVoice and Whisper emit one final result
+- asr4all emits streaming partial results; SenseVoice and Whisper emit one final result
 
-**Wake-word verification:** The wake-word verification engine follows the user's selected
-STT engine when it is an online recognizer (Zipformer or Paraformer). When the selected
-engine is offline-only (SenseVoice or Whisper), verification falls back to Zipformer.
-`SherpaOnnxVoiceInputController` maintains a dedicated recognizer instance with its own
-mutex and method-handle cache, fully isolated from the interactive STT recognizer, so
-[transcribeBlocking] can run concurrently with [startListening]/[stopListening].
-- `VoiceInputEngine` enum maps engine selection (`SherpaZipformer` / `SherpaSenseVoice` / `SherpaWhisper` / `SherpaParaformer`) with `isSherpaFamily` classifiers and storage backward-compatibility (`"SherpaOnnx"` → `SherpaZipformer`)
+**Wake-word verification:** Whisper tiny.en is the only wake verifier. It is separate
+from the selected interactive STT engine and does not follow the user's engine selection.
+The verifier implementation is described in the current voice controller documentation.
+- `VoiceInputEngine` maps the user-selectable engines: Android native, Auto, SenseVoice, Whisper and Paraformer; legacy `"SherpaOnnx"` and `"SherpaZipformer"` storage values resolve to Auto
 - `SherpaSttModelSpec` data class maps each engine to its file paths, Sherpa class names, and `RecognizerKind` (Online / Offline)
 - `SherpaOnnxVoiceInputController` creates recognizer instances via reflection, caching method handles per recognizer kind
 - `SelectableVoiceInputController` routes all Sherpa variants through the shared controller
 - Settings → Voice shows per-engine download state via `VoiceViewModel.SherpaSttDownloadState` with independent progress/cancel/delete controls
 
-**Model files:** Downloaded to `files/models` in the app's external storage. Each engine's required file names include:
-- Encoder, decoder, joiner (Zipformer, Paraformer) or unified model (SenseVoice, Whisper)
-- Tokens file
-- All `KernelModel` entries have `showInModelManagement = false` (download and deletion are managed from the Voice screen)
+**Model files:** Downloaded to app-managed model storage. Required files are engine-specific:
+- asr4all files (M or L, the effective size for the phone) for the default offline Automatic route
+- Encoder, decoder and joiner (Paraformer), or unified model (SenseVoice and Whisper tiny.en)
+- Tokens files for the Sherpa-ONNX engines
+All speech-model downloads and deletion are managed from Voice settings.
 
 #### 6.2.3 Quick Actions Voice
 
@@ -1624,7 +1623,7 @@ for the larger planned coverage matrix.
 |-------|-------------|--------|
 | 1 | Core LiteRT-LM chat + GPU/NPU + GPU alignment fixes + OOM protection | ✅ Complete |
 | 2 | sqlite-vec cosine RAG + Arctic Embed M v1.5 + episodic distillation + memory UI | ✅ Complete |
-| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (Sherpa STT family: Zipformer / SenseVoice / Whisper tiny.en / Paraformer, offline VAD, transcription normalisation, wake-word isolation), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
+| 3 | Resident Agent Architecture: QIR + native SDK tool calling, rich tool results, voice (asr4all offline Auto route, Android native, Sherpa SenseVoice / Whisper tiny.en / Paraformer, offline VAD, transcription normalisation, Whisper wake verification), weather/list/date/media skills, important dates, world clock, multi-day forecast, colloquial weather routing, multi-turn slot-fill, memory search quality, and broader multi-turn support | 🔄 In Progress |
 | 4 | Dreaming Engine (overnight distillation) + Semantic Cache + Self-Healing Identity | ⬜ Planned |
 | 5 | Chicory Wasm Runtime + GitHub Skill Store | ⬜ Planned |
 | 6 | 8GB device optimisation (dynamic weight loading, E2B auto-select) | ⬜ Planned |

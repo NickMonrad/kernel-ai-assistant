@@ -110,7 +110,7 @@ object ModelRoleCopy {
     }
 
     // ── Voice sections (read-only; managed in Voice settings) ──────────────
-    const val STT_SECTION_TITLE = "Speech recognition (Zipformer): turns your voice into text, offline"
+    const val STT_SECTION_TITLE = "Speech recognition: turns your voice into text, offline"
     const val TTS_SECTION_TITLE = "Voice output: reads replies aloud"
     const val MANAGE_VOICE_ACTION = "Manage in Voice settings"
     const val VOICE_READY = "Ready"

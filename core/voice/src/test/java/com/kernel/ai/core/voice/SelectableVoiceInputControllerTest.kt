@@ -122,27 +122,25 @@ class SelectableVoiceInputControllerTest {
     // ── Auto routing (pure) ─────────────────────────────────────────────────
 
     @Test
-    fun `auto prefers asr4all over zipformer when the online fallback is off`() {
+    fun `auto prefers asr4all over native when the online fallback is off`() {
         assertEquals(
             AutoSttRoute.Asr4all,
             resolveAutoSttRoute(
                 nativeOnDeviceReady = true,
                 asr4allReady = true,
-                zipformerReady = true,
                 allowOnlineFallback = false,
             ),
         )
     }
 
     @Test
-    fun `auto uses asr4all alone while zipformer is not downloaded`() {
+    fun `auto uses asr4all when it is the only ready recognizer`() {
         assertEquals(
             AutoSttRoute.Asr4all,
             resolveAutoSttRoute(
-                nativeOnDeviceReady = true,
+                nativeOnDeviceReady = false,
                 asr4allReady = true,
-                zipformerReady = false,
-                allowOnlineFallback = false,
+                allowOnlineFallback = true,
             ),
         )
     }
@@ -154,46 +152,18 @@ class SelectableVoiceInputControllerTest {
             resolveAutoSttRoute(
                 nativeOnDeviceReady = true,
                 asr4allReady = true,
-                zipformerReady = true,
                 allowOnlineFallback = true,
             ),
         )
     }
 
     @Test
-    fun `auto uses on-device native while no offline model is downloaded`() {
+    fun `auto uses native when it is the only ready recognizer`() {
         assertEquals(
             AutoSttRoute.Native,
             resolveAutoSttRoute(
                 nativeOnDeviceReady = true,
                 asr4allReady = false,
-                zipformerReady = false,
-                allowOnlineFallback = false,
-            ),
-        )
-    }
-
-    @Test
-    fun `auto uses zipformer when asr4all is still downloading and native is unavailable`() {
-        assertEquals(
-            AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(
-                nativeOnDeviceReady = false,
-                asr4allReady = false,
-                zipformerReady = true,
-                allowOnlineFallback = true,
-            ),
-        )
-    }
-
-    @Test
-    fun `auto uses zipformer while asr4all is still downloading and the online fallback is off`() {
-        assertEquals(
-            AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(
-                nativeOnDeviceReady = true,
-                asr4allReady = false,
-                zipformerReady = true,
                 allowOnlineFallback = false,
             ),
         )
@@ -206,7 +176,6 @@ class SelectableVoiceInputControllerTest {
             resolveAutoSttRoute(
                 nativeOnDeviceReady = false,
                 asr4allReady = true,
-                zipformerReady = false,
                 allowOnlineFallback = true,
             ),
         )
@@ -219,7 +188,6 @@ class SelectableVoiceInputControllerTest {
             resolveAutoSttRoute(
                 nativeOnDeviceReady = false,
                 asr4allReady = false,
-                zipformerReady = false,
                 allowOnlineFallback = true,
             ),
         )
@@ -230,7 +198,6 @@ class SelectableVoiceInputControllerTest {
         fun route(native: Boolean, asr4all: Boolean, online: Boolean) = resolveAutoSttRoute(
             nativeOnDeviceReady = native,
             asr4allReady = asr4all,
-            zipformerReady = false,
             allowOnlineFallback = online,
         )
 
@@ -247,24 +214,24 @@ class SelectableVoiceInputControllerTest {
     // ── Controller wiring ───────────────────────────────────────────────────
 
     @Test
-    fun `auto starts zipformer by default without checking native support`() = runTest(dispatcher) {
+    fun `auto starts asr4all by default without checking native support`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
 
-        assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
+        assertEquals(VoiceInputStartResult.Started(99L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
+        coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
         verify(exactly = 0) { recognitionSupport.getCaptureAvailability() }
     }
 
     @Test
-    fun `release Android native does not fall back to Sherpa when native cannot start`() = runTest(dispatcher) {
+    fun `release Android native does not fall back when native cannot start`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
         every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
         coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } returns
             VoiceInputStartResult.Unavailable("not ready")
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
 
         assertEquals(
             VoiceInputStartResult.Unavailable("not ready"),
@@ -273,29 +240,16 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.isSpecAvailable(any()) }
         coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
     @Test
-    fun `auto starts on-device native without platform fallback while zipformer downloads`() = runTest(dispatcher) {
+    fun `auto starts on-device native without platform fallback while asr4all is unavailable`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
-    }
-
-    @Test
-    fun `release auto never starts zipformer even when its files are on disk`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.Auto)
-        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
-        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
-
-        assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
-
-        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
     }
 
@@ -304,7 +258,6 @@ class SelectableVoiceInputControllerTest {
         selectEngine(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(true)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
 
         controller().startListening(VoiceCaptureMode.Command)
 
@@ -312,15 +265,15 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `auto with online fallback uses zipformer when on-device native is unavailable`() = runTest(dispatcher) {
+    fun `auto with online fallback uses asr4all when on-device native is unavailable`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(true)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
 
-        assertEquals(VoiceInputStartResult.Started(2L), controller().startListening(VoiceCaptureMode.Command))
+        assertEquals(VoiceInputStartResult.Started(99L), controller().startListening(VoiceCaptureMode.Command))
 
-        coVerify(exactly = 1) { sherpaOnnxVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
+        coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
     }
 
@@ -330,7 +283,6 @@ class SelectableVoiceInputControllerTest {
         every { recognitionSupport.getCaptureAvailability() } returns
             nativeAvailability(onDevice = true, localeStatus = AndroidNativeRecognitionLocaleStatus.Unknown)
         coEvery { recognitionSupport.getAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         controller().startListening(VoiceCaptureMode.Command)
 
@@ -342,7 +294,6 @@ class SelectableVoiceInputControllerTest {
     fun `auto keeps a loaded asr4all engine when its route is asr4all`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         coEvery { asr4allVoiceInputController.isAvailable() } returns true
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         controller().startListening(VoiceCaptureMode.Command)
 
@@ -354,7 +305,6 @@ class SelectableVoiceInputControllerTest {
     fun `auto releases a loaded asr4all engine when its route is not asr4all`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         controller().startListening(VoiceCaptureMode.Command)
 
@@ -426,7 +376,7 @@ class SelectableVoiceInputControllerTest {
     }
     @Test
     fun `superseded sherpa stop is cancelled while a current sherpa stop stays healthy`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.SherpaZipformer)
+        selectEngine(VoiceInputEngine.SherpaParaformer)
         var nextId = 40L
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             val id = nextId++
@@ -465,7 +415,8 @@ class SelectableVoiceInputControllerTest {
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 70L, cancelled = true))
             VoiceInputStartResult.Unavailable("native setup failed after admission")
         }
-        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(71L)
             fallbackAdmission.await()
             VoiceInputStartResult.Started(71L)
@@ -485,7 +436,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(VoiceInputStartResult.Started(71L), fallback.await())
         assertTrue(c.captureActivity.value)
-        // Superseded by the Zipformer start: the native stop is dropped and never reaches consumers.
+        // Superseded by the asr4all start: the native stop is dropped and never reaches consumers.
         assertTrue(seen.none { it.captureSessionId == 70L })
     }
     @Test
@@ -496,9 +447,10 @@ class SelectableVoiceInputControllerTest {
             nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 80L, cancelled = true))
             VoiceInputStartResult.Unavailable("native setup failed")
         }
-        coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+        coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(81L)
-            sherpaEvents.emit(
+            asr4allEvents.emit(
                 VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 81L, cancelled = true),
             )
             VoiceInputStartResult.Unavailable("microphone unavailable")
@@ -555,7 +507,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
 
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
         val replacement = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
 
@@ -599,7 +551,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
 
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
         val stale = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
@@ -637,7 +589,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
 
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
         val stale = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
@@ -684,7 +636,7 @@ class SelectableVoiceInputControllerTest {
         advanceUntilIdle()
         assertEquals(VoiceInputStartResult.Started(1L), c.startListening(VoiceCaptureMode.Command))
 
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
         val stale = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
@@ -724,7 +676,7 @@ class SelectableVoiceInputControllerTest {
         nativeEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L))
         runCurrent()
         assertFalse(c.hasCaptureOrStart())
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
 
         val replacement = async { c.startListening(VoiceCaptureMode.Command) }
         runCurrent()
@@ -795,7 +747,7 @@ class SelectableVoiceInputControllerTest {
 
         assertEquals(VoiceInputStartResult.Started(91L), c.startListening(VoiceCaptureMode.Command))
         awaitSelectionObserver(selected)
-        selected.value = VoiceInputEngine.SherpaZipformer
+        selected.value = VoiceInputEngine.SherpaParaformer
         // The selection observer retires asr4all on its own dispatcher: wait for that release before the new start.
         coVerify(timeout = 30_000) { asr4allVoiceInputController.releaseEngine() }
         assertEquals(VoiceInputStartResult.Started(92L), c.startListening(VoiceCaptureMode.Command))
@@ -808,7 +760,7 @@ class SelectableVoiceInputControllerTest {
 
     @Test
     fun `direct native route waits for the previous Sherpa teardown`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.SherpaZipformer)
+        selectEngine(VoiceInputEngine.SherpaParaformer)
         val sherpaStops = mutableListOf<Long>()
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } answers {
             sherpaStops += firstArg<Long>()
@@ -840,7 +792,7 @@ class SelectableVoiceInputControllerTest {
 
     @Test
     fun `direct asr4all route waits for the previous Sherpa teardown`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.SherpaZipformer)
+        selectEngine(VoiceInputEngine.SherpaParaformer)
         val sherpaStops = mutableListOf<Long>()
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } answers {
             sherpaStops += firstArg<Long>()
@@ -872,7 +824,7 @@ class SelectableVoiceInputControllerTest {
 
     @Test
     fun `engine selection change during teardown prevents the stale replacement start`() = runTest(dispatcher) {
-        val selected = MutableStateFlow(VoiceInputEngine.SherpaZipformer)
+        val selected = MutableStateFlow(VoiceInputEngine.SherpaParaformer)
         every { voiceInputPreferences.selectedEngine } returns selected
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
@@ -900,7 +852,7 @@ class SelectableVoiceInputControllerTest {
 
     @Test
     fun `failed sherpa admission retires its id without clearing a later capture`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.SherpaZipformer)
+        selectEngine(VoiceInputEngine.SherpaParaformer)
         var starts = 2L
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             val id = ++starts
@@ -935,7 +887,6 @@ class SelectableVoiceInputControllerTest {
     fun `auto reports unavailable while the offline model downloads`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
 
         assertEquals(
             VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE),
@@ -1070,17 +1021,17 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `auto zipformer start exports the stt_route record`() = runTest(dispatcher) {
+    fun `auto asr4all start exports the stt_route record`() = runTest(dispatcher) {
         JandalEvents.install(Files.createTempFile("jandal-auto-route", ".log").toFile())
         selectEngine(VoiceInputEngine.Auto)
-        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
 
         controller().startListening(VoiceCaptureMode.Command)
         JandalEvents.awaitWritesForTest()
 
         val lines = JandalEvents.exportLines()
         assertTrue(
-            lines.any { " voice stt_route " in it && "route=ZIPFORMER" in it && "online_fallback=false" in it },
+            lines.any { " voice stt_route " in it && "route=ASR4ALL" in it && "online_fallback=false" in it },
             lines.toString(),
         )
     }
@@ -1096,13 +1047,13 @@ class SelectableVoiceInputControllerTest {
                 emit(VoiceInputEngine.Auto)
             }
             controller = controller()
-            coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+            coEvery { asr4allVoiceInputController.isAvailable() } returns true
             var micOpened = false
-            coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
                 if (secondArg<() -> Boolean>().invoke()) {
                     micOpened = true
                     thirdArg<(Long) -> Unit>().invoke(2L)
-                    sherpaEvents.emit(
+                    asr4allEvents.emit(
                         VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L),
                     )
                     VoiceInputStartResult.Started(2L)
@@ -1122,13 +1073,13 @@ class SelectableVoiceInputControllerTest {
         }
 
     @Test
-    fun `sherpa start without a stop opens the microphone and sends ListeningStarted`() =
+    fun `asr4all start without a stop opens the microphone and sends ListeningStarted`() =
         runTest(dispatcher) {
             selectEngine(VoiceInputEngine.Auto)
             val controller = controller()
-            coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+            coEvery { asr4allVoiceInputController.isAvailable() } returns true
             var micOpened = false
-            coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
+            coEvery { asr4allVoiceInputController.startListening(any(), any(), any()) } coAnswers {
                 if (secondArg<() -> Boolean>().invoke()) {
                     micOpened = true
                     thirdArg<(Long) -> Unit>().invoke(2L)
@@ -1472,7 +1423,7 @@ class SelectableVoiceInputControllerTest {
 
     @Test
     fun `scoped stop finalizes a Sherpa capture with its final transcript`() = runTest(dispatcher) {
-        selectEngine(VoiceInputEngine.SherpaZipformer)
+        selectEngine(VoiceInputEngine.SherpaParaformer)
         coEvery { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) } coAnswers {
             thirdArg<(Long) -> Unit>().invoke(40L)
             VoiceInputStartResult.Started(40L)

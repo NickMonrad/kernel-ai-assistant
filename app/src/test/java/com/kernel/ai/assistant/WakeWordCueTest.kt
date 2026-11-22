@@ -112,7 +112,7 @@ class WakeWordCueTest {
             started = true, context = StartListeningCueContext.WAKE_WORD,
         )
         // Posted while the capture started: only the replay delivers it.
-        notices.emit(VoiceNotice(42L, "Zipformer is listening now."))
+        notices.emit(VoiceNotice(42L, "The offline speech model is listening now."))
         events.send(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.AlertCommand, captureSessionId = 42L))
         events.send(VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "I didn't catch anything", captureSessionId = 42L))
         val shown = mutableListOf<String>()
@@ -130,7 +130,7 @@ class WakeWordCueTest {
         }
 
         assertEquals(listOf(1), attempts)
-        assertEquals(listOf("Zipformer is listening now.", "final: I didn't catch anything"), shown)
+        assertEquals(listOf("The offline speech model is listening now.", "final: I didn't catch anything"), shown)
         assertEquals(null, result.transcript)
         verify(exactly = 1) { cuePlayer.playCue(StartListeningCueContext.WAKE_WORD) }
     }

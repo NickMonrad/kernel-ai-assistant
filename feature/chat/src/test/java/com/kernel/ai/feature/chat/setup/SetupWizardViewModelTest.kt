@@ -2,6 +2,7 @@ package com.kernel.ai.feature.chat.setup
 
 import androidx.lifecycle.SavedStateHandle
 import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -383,7 +384,6 @@ class SetupWizardViewModelTest {
     @Test
     fun `release offers Automatic and platform speech input, never Sherpa STT, with Piper and Android TTS output`() {
         every { setupVoiceDevice.isReleaseBuild() } returns true
-        coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
@@ -394,7 +394,6 @@ class SetupWizardViewModelTest {
         assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
         assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
-        assertTrue(vm.uiState.value.plannedModels.none { it in VoiceDefaultsProvisioner.zipformerModels() })
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
         val inflectBytes = InflectMicroSetup.kernelModels().sumOf { it.approxSizeBytes } + coriBytes
@@ -640,33 +639,27 @@ class SetupWizardViewModelTest {
     // ── Hey Jandal download size (#1931) ─────────────────────────────────────────
 
     private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
-    private val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
     private val asr4allBytes = Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes }
 
     @Test
-    fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier and Zipformer`() {
+    fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier`() {
         val vm = viewModel()
         vm.atSpeechStep()
 
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 
-        assertEquals(verifierBytes + zipformerBytes, vm.uiState.value.heyJandalExtraBytes)
-        assertEquals(zipformerBytes, vm.uiState.value.heyJandalZipformerBytes)
+        assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
     }
 
     @Test
-    fun `Hey Jandal with Automatic counts only the verifier when Zipformer is already in the step 3 plan`() {
-        coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
+    fun `Hey Jandal with Automatic counts only the verifier when asr4all is already in the step 3 plan`() {
+        coEvery { downloadManager.plannedFirstRunModels() } returns emptyList()
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(
-            VoiceDefaultsProvisioner.zipformerModels() + Asr4AllInstall.models(Asr4AllSize.M),
-            vm.uiState.value.plannedModels,
-        )
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M), vm.uiState.value.plannedModels)
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
-        assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
     }
 
     @Test
@@ -680,7 +673,6 @@ class SetupWizardViewModelTest {
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 
         assertEquals(0L, vm.uiState.value.heyJandalExtraBytes)
-        assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
     }
 
     @Test
@@ -697,6 +689,8 @@ class SetupWizardViewModelTest {
         )
     }
 
+    // ── asr4all files follow the speech input (#1855 part 2 review S1) ──────────
+
     @Test
     fun `the plan counts the stored asr4all size only where the tier offers it`() {
         every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.L)
@@ -710,20 +704,30 @@ class SetupWizardViewModelTest {
         assertEquals(Asr4AllInstall.models(Asr4AllSize.M), lowPower.uiState.value.plannedModels)
     }
 
-    // ── Zipformer files follow the speech input (#1855 part 2 review S1) ─────────
-
     @Test
-    fun `Zipformer files are planned for Automatic and dropped for Android's listener`() {
-        val zipformer = VoiceDefaultsProvisioner.zipformerModels()
-        val other = KernelModel.entries.first { it !in zipformer }
-        coEvery { downloadManager.plannedFirstRunModels() } returns zipformer + other
+    fun `asr4all files are planned for Automatic and dropped for Android's listener`() {
+        val asr4all = Asr4AllInstall.models(Asr4AllSize.M)
+        val other = KernelModel.entries.first { it !in asr4all }
+        coEvery { downloadManager.plannedFirstRunModels() } returns listOf(other)
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals(zipformer + other + Asr4AllInstall.models(Asr4AllSize.M), vm.uiState.value.plannedModels)
+        assertEquals(listOf(other) + asr4all, vm.uiState.value.plannedModels)
 
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 
         assertEquals(listOf(other), vm.uiState.value.plannedModels)
+    }
+
+    @Test
+    fun `asr4all is counted once when the first-run plan is the auto-queue set`() {
+        coEvery { downloadManager.plannedFirstRunModels() } returns listOf(KernelModel.GEMMA_4_E4B)
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            Asr4AllInstall.models(Asr4AllSize.M),
+            vm.uiState.value.plannedModels.filter { it.fileName.startsWith("asr4all/") },
+        )
     }
 
     // ── Storage and consent ──────────────────────────────────────────────────────
@@ -776,7 +780,7 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `Finish with Automatic queues Zipformer after the network choice is saved`() {
+    fun `Finish with Automatic queues asr4all after the network choice is saved`() {
         val vm = viewModel()
         vm.atDownloadStep()
         vm.onChoiceSelected(DownloadNetworkChoice.MOBILE_DATA_ALLOWED)
@@ -792,7 +796,7 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `Finish with a stored Automatic queues Zipformer again so deleted files come back`() {
+    fun `Finish with a stored Automatic queues asr4all again so deleted files come back`() {
         storedInput(VoiceInputEngine.Auto)
         val vm = viewModel()
         vm.atDownloadStep()
@@ -805,16 +809,16 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `Finish with Sherpa Zipformer queues the Zipformer files`() {
+    fun `Finish with asr4all queues its files`() {
         val vm = viewModel()
         vm.atDownloadStep()
-        vm.onInputSelected(VoiceInputEngine.SherpaZipformer)
+        vm.onInputSelected(VoiceInputEngine.Asr4all)
 
         vm.onContinue {}
         vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.SherpaZipformer) }
+        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Asr4all) }
     }
 
     @Test
@@ -893,7 +897,7 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `finish with Hey Jandal on queues its wake model after the network choice is saved`() {
+    fun `finish with Hey Jandal on queues its Whisper wake verifier after the network choice is saved`() {
         val vm = viewModel()
         vm.atMakeYoursStep()
         vm.onWakeWordChoiceChanged(true)
@@ -901,9 +905,12 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
         coVerifyOrder {
             downloadNetworkPreferences.setChoice(any())
-            downloadManager.startDownload(any())
+            downloadManager.startDownload(any(), source = DownloadSource.AUTO_QUEUED)
         }
         coVerify(exactly = 1) { wakeWordPreferences.setHeyJandalEnabled(true) }
+        wakeVerifierKernelModels().forEach { model ->
+            verify { downloadManager.startDownload(model, source = DownloadSource.AUTO_QUEUED) }
+        }
     }
 
     @Test

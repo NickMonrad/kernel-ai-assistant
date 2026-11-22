@@ -493,7 +493,7 @@ class ActionsViewModel @Inject constructor(
                             return@collect
                         }
                         // #790: Auto-retry with reprompt on voice errors during slot-fill or idle command.
-                        // #1853: a capture that already moved to Zipformer is not retried; a retry
+                        // #1853: a capture that already handed off to asr4all is not retried; a retry
                         // would start the failing Android native recognizer again.
                         val handedOff = actionsVoiceSessionId
                             ?.let { voiceInputController.latestNoticeFor(it) } != null
@@ -728,7 +728,7 @@ class ActionsViewModel @Inject constructor(
         clearActionsVoiceCapture(discard = false)
     }
 
-    /** Shows this screen's capture notes (#1853 Zipformer hand-off, #1866) until unbound. */
+    /** Shows this screen's capture notes (#1853 asr4all hand-off, #1866) until unbound. */
     private fun bindActionsVoiceSession(
         captureSessionId: Long,
         mode: VoiceCaptureMode,

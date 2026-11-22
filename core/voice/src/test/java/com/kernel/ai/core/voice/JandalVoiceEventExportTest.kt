@@ -20,12 +20,12 @@ class JandalVoiceEventExportTest {
 
     @Test
     fun `voice route and tts failure constants are exported`() {
-        JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
+        JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Asr4all, "online_fallback" to false)
         JandalEvents.record("tts", "speak_failed", "category" to TtsFailure.ENGINE_START)
         JandalEvents.awaitWritesForTest()
         val lines = JandalEvents.exportLines()
 
-        assertTrue(lines.any { it.contains(" voice stt_route ") && it.contains("route=ZIPFORMER") }, lines.toString())
+        assertTrue(lines.any { it.contains(" voice stt_route ") && it.contains("route=ASR4ALL") }, lines.toString())
         assertTrue(lines.any { it.contains(" tts speak_failed ") && it.contains("category=ENGINE_START") }, lines.toString())
     }
 }

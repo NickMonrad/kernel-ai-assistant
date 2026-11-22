@@ -1,0 +1,22 @@
+Device: S21 (R5CR605B71K) | Build: PR #2047 head a332d331 (app-debug.apk sha256 fc87204774b9490828ce6948dccbb0b26278c1efef573835188acbe654881e9f)
+Excerpts copied verbatim from logcat (pid 12953 = PR build process). Lines omitted only where noted.
+
+# Check 2: acoustic stimulus (S21 as its own source) and wake
+11-22 09:22:57.212 12953 12953 I AcousticStimulus: {"event":"prepared","trial_id":"s21-check2-001","fixture_id":"natural_wake",...}
+11-22 09:22:57.216 12953 12953 I AcousticStimulus: {"event":"started","trial_id":"s21-check2-001","fixture_id":"natural_wake",...}
+11-22 09:22:58.867 12953 15294 I KernelAI: WakeWordDetector: detected (high confidence=0.8347787)
+11-22 09:22:58.930 12953 15294 D WakeWordDiag: WakeWordDetector: gateExitSummary gen=1 stage3Evals=81 maxConfidence=0.8347787 ... lowVerifyEntered=false lowVerifyAccepted=false ...
+11-22 09:22:59.383 12953 12953 I AcousticStimulus: {"event":"completed","trial_id":"s21-check2-001","fixture_id":"natural_wake",...}
+11-22 09:22:59.410 12953 12953 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"s21-check2-001","fixture_id":"natural_wake",...,"cleanup_success":true,"exact_restoration_verified":true}
+11-22 09:23:03.676 12953 13038 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 09:23:03.707 12953 15488 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+
+# Check 3: Auto routing
+11-22 09:22:58.969 12953 I SelectableVoiceInput: Auto STT route=Asr4all mode=AlertCommand nativeOnDeviceReady=false asr4allReady=true allowOnlineFallback=false
+11-22 09:22:58.974 12953 13037 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 09:24:15.292 12953 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command nativeOnDeviceReady=false asr4allReady=true allowOnlineFallback=false   (push-to-talk mic FAB)
+11-22 09:24:30.778 12953 I KernelAI: WakeWordService: yielding mic to voice session   (second session, same route)
+
+# Crash / error scan
+Pid 12953, all logcat lines at level E or FATAL for the PR build session: none observed (grep " E |FATAL|AndroidRuntime|Exception" returned no lines).
+Zipformer / sherpa-stt / ZipformerLane strings in logcat during the PR build run: none.

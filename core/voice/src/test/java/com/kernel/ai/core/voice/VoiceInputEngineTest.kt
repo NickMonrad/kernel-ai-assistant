@@ -20,8 +20,9 @@ class VoiceInputEngineTest {
     }
 
     @Test
-    fun `legacy SherpaOnnx value still maps to Zipformer`() {
-        assertEquals(VoiceInputEngine.SherpaZipformer, VoiceInputEngine.fromStorage("SherpaOnnx"))
+    fun `legacy Sherpa values migrate to Auto`() {
+        assertEquals(VoiceInputEngine.Auto, VoiceInputEngine.fromStorage("SherpaOnnx"))
+        assertEquals(VoiceInputEngine.Auto, VoiceInputEngine.fromStorage("SherpaZipformer"))
     }
 
     @Test
@@ -31,36 +32,15 @@ class VoiceInputEngineTest {
         }
     }
 
-    @Test
-    fun `provisioner downloads Zipformer only for engines that use it in debug builds`() {
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.Auto, allowsSherpaRuntime = true))
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaZipformer, allowsSherpaRuntime = true))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.AndroidNative, allowsSherpaRuntime = true))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaWhisper, allowsSherpaRuntime = true))
-    }
-
-    @Test
-    fun `release never downloads or plans Zipformer for any stored engine`() {
-        VoiceInputEngine.entries.forEach { engine ->
-            assertFalse(VoiceDefaultsProvisioner.needsZipformer(engine, allowsSherpaRuntime = false))
-        }
-    }
 
     @Test
     fun `provisioner downloads asr4all only for engines that use it`() {
         assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Auto))
         assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Asr4all))
-        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaZipformer))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaParaformer))
         assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.AndroidNative))
     }
 
-    @Test
-    fun `provisioner maps every Zipformer file to a catalogue model`() {
-        assertEquals(
-            SherpaSttModelSpec.ZIPFORMER.requiredFileNames.size,
-            VoiceDefaultsProvisioner.zipformerModels().size,
-        )
-    }
 
     @Test
     fun `legacy Vosk cleanup only targets voice folders holding the Vosk model`(@TempDir tmp: File) {

@@ -164,8 +164,8 @@ internal sealed interface WakeAttemptOutcome {
      * [skipRetry] suppresses the session-level retry: set for the no-speech-window-exhausted
      * case (#1433), where the command window has closed and a second attempt would only
      * re-wait; for a native recognizer that never became ready or stalled before speech with no
-     * Zipformer to take over (#1853); and after a Zipformer hand-off, where a retry would start
-     * the failing native recognizer again.  The journal's STT_ERROR category remains the
+     * native hand-off to asr4all (#1853); and after that hand-off, where a retry would start the
+     * failing native recognizer again. The journal's STT_ERROR category remains the
      * standard "stt_recognition_failed".
      * [errorMessage] is the recognizer's terminal error, shown only if no retry follows.
      */
@@ -182,7 +182,7 @@ internal sealed interface WakeAttemptOutcome {
 /**
  * Terminal error categories that end the wake session without the bounded retry. The native
  * ones mean the on-device recognizer never became ready or stalled before speech with no
- * Zipformer to take over; a retry would wait the same way again (#1853).
+ * native hand-off to asr4all; a retry would wait the same way again (#1853).
  */
 private val NO_RETRY_ERROR_CATEGORIES = setOf(NO_SPEECH_WINDOW_EXHAUSTED, NATIVE_STALLED, NATIVE_NOT_READY)
 
@@ -204,7 +204,7 @@ internal class WakeAttemptCollectionException(
  * Plays the cue only after [VoiceInputEvent.ListeningStarted].
  * The collectors and channel are always cleaned up in [finally].
  * [onError] is called for non-fatal user-facing messages: a start failure, and every
- * controller note for this capture (#1853 Zipformer hand-off). A terminal recognition error is
+ * controller note for this capture (#1853 native hand-off to asr4all). A terminal recognition error is
  * returned in [WakeAttemptOutcome.NoTranscript.errorMessage] instead, so the session shows it
  * only when no retry follows.
  *
@@ -253,7 +253,7 @@ internal suspend fun runWakeAttempt(
             }
 
             val captureSessionId = startResult.captureSessionId
-            // #1853/#1866: notes for this capture (a Zipformer hand-off) are shown at once. The
+            // #1853/#1866: notes for this capture (a native hand-off to asr4all) are shown at once. The
             // latest note is replayed, so one posted during startListening is not lost.
             noticeJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 voiceInputController.noticesFor(captureSessionId).collect { onError(it) }
@@ -754,7 +754,7 @@ class WakeWordService : Service() {
      * #1439: the low-band wake verifier prefers the Whisper tiny.en catalogue model
      * (the only model that recognises the fixed wake phrase). Queue the download
      * through the existing catalogue flow when the files are missing; verification
-     * falls back to the online recognizer until they arrive.
+     * rejects low-band candidates until they arrive.
      */
     private fun ensureWakeVerifierModels() {
         if (wakeVerifierProvisionRequested) return

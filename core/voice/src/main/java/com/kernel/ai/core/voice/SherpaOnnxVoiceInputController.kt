@@ -44,8 +44,7 @@ private const val MODEL_UNAVAILABLE_MESSAGE =
  * VoiceInputController backed by Sherpa-ONNX recognizers accessed entirely via
  * Java reflection — zero compile-time dependency on `com.k2fsa.sherpa.onnx.*`.
  *
- * Supports four model families via [SherpaSttModelSpec]:
- * - Zipformer (existing): streaming via [OnlineRecognizer]
+ * Supports three model families via [SherpaSttModelSpec]:
  * - Paraformer: streaming via [OnlineRecognizer]
  * - Whisper tiny.en: offline batch via [OfflineRecognizer]
  * - SenseVoice: offline batch via [OfflineRecognizer]
@@ -99,25 +98,18 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     private val offlineMethods = OfflineMethods()
 
     /**
-     * Single ownership boundary for the dedicated wake-verifier recognizers (#1440).
+     * Single ownership boundary for the dedicated Whisper wake verifier (#1440, #1982).
      *
-     * The online fallback (Zipformer/Paraformer) and offline (Whisper) wake verifiers
-     * are mutually exclusive: at most one is cached/resident at a time, and a
-     * recognizer is never released while a verification using it is in progress.
-     * All wake-verifier selection, initialization, decoding, result extraction and
-     * stream release run under this mutex; the release* helpers must only be called
-     * while it is held. The interactive STT recognizer and its [recognizerMutex]
-     * are deliberately separate and unaffected.
+     * Whisper tiny.en is the only wake verifier. Verification selection, initialization, decoding,
+     * result extraction and stream release all run under this mutex, so a recognizer is never released
+     * mid-verification. The release helpers must only be called while it is held. The interactive STT
+     * recognizer and its [recognizerMutex] are deliberately separate and unaffected.
      */
     private val wakeVerifierMutex = Mutex()
-    @Volatile private var wakeRecognizer: Any? = null
-    @Volatile private var wakeMethods: WakeRecognizerMethods? = null
-    @Volatile private var wakeSpecEngine: VoiceInputEngine? = null
-    @Volatile private var wakeSpecValid: Boolean = false
 
     /**
      * Test double for dedicated wake-verifier construction (#1440). When set,
-     * [ensureWakeRecognizerBlocking]/[ensureWakeWhisperRecognizerBlocking] use the
+     * [ensureWakeWhisperRecognizerBlocking] uses the
      * provided recognizer+methods pairs instead of reflection-based construction, so
      * unit tests can drive the real cache-ownership lifecycle without the Sherpa AAR
      * on the test classpath. Production callers never set this.
@@ -129,17 +121,16 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      *
      * #1439: Whisper tiny.en is the only catalogue model that recognises the fixed
      * natural wake phrase on the detector-equivalent PCM window (`hi, jandal`);
-     * Zipformer/Paraformer/Vosk/SenseVoice all reject it (deterministic reproduction
-     * with the exact on-device files). The offline wake recognizer is a separate
-     * instance so verification can run concurrently with interactive capture.
+     * Paraformer and SenseVoice also reject it (deterministic reproduction
+     * with the exact on-device files).
+     * The offline wake recognizer is a separate instance so verification can run concurrently with interactive capture.
      */
     @Volatile private var wakeWhisperRecognizer: Any? = null
     @Volatile private var wakeWhisperMethods: WakeWhisperMethods? = null
     @Volatile private var wakeWhisperEngine: VoiceInputEngine? = null
     @Volatile private var wakeWhisperValid: Boolean = false
 
-    /** #1440 test visibility: whether each dedicated wake verifier is currently cached. */
-    internal val wakeOnlineVerifierCached: Boolean get() = wakeRecognizer != null
+    /** #1440 test visibility: whether the Whisper wake verifier is currently cached. */
     internal val wakeWhisperVerifierCached: Boolean get() = wakeWhisperRecognizer != null
 
     /** #1440 test visibility: the interactive STT recognizer must stay untouched. */
@@ -153,17 +144,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         @Volatile var getText: java.lang.reflect.Method? = null
         @Volatile var streamRelease: java.lang.reflect.Method? = null
     }
-
-    /** Reflected methods dedicated to wake-word verification. */
-    class WakeRecognizerMethods(
-        val createStream: java.lang.reflect.Method,
-        val acceptWaveform: java.lang.reflect.Method,
-        val inputFinished: java.lang.reflect.Method,
-        val isReady: java.lang.reflect.Method,
-        val decode: java.lang.reflect.Method,
-        val streamRelease: java.lang.reflect.Method,
-        val getResult: java.lang.reflect.Method,
-    )
 
     /** Reflected methods dedicated to offline (Whisper) wake-word verification. */
     class WakeWhisperMethods(
@@ -179,7 +159,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
      * return recognizer+reflected-methods pairs without touching the Sherpa AAR.
      */
     interface WakeVerifierTestBuilder {
-        fun buildOnline(spec: SherpaSttModelSpec): Pair<Any, WakeRecognizerMethods>?
         fun buildWhisper(spec: SherpaSttModelSpec): Pair<Any, WakeWhisperMethods>?
     }
 
@@ -351,7 +330,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
                     Log.i(TAG, "Sherpa STT start abandoned: stopped while the recognizer was loading (sessionId=$captureSessionId)")
                     null
                 } else {
-                    JandalEvents.record("voice", "stt_ready", "mode" to mode, "zipformer" to (spec == SherpaSttModelSpec.ZIPFORMER))
+                    JandalEvents.record("voice", "stt_ready", "mode" to mode)
                     isRecording = true
                     val job = recordingScope.launch(start = CoroutineStart.LAZY) {
                         try {
@@ -475,8 +454,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     }
 
     /**
-     * Loads [spec] ahead of a start (#1850). Selectable uses this for the Zipformer route that
-     * Auto picks, which [prewarm] cannot resolve from the engine setting alone. Holds no mic.
+     * Loads [spec] ahead of a start (#1850). Holds no mic.
      */
     internal suspend fun prewarmSpec(spec: SherpaSttModelSpec) {
         try {
@@ -570,7 +548,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return buffer
     }
 
-    // ── Online audio loop (Zipformer / Paraformer) ─────────────────────────────
+    // ── Online audio loop (Paraformer) ─────────────────────────────────────────
 
     @Volatile private var isRecording = false
 
@@ -815,119 +793,25 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     override suspend fun transcribeBlocking(pcm: ShortArray): String? {
         if (pcm.isEmpty()) return null
-        // #1439: prefer the Whisper tiny.en verifier — the only catalogue model that
-        // recognises the fixed natural wake phrase on the detector-equivalent window.
-        // Falls back to the existing online verifier when the Whisper files are absent.
-        // #1440: the whole verification — selection, initialization, decoding, result
-        // extraction and stream release — runs under [wakeVerifierMutex], so the
-        // online fallback and Whisper verifiers are mutually exclusive and a
-        // recognizer is never released while its decode is still in progress.
+        // #1439/#1440: Whisper tiny.en is the only verifier that recognises the fixed wake phrase on the
+        // detector-equivalent window. The whole verification runs under [wakeVerifierMutex].
         return wakeVerifierMutex.withLock {
-            val spec = resolveWakeVerifierSpec()
-            if (spec == SherpaSttModelSpec.WHISPER) {
-                val (rec, methods) = ensureWakeWhisperRecognizerBlocking(spec) ?: return@withLock null
-                val stream = methods.createStream.invoke(rec)
-                try {
-                    val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
-                    methods.acceptWaveform.invoke(stream, floats, SAMPLE_RATE)
-                    methods.decode.invoke(rec, stream)
-                    resultTextFromWakeWhisper(rec, stream, methods)
-                } catch (e: Exception) {
-                    Log.e(TAG, "transcribeBlocking (whisper verifier) failed", e)
-                    null
-                } finally {
-                    runCatching { methods.streamRelease.invoke(stream) }
-                }
-            } else {
-                val (rec, methods) = ensureWakeRecognizerBlocking(spec) ?: return@withLock null
-                val stream = methods.createStream.invoke(rec, "")
-                try {
-                    val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
-                    methods.acceptWaveform.invoke(stream, floats, SAMPLE_RATE)
-                    methods.inputFinished.invoke(stream)
-                    var iters = 0
-
-                    while (methods.isReady.invoke(rec, stream) as Boolean) {
-                        methods.decode.invoke(rec, stream)
-                        if (++iters > 500) break
-                    }
-                    resultTextFromWakeMethods(rec, stream, methods)
-                } catch (e: Exception) {
-                    Log.e(TAG, "transcribeBlocking failed", e)
-                    null
-                } finally {
-                    runCatching { methods.streamRelease.invoke(stream) }
-                }
+            val (rec, methods) = ensureWakeWhisperRecognizerBlocking(SherpaSttModelSpec.WHISPER) ?: return@withLock null
+            val stream = methods.createStream.invoke(rec)
+            try {
+                val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
+                methods.acceptWaveform.invoke(stream, floats, SAMPLE_RATE)
+                methods.decode.invoke(rec, stream)
+                resultTextFromWakeWhisper(rec, stream, methods)
+            } catch (e: Exception) {
+                Log.e(TAG, "transcribeBlocking (whisper verifier) failed", e)
+                null
+            } finally {
+                runCatching { methods.streamRelease.invoke(stream) }
             }
         }
     }
 
-    /**
-     * Resolves the model used for wake-window verification (#1439):
-     *
-     * 1. Whisper tiny.en when its files are present — the only catalogue model that
-     *    recognises the fixed natural wake phrase on the detector-equivalent window;
-     * 2. otherwise the selected online Sherpa spec (Zipformer/Paraformer) when online;
-     * 3. otherwise the Zipformer default (existing fallback; debug builds only).
-     *    Release builds keep Zipformer excluded, so they resolve Whisper even while its
-     *    files are missing; that yields a null verification until the Whisper download lands.
-     *
-     * The interactive STT engine selection is never modified.
-     */
-    internal suspend fun resolveWakeVerifierSpec(): SherpaSttModelSpec {
-        if (isSpecAvailable(SherpaSttModelSpec.WHISPER)) return SherpaSttModelSpec.WHISPER
-        if (!voiceInputPreferences.allowsSherpaRuntime()) return SherpaSttModelSpec.WHISPER
-        val userSpec = resolveSpec()
-        return if (userSpec.recognizerKind == SherpaSttModelSpec.RecognizerKind.Online) userSpec
-               else SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
-    }
-
-    /**
-     * Ensures the dedicated online wake-verification recognizer (Zipformer/Paraformer
-     * fallback) exists. The caller must hold [wakeVerifierMutex]: the Whisper wake
-     * verifier is evicted before the online verifier becomes resident, so at most one
-     * dedicated wake verifier is cached at a time (#1440). The interactive STT
-     * recognizer and its mutex are unaffected.
-     */
-    private suspend fun ensureWakeRecognizerBlocking(
-        spec: SherpaSttModelSpec,
-    ): Pair<Any, WakeRecognizerMethods>? {
-        if (wakeRecognizer != null && wakeSpecValid && wakeSpecEngine == spec.engine && wakeMethods != null) {
-            return wakeRecognizer!! to wakeMethods!!
-        }
-        // Mutual exclusion: evict the Whisper wake verifier, then any superseded
-        // online recognizer, before the new one becomes resident.
-        releaseWakeWhisperRecognizer()
-        releaseWakeRecognizer()
-        if (!isSpecAvailable(spec)) {
-            Log.w(TAG, "Wake-word STT model files missing for ${spec.engine}")
-            return null
-        }
-        return try {
-            val testBuilt = wakeVerifierTestBuilder?.buildOnline(spec)
-            val instance: Any
-            val methods: WakeRecognizerMethods
-            if (testBuilt != null) {
-                instance = testBuilt.first
-                methods = testBuilt.second
-            } else {
-                instance = initWakeOnlineRecognizer(spec)
-                methods = buildWakeMethods(instance)
-            }
-            wakeRecognizer = instance
-            wakeMethods = methods
-            wakeSpecEngine = spec.engine
-            wakeSpecValid = true
-            instance to methods
-        } catch (e: Exception) {
-            Log.e(TAG, "Wake recognizer init failed", e)
-            wakeRecognizer = null
-            wakeMethods = null
-            wakeSpecEngine = null
-            wakeSpecValid = false
-            null
-        }
-    }
     @SuppressLint("MissingPermission")
     private fun createAudioRecord(): AudioRecord? {
         val minBuf = AudioRecord.getMinBufferSize(
@@ -998,13 +882,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     /**
      * Resolves the current Sherpa STT spec from the selected voice input engine.
-     * If the selected engine is not a Sherpa family, returns the Zipformer spec
-     * (so availability checks and wake-word fallback work).
+     * If the selected engine is not a Sherpa family, returns the Whisper spec (the wake verifier).
      */
     private fun resolveSpec(): SherpaSttModelSpec {
         val engine = runBlockingOrNull { voiceInputPreferences.selectedEngine.first() }
-            ?: VoiceInputEngine.SherpaZipformer
-        return SherpaSttModelSpec.forEngine(engine) ?: SherpaSttModelSpec.WAKE_VERIFICATION_DEFAULT
+            ?: VoiceInputEngine.SherpaWhisper
+        return SherpaSttModelSpec.forEngine(engine) ?: SherpaSttModelSpec.WHISPER
     }
 
     // ── Availability ───────────────────────────────────────────────────────────
@@ -1103,9 +986,7 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         if (wakeWhisperRecognizer != null && wakeWhisperValid && wakeWhisperEngine == spec.engine && wakeWhisperMethods != null) {
             return wakeWhisperRecognizer!! to wakeWhisperMethods!!
         }
-        // Mutual exclusion: evict the online wake verifier, then any superseded
-        // Whisper recognizer, before the new one becomes resident.
-        releaseWakeRecognizer()
+        // Evict any superseded Whisper recognizer before the new one becomes resident.
         releaseWakeWhisperRecognizer()
         if (!isSpecAvailable(spec)) {
             Log.w(TAG, "Wake-word Whisper verifier files missing for ${spec.engine}")
@@ -1174,23 +1055,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
     }
 
     /**
-     * Releases the dedicated online wake-verification recognizer and clears its
-     * cached method handles. Must only be called while [wakeVerifierMutex] is held
-     * so a recognizer is never released mid-verification (#1440).
-     */
-    private fun releaseWakeRecognizer() {
-        if (wakeRecognizer != null) {
-            try {
-                wakeRecognizer!!.javaClass.getDeclaredMethod("release").invoke(wakeRecognizer)
-            } catch (_: Exception) {}
-            wakeRecognizer = null
-            wakeMethods = null
-            wakeSpecEngine = null
-            wakeSpecValid = false
-        }
-    }
-
-    /**
      * Constructs the appropriate Sherpa recognizer for [spec] via reflection.
      * Must be called only from within [recognizerMutex].
      */
@@ -1203,27 +1067,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     private fun initRecognizerInstance(spec: SherpaSttModelSpec): Any {
         return initOnlineRecognizer(spec)
-    }
-
-    private fun buildWakeMethods(recognizer: Any): WakeRecognizerMethods {
-        val clsRecognizer = recognizer.javaClass
-        val clsStream = Class.forName("$PKG.OnlineStream")
-        return WakeRecognizerMethods(
-            createStream = clsRecognizer.getDeclaredMethod("createStream", String::class.java),
-            isReady = clsRecognizer.getDeclaredMethod("isReady", clsStream),
-            decode = clsRecognizer.getDeclaredMethod("decode", clsStream),
-            getResult = clsRecognizer.getDeclaredMethod("getResult", clsStream),
-            acceptWaveform = clsStream.getDeclaredMethod("acceptWaveform", FloatArray::class.java, Int::class.javaPrimitiveType),
-            inputFinished = clsStream.getDeclaredMethod("inputFinished"),
-            streamRelease = clsStream.getDeclaredMethod("release"),
-        )
-    }
-
-    private fun resultTextFromWakeMethods(rec: Any, stream: Any, methods: WakeRecognizerMethods): String {
-        val result = methods.getResult.invoke(rec, stream)!!
-        val getText = result.javaClass.getDeclaredMethod("getText").also { it.isAccessible = true }
-        return (getText.invoke(result) as String).trim().trimEnd('?', '.', '!', ',', ':', ';')
-            .lowercase(java.util.Locale.ROOT)
     }
 
     // ── Offline recognizer init (Whisper wake verifier, #1439) ────────────────
@@ -1266,63 +1109,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         return ctor.newInstance(null, recConfig)
     }
 
-    // ── Online recognizer init (Zipformer / Paraformer) ────────────────────────
-
-    private fun initWakeOnlineRecognizer(spec: SherpaSttModelSpec): Any {
-        val clsFeature    = Class.forName("$PKG.FeatureConfig")
-        val clsTransducer = Class.forName("$PKG.OnlineTransducerModelConfig")
-        val clsModel      = Class.forName(spec.modelConfigClassName)
-        val clsEndpoint   = Class.forName("$PKG.EndpointConfig")
-        val clsRecCfg     = Class.forName(spec.recognizerConfigClassName)
-        val clsRecognizer = Class.forName(spec.recognizerClassName)
-
-        val featConfig = clsFeature.getDeclaredConstructor().newInstance().also {
-            setProperty(it, "sampleRate", SAMPLE_RATE)
-            setProperty(it, "featureDim", 80)
-        }
-
-        val modelConfig = clsModel.getDeclaredConstructor().newInstance()
-        when (spec.engine) {
-            VoiceInputEngine.SherpaZipformer -> {
-                val transducerConfig = clsTransducer.getDeclaredConstructor().newInstance().also {
-                    setProperty(it, "encoder", sttFile("sherpa-stt-encoder.int8.onnx").absolutePath)
-                    setProperty(it, "decoder", sttFile("sherpa-stt-decoder.int8.onnx").absolutePath)
-                    setProperty(it, "joiner",  sttFile("sherpa-stt-joiner.int8.onnx").absolutePath)
-                }
-                setProperty(modelConfig, "transducer", transducerConfig)
-                setProperty(modelConfig, "tokens", sttFile("sherpa-stt-tokens.txt").absolutePath)
-            }
-            VoiceInputEngine.SherpaParaformer -> {
-                val clsParaformer = Class.forName("$PKG.OnlineParaformerModelConfig")
-                val paraformerConfig = clsParaformer.getDeclaredConstructor().newInstance().also {
-                    setProperty(it, "encoder", sttFile("sherpa-paraformer-encoder.int8.onnx").absolutePath)
-                    setProperty(it, "decoder", sttFile("sherpa-paraformer-decoder.int8.onnx").absolutePath)
-                }
-                setProperty(modelConfig, "paraformer", paraformerConfig)
-                setProperty(modelConfig, "tokens", sttFile("sherpa-paraformer-tokens.txt").absolutePath)
-            }
-            else -> throw IllegalStateException("Unexpected online engine: ${spec.engine}")
-        }
-
-        setProperty(modelConfig, "numThreads", 2)
-        setProperty(modelConfig, "debug", false)
-        setProperty(modelConfig, "provider", "cpu")
-
-        val endpointConfig = clsEndpoint.getDeclaredConstructor().newInstance()
-        val recConfig = clsRecCfg.getDeclaredConstructor().newInstance().also {
-            setProperty(it, "featConfig", featConfig)
-            setProperty(it, "modelConfig", modelConfig)
-            setProperty(it, "endpointConfig", endpointConfig)
-            setProperty(it, "enableEndpoint", true)
-            setProperty(it, "decodingMethod", "greedy_search")
-            setProperty(it, "maxActivePaths", 4)
-        }
-
-        val ctor = clsRecognizer.getConstructor(android.content.res.AssetManager::class.java, clsRecCfg)
-        @Suppress("UNCHECKED_CAST")
-        return ctor.newInstance(null, recConfig)
-    }
-
     private fun initOnlineRecognizer(spec: SherpaSttModelSpec): Any {
         val clsFeature    = Class.forName("$PKG.FeatureConfig")
         val clsTransducer = Class.forName("$PKG.OnlineTransducerModelConfig")
@@ -1342,16 +1128,6 @@ class SherpaOnnxVoiceInputController @Inject constructor(
         val modelConfig = clsModel.getDeclaredConstructor().newInstance()
 
         when (spec.engine) {
-            VoiceInputEngine.SherpaZipformer -> {
-                // OnlineTransducerModelConfig for Zipformer
-                val transducerConfig = clsTransducer.getDeclaredConstructor().newInstance().also {
-                    setProperty(it, "encoder", sttFile("sherpa-stt-encoder.int8.onnx").absolutePath)
-                    setProperty(it, "decoder", sttFile("sherpa-stt-decoder.int8.onnx").absolutePath)
-                    setProperty(it, "joiner",  sttFile("sherpa-stt-joiner.int8.onnx").absolutePath)
-                }
-                setProperty(modelConfig, "transducer", transducerConfig)
-                setProperty(modelConfig, "tokens", sttFile("sherpa-stt-tokens.txt").absolutePath)
-            }
             VoiceInputEngine.SherpaParaformer -> {
                 // OnlineParaformerModelConfig for Paraformer
                 val clsParaformer = Class.forName("$PKG.OnlineParaformerModelConfig")
@@ -1477,11 +1253,10 @@ class SherpaOnnxVoiceInputController @Inject constructor(
 
     private fun tokensFileForSpec(spec: SherpaSttModelSpec): String {
         return when (spec.engine) {
-            VoiceInputEngine.SherpaZipformer -> "sherpa-stt-tokens.txt"
             VoiceInputEngine.SherpaSenseVoice -> "sherpa-sensevoice-tokens.txt"
             VoiceInputEngine.SherpaWhisper -> "sherpa-whisper-tiny.en-tokens.txt"
             VoiceInputEngine.SherpaParaformer -> "sherpa-paraformer-tokens.txt"
-            else -> "sherpa-stt-tokens.txt"
+            else -> error("No Sherpa tokens file for ${spec.engine}")
         }
     }
 

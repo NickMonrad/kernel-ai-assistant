@@ -43,12 +43,6 @@ object ReleaseAssetAttributionCatalog {
                 "Apache-2.0",
                 "Pre-converted INT8 TFLite derivative of sentence-transformers/all-MiniLM-L6-v2; bundled SHA-256 0aac5b0b76be23ab94f065a7fab6e0daead5e57f6ff7d55e19a2641d6a81f276",
             )
-            KernelModel.SHERPA_STT_ENCODER, KernelModel.SHERPA_STT_DECODER,
-            KernelModel.SHERPA_STT_JOINER, KernelModel.SHERPA_STT_TOKENS -> Triple(
-                "csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-02-21",
-                "Apache-2.0 recorded for export; model provenance review pending",
-                "Zipformer English streaming STT ONNX export and token vocabulary",
-            )
             KernelModel.SHERPA_SENSEVOICE_MODEL, KernelModel.SHERPA_SENSEVOICE_TOKENS -> Triple(
                 "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
                 "FunASR model-weight terms; legal review pending (not MIT-only)",
@@ -86,8 +80,6 @@ object ReleaseAssetAttributionCatalog {
             KernelModel.ARCTIC_EMBED_M_V1_5 -> "Memory search embedding model"
             KernelModel.ARCTIC_EMBED_V1_5_VOCAB -> "Memory search tokenizer"
             KernelModel.MINI_LM -> "Intent classification model"
-            KernelModel.SHERPA_STT_ENCODER, KernelModel.SHERPA_STT_DECODER,
-            KernelModel.SHERPA_STT_JOINER, KernelModel.SHERPA_STT_TOKENS,
             KernelModel.SHERPA_SENSEVOICE_MODEL, KernelModel.SHERPA_SENSEVOICE_TOKENS,
             KernelModel.SHERPA_WHISPER_TINY_EN_ENCODER, KernelModel.SHERPA_WHISPER_TINY_EN_DECODER,
             KernelModel.SHERPA_WHISPER_TINY_EN_TOKENS,

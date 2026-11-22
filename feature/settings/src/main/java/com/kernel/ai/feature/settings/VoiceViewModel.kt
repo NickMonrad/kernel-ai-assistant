@@ -11,7 +11,7 @@ import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.InflectMicroModelSpec
-import com.kernel.ai.core.voice.heyJandalDownloadModels
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
@@ -24,7 +24,6 @@ import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.kernelModels
-import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -126,7 +125,7 @@ data class VoiceUiState(
     val isDefaultAssistant: Boolean = false,
     /** True when "Listen for Hey Jandal" is enabled in preferences. */
     val heyJandalEnabled: Boolean = false,
-    /** Bytes turning Hey Jandal on still downloads for the selected input ([heyJandalDownloadModels]); 0 when on disk (#1931). */
+    /** Bytes the Whisper wake verifier still needs to download; 0 when on disk (#1931). */
     val heyJandalDownloadBytes: Long = 0L,
     /** True when the hey_jandal_int8.tflite model file is present on device. */
     val isWakeWordModelAvailable: Boolean = false,
@@ -317,7 +316,7 @@ class VoiceViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         selectedInputEngine = engine,
-                        heyJandalDownloadBytes = heyJandalDownloadBytes(engine, modelDownloadManager.downloadStates.value),
+                        heyJandalDownloadBytes = heyJandalDownloadBytes(modelDownloadManager.downloadStates.value),
                     )
                 }
             }
@@ -491,7 +490,7 @@ class VoiceViewModel @Inject constructor(
             wakeWordPreferences.heyJandalEnabled.collect { enabled ->
                 _uiState.update { it.copy(heyJandalEnabled = enabled) }
                 if (enabled) {
-                    queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
+                    wakeVerifierKernelModels().forEach(modelDownloadManager::startDownload)
                 }
             }
         }
@@ -527,7 +526,7 @@ class VoiceViewModel @Inject constructor(
                         piperSelected = it.selectedOutputEngine == VoiceOutputEngine.SherpaExperimental,
                     )
                     it.copy(
-                        heyJandalDownloadBytes = heyJandalDownloadBytes(it.selectedInputEngine, states),
+                        heyJandalDownloadBytes = heyJandalDownloadBytes(states),
                         inflectMicroStates = inflectStates,
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
@@ -579,8 +578,9 @@ class VoiceViewModel @Inject constructor(
         )
     }
 
-    private fun heyJandalDownloadBytes(input: VoiceInputEngine, states: Map<KernelModel, DownloadState>): Long =
-        heyJandalDownloadModels(input, isReleaseBuild)
+
+    private fun heyJandalDownloadBytes(states: Map<KernelModel, DownloadState>): Long =
+        wakeVerifierKernelModels()
             .filterNot { states[it] is DownloadState.Downloaded }
             .sumOf { it.approxSizeBytes }
 
@@ -870,7 +870,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             wakeWordPreferences.setHeyJandalEnabled(enabled)
             if (enabled) {
-                queueHeyJandalSttModel(voiceInputPreferences, modelDownloadManager, isReleaseBuild)
+                wakeVerifierKernelModels().forEach(modelDownloadManager::startDownload)
             }
         }
     }

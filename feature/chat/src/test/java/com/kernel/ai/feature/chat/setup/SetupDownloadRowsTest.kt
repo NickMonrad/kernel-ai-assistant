@@ -2,9 +2,10 @@ package com.kernel.ai.feature.chat.setup
 
 import com.kernel.ai.core.inference.download.DownloadConsent
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
-import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -13,14 +14,14 @@ import org.junit.jupiter.api.Test
 class SetupDownloadRowsTest {
 
     private val arctic = listOf(KernelModel.ARCTIC_EMBED_M_V1_5, KernelModel.ARCTIC_EMBED_V1_5_VOCAB)
-    private val zipformer = VoiceDefaultsProvisioner.zipformerModels()
+    private val asr4all = Asr4AllInstall.models(Asr4AllSize.M)
 
     private fun total(models: List<KernelModel>, voices: List<SherpaPiperVoice>) =
         DownloadConsent.firstRunEstimateBytes(models, voices.sumOf { it.approxDownloadBytes })
 
     @Test
     fun `a flagship plan lists E-4B, memory, offline speech and Cori, adding up to the total`() {
-        val models = listOf(KernelModel.GEMMA_4_E4B) + arctic + zipformer
+        val models = listOf(KernelModel.GEMMA_4_E4B) + arctic + asr4all
         val voices = listOf(SherpaPiperVoice.CoriHigh)
 
         val rows = downloadRows(models, voices)
@@ -31,7 +32,7 @@ class SetupDownloadRowsTest {
         )
         assertEquals(KernelModel.GEMMA_4_E4B.displayName, rows.first().technicalName)
         assertEquals(arctic.sumOf { it.approxSizeBytes }, rows[1].bytes)
-        assertEquals(zipformer.sumOf { it.approxSizeBytes }, rows[2].bytes)
+        assertEquals(asr4all.sumOf { it.approxSizeBytes }, rows[2].bytes)
         assertEquals(total(models, voices), rows.sumOf { it.bytes })
     }
 

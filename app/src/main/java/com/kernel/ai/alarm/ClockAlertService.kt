@@ -265,7 +265,7 @@ class ClockAlertService : Service() {
     private val activeAlerts = linkedSetOf<TriggeredClockAlert>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var voiceEventsJob: Job? = null
-    /** Collects notes for the current alert capture (#1853 Zipformer hand-off, #1866). */
+    /** Collects notes for the current alert capture (#1853 native hand-off to asr4all, #1866). */
     private var voiceNoticeJob: Job? = null
     /** Latest note for the current alert capture, shown before the listening prompt. */
     private var voiceNotice: String? = null

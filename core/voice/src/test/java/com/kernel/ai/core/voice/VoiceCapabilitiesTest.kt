@@ -54,18 +54,18 @@ class VoiceCapabilitiesTest {
 
     @Test
     fun `native hand-off is allowed only for not-ready and stalled categories before speech`() {
-        assertTrue(isZipformerHandoffEligible(NATIVE_NOT_READY, hadSpeechProgress = false))
-        assertTrue(isZipformerHandoffEligible(NATIVE_STALLED, hadSpeechProgress = false))
+        assertTrue(isAsr4allHandoffEligible(NATIVE_NOT_READY, hadSpeechProgress = false))
+        assertTrue(isAsr4allHandoffEligible(NATIVE_STALLED, hadSpeechProgress = false))
     }
 
     @Test
     fun `recognizer-reported errors are never handed off`() {
-        assertFalse(isZipformerHandoffEligible(null, hadSpeechProgress = false))
-        assertFalse(isZipformerHandoffEligible(NO_SPEECH_WINDOW_EXHAUSTED, hadSpeechProgress = false))
+        assertFalse(isAsr4allHandoffEligible(null, hadSpeechProgress = false))
+        assertFalse(isAsr4allHandoffEligible(NO_SPEECH_WINDOW_EXHAUSTED, hadSpeechProgress = false))
     }
 
     @Test
     fun `no hand-off once speech progress was seen`() {
-        assertFalse(isZipformerHandoffEligible(NATIVE_STALLED, hadSpeechProgress = true))
+        assertFalse(isAsr4allHandoffEligible(NATIVE_STALLED, hadSpeechProgress = true))
     }
 }

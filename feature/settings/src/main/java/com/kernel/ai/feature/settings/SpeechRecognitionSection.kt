@@ -77,9 +77,6 @@ internal fun SpeechRecognitionSection(
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
     var termsSheetOpen by rememberSaveable { mutableStateOf(false) }
-    val zipformerAvailable = VoiceInputEngine.SherpaZipformer in uiState.availableInputEngines
-    val zipformerDownloaded = zipformerAvailable &&
-        uiState.sherpaSttStates[VoiceInputEngine.SherpaZipformer]?.isDownloaded == true
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -103,8 +100,6 @@ internal fun SpeechRecognitionSection(
                         capabilities = uiState.androidNativeCapabilities,
                         localeReady = uiState.androidNativeLocaleReady,
                         onlineAllowed = uiState.allowOnlineSpeechFallback,
-                        zipformerDownloaded = zipformerDownloaded,
-                        zipformerAvailable = zipformerAvailable,
                     )
                 } else {
                     null
@@ -294,7 +289,6 @@ private fun Asr4AllSizeRow(
 private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.Auto -> VoiceInputEngine.AUTOMATIC_SUMMARY
     VoiceInputEngine.AndroidNative -> "Your phone's own recognizer. Can suit some accents better."
-    VoiceInputEngine.SherpaZipformer -> "Fully offline, shows words as you speak."
     VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."
     VoiceInputEngine.SherpaWhisper -> "Offline, English only."
     VoiceInputEngine.SherpaParaformer -> "Offline, shows words as you speak."
@@ -303,27 +297,16 @@ private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
 
 /**
  * Warning for the Android native engine row, shown only while that engine is selected. A blocking
- * availability message wins; otherwise the capability warning. Online-off is not a warning when
- * Zipformer is downloaded, because a stall then hands off to Zipformer.
+ * availability message wins; otherwise the capability warning.
  */
 private fun androidNativeSettingsWarning(
     blockingMessage: String?,
     capabilities: VoiceCapabilities?,
     localeReady: Boolean,
     onlineAllowed: Boolean,
-    zipformerDownloaded: Boolean,
-    zipformerAvailable: Boolean,
 ): String? {
-    val fallback = when {
-        zipformerDownloaded ->
-            "Sherpa-ONNX Zipformer is downloaded and is used if Android speech fails to start or stalls."
-        zipformerAvailable ->
-            "Download Sherpa-ONNX Zipformer below as an offline fallback."
-        else ->
-            "This release uses Android speech recognition without a Sherpa fallback."
-    }
     val capabilityWarning = capabilities?.let {
-        androidNativeWarning(it, localeReady, onlineAllowed || zipformerDownloaded)
+        androidNativeWarning(it, localeReady, onlineAllowed)
     }
     val message = blockingMessage ?: when (capabilityWarning) {
         null -> return null
@@ -336,7 +319,7 @@ private fun androidNativeSettingsWarning(
         AndroidNativeWarning.OnlineOff ->
             "Online speech is off. If the on-device recognizer stays silent, voice input stalls."
     }
-    return "$message $fallback"
+    return message
 }
 
 @Composable
@@ -374,7 +357,6 @@ private fun VoiceWarningCard(
 
 private fun previewUiState(
     selected: VoiceInputEngine = VoiceInputEngine.Auto,
-    zipformerDownloaded: Boolean = true,
     senseVoiceDownloaded: Boolean = false,
     nativeMessage: String? = null,
 ): VoiceUiState = VoiceUiState(
@@ -384,7 +366,6 @@ private fun previewUiState(
     androidNativeAvailabilityMessage = nativeMessage,
     androidNativeLanguageName = "English (Australia)",
     sherpaSttStates = mapOf(
-        VoiceInputEngine.SherpaZipformer to SherpaSttDownloadState(isDownloaded = zipformerDownloaded),
         VoiceInputEngine.SherpaSenseVoice to SherpaSttDownloadState(isDownloaded = senseVoiceDownloaded),
     ),
 )
@@ -406,13 +387,13 @@ private fun SectionPreview(uiState: VoiceUiState) {
     }
 }
 
-/** Android native selected with a blocking message and Zipformer not downloaded: warning card + Use Automatic. */
+/** Android native selected with a blocking message: warning card + Use Automatic. */
 @PreviewLightDark
 @Composable
 private fun SpeechRecognitionNativeWarningPreview() = SectionPreview(
     previewUiState(
         selected = VoiceInputEngine.AndroidNative,
-        zipformerDownloaded = false,
+        senseVoiceDownloaded = false,
         nativeMessage = "On-device Android speech recognition is unavailable for the current setup.",
     ),
 )
@@ -423,7 +404,7 @@ private fun SpeechRecognitionNativeWarningPreview() = SectionPreview(
 private fun SpeechRecognitionEngineWarningPreview() =
     SectionPreview(previewUiState(selected = VoiceInputEngine.SherpaSenseVoice, senseVoiceDownloaded = true))
 
-/** Automatic selected, Zipformer downloaded, SenseVoice not (compose-notes §5). */
+/** Automatic selected, SenseVoice not (compose-notes §5). */
 @PreviewLightDark
 @Composable
 private fun SpeechRecognitionSectionPreview() = SectionPreview(previewUiState())

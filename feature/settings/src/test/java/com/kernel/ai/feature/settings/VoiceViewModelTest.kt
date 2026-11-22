@@ -267,12 +267,11 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `Hey Jandal size with Android native and nothing downloaded is the verifier plus Zipformer`() = runTest {
+    fun `Hey Jandal size with Android native and nothing downloaded is the verifier`() = runTest {
         selectedInputEngine.value = VoiceInputEngine.AndroidNative
         testDispatcher.scheduler.advanceUntilIdle()
 
-        val expected = (wakeVerifierKernelModels() + VoiceDefaultsProvisioner.zipformerModels())
-            .distinct().sumOf { it.approxSizeBytes }
+        val expected = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
         assertEquals(expected, viewModel.uiState.value.heyJandalDownloadBytes)
     }
 
@@ -327,7 +326,7 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic for guaranteed local voice input.",
             viewModel.uiState.value.androidNativeAvailabilityMessage,
         )
     }
@@ -411,7 +410,7 @@ class VoiceViewModelTest {
         )
 
         assertEquals(
-            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic or Sherpa-ONNX Zipformer for guaranteed local voice input.",
+            "On-device Android speech recognition is unavailable for the current setup. Install the required language pack, or use Automatic for guaranteed local voice input.",
             resolveAndroidNativeAvailabilityMessage(availability),
         )
     }

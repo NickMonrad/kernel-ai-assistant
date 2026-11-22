@@ -66,15 +66,12 @@ internal object MakeYoursRows {
     /**
      * The Hey Jandal card for [choice] (what Finish will apply) against [stored], by the step 4 state table in
      * docs/specs/setup-visual-pass/README.md. [extraBytes] is the download this phone still needs.
-     * [androidNativeZipformerBytes] is the Zipformer download Hey Jandal adds when Android native is the speech
-     * input (0 otherwise, or when Zipformer is already on the phone); Why? names it.
      */
     fun heyJandalCard(
         stored: Boolean,
         choice: Boolean,
         platform: MakeYoursPlatform,
         extraBytes: Long,
-        androidNativeZipformerBytes: Long,
     ): HeyJandalCard {
         val pending = choice != stored
         val base = "Say \"Hey Jandal\" to start talking, hands-free."
@@ -143,21 +140,16 @@ internal object MakeYoursRows {
             caveat = caveat,
             primary = primary,
             secondary = secondary,
-            why = if (secondary == null) heyJandalWhy(androidNativeZipformerBytes) else null,
+            why = if (secondary == null) heyJandalWhy() else null,
         )
     }
 
     private const val STAYS_OFF = "Stays off until this is fixed."
 
-    private fun heyJandalWhy(androidNativeZipformerBytes: Long): String =
-        "Say \"Hey Jandal\" and Jandal starts listening, hands-free. The mic stays on for the wake word, so it uses " +
-            "a little battery. It works most reliably once Jandal is your default assistant, which is the next row." +
-            (if (androidNativeZipformerBytes > 0L) {
-                " Hey Jandal also needs the Zipformer speech model, about " +
-                    "${formatBytesShort(androidNativeZipformerBytes)}, even though Android's listener is your speech input."
-            } else {
-                ""
-            })
+    private fun heyJandalWhy(): String =
+        "Say \"Hey Jandal\" and Jandal starts listening, hands-free. Whisper tiny.en verifies the wake phrase. " +
+            "The mic stays on for the wake word, so it uses a little battery. It works most reliably once Jandal is " +
+            "your default assistant, which is the next row."
 
     /** Default assistant: On when Jandal holds the role; Not available when the phone has no assistant role. */
     fun defaultAssistant(platform: MakeYoursPlatform): MakeYoursStatus = when {

@@ -81,10 +81,11 @@ class DownloadConsentTest {
     }
 
     @Test
-    fun `speech defaults are sherpa STT files that are not yet downloaded`() {
-        val speech = DownloadConsent.speechDefaultModels { it.fileName.startsWith("sherpa-stt-zipformer") }
-        assertTrue(speech.all { it.fileName.startsWith("sherpa-stt-") })
-        assertTrue(speech.none { it.fileName.startsWith("sherpa-stt-zipformer") })
+    fun `the auto-queue set never includes asr4all, which the setup wizard plans itself`() {
+        HardwareTier.entries.forEach { tier ->
+            val planned = DownloadConsent.autoQueueModels(tier, { false }, emptySet(), hasToken = true)
+            assertTrue(planned.none { it.fileName.startsWith("asr4all/") }, "tier $tier")
+        }
     }
 
     @Test
@@ -121,11 +122,10 @@ class DownloadConsentTest {
     }
 
     @Test
-    fun `first-run estimate counts Zipformer files and the planned voice`() {
-        val zipformer = DownloadConsent.speechDefaultModels { false }
-        assertTrue(zipformer.isNotEmpty())
+    fun `first-run estimate counts the planned models and the planned voice`() {
+        val models = listOf(KernelModel.GEMMA_4_E4B)
         val cori = 115_574_061L
-        assertEquals(zipformer.sumOf { it.approxSizeBytes } + cori, DownloadConsent.firstRunEstimateBytes(zipformer, cori))
+        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes + cori, DownloadConsent.firstRunEstimateBytes(models, cori))
         assertEquals(cori, DownloadConsent.firstRunEstimateBytes(emptyList(), cori))
     }
 }

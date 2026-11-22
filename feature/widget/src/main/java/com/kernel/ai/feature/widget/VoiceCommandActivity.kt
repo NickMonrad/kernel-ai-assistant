@@ -456,7 +456,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 if (!isFinishing) finish()
             }
 
-            // #1853/#1866: notes for this capture (a Zipformer hand-off) are shown as a toast, so
+            // #1853/#1866: notes for this capture (a native hand-off to asr4all) are shown as a toast, so
             // they stay visible if the overlay navigates or finishes.
             fun bindCapture(sessionId: Long, ownerAttempt: Long) {
                 if (ownerAttempt != voiceStartAttemptId) return

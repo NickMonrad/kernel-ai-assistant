@@ -88,7 +88,6 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | Engine/model | Role | Licence / terms | Launch treatment |
 |---|---|---|---|
 | Android native STT | Release speech-input path | Android platform/system service; offline behaviour device-dependent | Release-visible; do not claim guaranteed offline recognition. |
-| Sherpa Zipformer STT | Optional/default Sherpa STT model | Sherpa model source/licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa SenseVoice STT | Optional Sherpa STT model | Model licence must be verified per model | Document source/licence before shipping/download exposure. |
 | Sherpa Whisper tiny.en STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |
 | Sherpa Paraformer STT | Optional Sherpa STT model | Code comments indicate Apache-2.0; verify upstream model page | Document source/licence before shipping/download exposure. |

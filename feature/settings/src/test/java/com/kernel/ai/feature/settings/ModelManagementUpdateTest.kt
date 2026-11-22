@@ -18,6 +18,9 @@ import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -49,6 +52,7 @@ class ModelManagementUpdateTest {
     private val gatedStatusRepository = mockk<GatedModelStatusRepository>(relaxed = true)
     private val voicePacks = mockk<SherpaVoicePackDownloadManager>(relaxed = true)
     private val voiceOutputPreferences = mockk<VoiceOutputPreferences>(relaxed = true)
+    private val voiceInputPreferences = mockk<VoiceInputPreferences>(relaxed = true)
     private val downloadNetworkPreferences = mockk<DownloadNetworkPreferences>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
     private val viewModelStore = ViewModelStore()
@@ -72,6 +76,8 @@ class ModelManagementUpdateTest {
         every { voiceOutputPreferences.selectedEngine } returns flowOf(VoiceOutputEngine.AndroidTts)
         every { downloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
         every { downloadNetworkPreferences.choice } returns flowOf(null)
+        every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.M)
     }
 
     @AfterEach
@@ -95,6 +101,7 @@ class ModelManagementUpdateTest {
             context = context,
             sherpaVoicePackDownloadManager = voicePacks,
             voiceOutputPreferences = voiceOutputPreferences,
+            voiceInputPreferences = voiceInputPreferences,
             downloadNetworkPreferences = downloadNetworkPreferences,
         )
         viewModelStore.put("model-management", viewModel)
@@ -116,6 +123,7 @@ class ModelManagementUpdateTest {
         context = context,
         sherpaVoicePackDownloadManager = voicePacks,
         voiceOutputPreferences = voiceOutputPreferences,
+        voiceInputPreferences = voiceInputPreferences,
         downloadNetworkPreferences = downloadNetworkPreferences,
     ).also {
         it.ioDispatcher = Dispatchers.Main

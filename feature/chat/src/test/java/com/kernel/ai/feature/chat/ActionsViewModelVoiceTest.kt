@@ -3146,17 +3146,27 @@ class ActionsViewModelVoiceTest {
             voiceInputController.startListening(VoiceCaptureMode.Command)
         } returns VoiceInputStartResult.Started(1L)
         // Posted while the start ran (start-time fallback): only the replay can deliver it.
-        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputNotices.emit(
+            VoiceNotice(1L, "Android speech isn't available on this phone right now. Using the offline speech model for this request."),
+        )
 
         viewModel.startVoiceCommand()
         advanceUntilIdle()
-        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+        assertEquals(
+            "Android speech isn't available on this phone right now. Using the offline speech model for this request.",
+            viewModel.error.value,
+        )
 
         voiceInputNotices.emit(VoiceNotice(9L, "Another surface's note"))
         advanceUntilIdle()
-        assertEquals("Using Zipformer for this request.", viewModel.error.value)
+        assertEquals(
+            "Android speech isn't available on this phone right now. Using the offline speech model for this request.",
+            viewModel.error.value,
+        )
 
-        voiceInputNotices.emit(VoiceNotice(1L, "Using Zipformer for this request."))
+        voiceInputNotices.emit(
+            VoiceNotice(1L, "Android speech isn't available on this phone right now. Using the offline speech model for this request."),
+        )
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(

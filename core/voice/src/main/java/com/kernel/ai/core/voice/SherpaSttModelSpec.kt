@@ -20,7 +20,7 @@ data class SherpaSttModelSpec(
     val approxTotalBytes: Long,
 ) {
     enum class RecognizerKind {
-        /** Zipformer / Paraformer — feeds PCM chunks, decodes incrementally. */
+        /** Paraformer — feeds PCM chunks, decodes incrementally. */
         Online,
         /** Whisper / SenseVoice — feeds full PCM, decodes once. */
         Offline,
@@ -28,24 +28,6 @@ data class SherpaSttModelSpec(
 
     companion object {
         private const val PKG = "com.k2fsa.sherpa.onnx"
-
-        val ZIPFORMER = SherpaSttModelSpec(
-            engine = VoiceInputEngine.SherpaZipformer,
-            displayLabel = "Zipformer int8",
-            subtitle = "Zipformer int8 · English · Fully offline",
-            recognizerKind = RecognizerKind.Online,
-            recognizerClassName = "$PKG.OnlineRecognizer",
-            streamClassName = "$PKG.OnlineStream",
-            modelConfigClassName = "$PKG.OnlineModelConfig",
-            recognizerConfigClassName = "$PKG.OnlineRecognizerConfig",
-            requiredFileNames = listOf(
-                "sherpa-stt-encoder.int8.onnx",
-                "sherpa-stt-decoder.int8.onnx",
-                "sherpa-stt-joiner.int8.onnx",
-                "sherpa-stt-tokens.txt",
-            ),
-            approxTotalBytes = 72_075_000L,
-        )
 
         val SENSE_VOICE = SherpaSttModelSpec(
             engine = VoiceInputEngine.SherpaSenseVoice,
@@ -99,16 +81,9 @@ data class SherpaSttModelSpec(
 
         /** All Sherpa STT specs, keyed by engine for fast lookup. */
         val ALL: Map<VoiceInputEngine, SherpaSttModelSpec> = listOf(
-            ZIPFORMER, SENSE_VOICE, WHISPER, PARAFORMER,
+            SENSE_VOICE, WHISPER, PARAFORMER,
         ).associateBy { it.engine }
 
         fun forEngine(engine: VoiceInputEngine): SherpaSttModelSpec? = ALL[engine]
-
-        /**
-         * Default spec used as fallback when the user's selected STT engine is an
-         * offline-only model (SenseVoice or Whisper) that cannot be used for
-         * streaming wake-word verification.
-         */
-        val WAKE_VERIFICATION_DEFAULT: SherpaSttModelSpec get() = ZIPFORMER
     }
 }

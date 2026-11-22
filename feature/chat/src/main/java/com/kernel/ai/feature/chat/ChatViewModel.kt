@@ -844,7 +844,7 @@ class ChatViewModel @Inject constructor(
                         pendingVoiceReply = false
                         voicePresynthesis.discard()
                         // #790: Retry once before surfacing the error to the user. #1853: not after
-                        // a Zipformer hand-off; a retry would start the failing native recognizer again.
+                        // an asr4all hand-off; a retry would start the failing native recognizer again.
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
                         if (chatCommandVoiceRetryCount < 1 && !handedOff) {
                             chatCommandVoiceRetryCount++

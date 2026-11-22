@@ -23,10 +23,10 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.inference.download.DownloadSource
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.WakeWordPreferences
-import com.kernel.ai.core.voice.queueHeyJandalSttModel
 import com.kernel.ai.core.voice.InflectMicroSetup
-import com.kernel.ai.core.voice.heyJandalDownloadModels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,8 +81,6 @@ data class SetupWizardUiState(
     val outputSizes: Map<VoiceOutputEngine, Long> = emptyMap(),
     /** Extra download the Hey Jandal card names: the files turning it on still needs, beyond the step-3 plan (#1931). */
     val heyJandalExtraBytes: Long = 0L,
-    /** The Zipformer part of [heyJandalExtraBytes]: non-zero only with Android native input. Named by Why?. */
-    val heyJandalZipformerBytes: Long = 0L,
     /**
      * Total for the welcome screen, excluding files already on disk: on a first run the plan at the default choices
      * for this phone; on a re-run from Settings, what the current choices still have to download.
@@ -101,7 +99,7 @@ data class SetupWizardUiState(
  *
  * Selections (download network, speech input, speech output, Hey Jandal) are kept in [SavedStateHandle] until
  * Finish or Skip saves them, so Back never stores anything. Finish saves the speech choices, then the network
- * choice, then queues the chosen downloads (Zipformer for Automatic, Cori for Sherpa), then applies a changed
+ * choice, then queues the chosen downloads (asr4all for Automatic, Cori for Sherpa), then applies a changed
  * Hey Jandal choice. Skip saves speech and network choices only, as before, and never applies Hey Jandal.
  *
  * The Make Jandal yours rows request nothing themselves. The screen launches each system prompt or page on a
@@ -137,9 +135,8 @@ class SetupWizardViewModel @Inject constructor(
     /** Network choice stored before this run, or null on a first run. */
     private var storedChoice: DownloadNetworkChoice? = null
 
-    /** Every first-run model before the Zipformer filter applied by the speech input choice. */
+    /** Every first-run model before the asr4all filter applied by the speech input choice. */
     private var allPlannedModels: List<KernelModel> = emptyList()
-    private var releaseBuild: Boolean = false
 
     init {
         viewModelScope.launch {
@@ -160,7 +157,6 @@ class SetupWizardViewModel @Inject constructor(
 
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
             val isRelease = setupVoiceDevice.isReleaseBuild()
-            releaseBuild = isRelease
             val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
@@ -238,8 +234,7 @@ class SetupWizardViewModel @Inject constructor(
                 allowOnlineSpeech = savedStateHandle.get<Boolean>(KEY_ONLINE_SPEECH)
                     ?: voiceInputPreferences.allowOnlineSpeechFallback.first(),
                 outputSizes = outputSizes(),
-                heyJandalExtraBytes = heyJandalExtraBytes(input, plannedModels),
-                heyJandalZipformerBytes = heyJandalZipformerBytes(input, plannedModels),
+                heyJandalExtraBytes = heyJandalExtraBytes(plannedModels),
                 welcomeTotalBytes = welcomeTotal,
                 isRerun = progress.completed,
             )
@@ -260,17 +255,14 @@ class SetupWizardViewModel @Inject constructor(
     private fun effectiveOutput(engine: VoiceOutputEngine?): VoiceOutputEngine? = engine ?: storedOutput
 
     /**
-     * Zipformer and asr4all files are needed only when the effective input uses them (see the provisioner's
-     * needsZipformer and needsAsr4all). Inflect Micro's
-     * graph files join the plan when Inflect is the output, so the step-3 rows and totals include them (#1931).
+     * asr4all files are needed only when the effective input uses them (see the provisioner's needsAsr4all).
+     * Inflect Micro's graph files join the plan when Inflect is the output, so the step-3 rows and totals include
+     * them (#1931).
      */
     private fun plannedModelsFor(input: VoiceInputEngine, output: VoiceOutputEngine?): List<KernelModel> {
         val asr4all = VoiceDefaultsProvisioner.asr4allFilesOfAnySize()
         val speech = allPlannedModels.filter { model ->
-            val isZipformer = model in VoiceDefaultsProvisioner.zipformerModels()
-            val isAsr4all = model in asr4all
-            (!isZipformer || VoiceDefaultsProvisioner.needsZipformer(input, allowsSherpaRuntime = !releaseBuild)) &&
-                (!isAsr4all || VoiceDefaultsProvisioner.needsAsr4all(input))
+            model !in asr4all || VoiceDefaultsProvisioner.needsAsr4all(input)
         }
         val inflect = if (output == VoiceOutputEngine.InflectMicroExperimental) {
             InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }
@@ -279,7 +271,6 @@ class SetupWizardViewModel @Inject constructor(
         }
         return speech + inflect.filterNot { it in speech }
     }
-
     private fun isModelDownloaded(model: KernelModel): Boolean =
         downloadManager.downloadStates.value[model] is DownloadState.Downloaded
 
@@ -297,25 +288,13 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     /**
-     * Extra download the Hey Jandal card names: the files turning it on still needs for this input
-     * ([heyJandalDownloadModels]: the verifier, plus Zipformer in debug builds unless an online Sherpa recognizer is chosen), less
-     * files on disk and files already in the step-3 plan, so no byte is counted twice (#1931).
+     * Extra download the Hey Jandal card names: the Whisper wake-verifier files, less files on disk and files
+     * already in the step-3 plan, so no byte is counted twice (#1931).
      */
-    private fun heyJandalExtraBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long =
-        heyJandalMissing(input, plannedModels).sumOf { it.approxSizeBytes }
-
-    /** Zipformer bytes Hey Jandal adds when Android native is the input (the Why? sheet names them). */
-    private fun heyJandalZipformerBytes(input: VoiceInputEngine, plannedModels: List<KernelModel>): Long =
-        if (input == VoiceInputEngine.AndroidNative) {
-            heyJandalMissing(input, plannedModels)
-                .filter { it in VoiceDefaultsProvisioner.zipformerModels() }
-                .sumOf { it.approxSizeBytes }
-        } else {
-            0L
-        }
-
-    private fun heyJandalMissing(input: VoiceInputEngine, plannedModels: List<KernelModel>): List<KernelModel> =
-        heyJandalDownloadModels(input, releaseBuild).filterNot { isModelDownloaded(it) || it in plannedModels }
+    private fun heyJandalExtraBytes(plannedModels: List<KernelModel>): Long =
+        wakeVerifierKernelModels()
+            .filterNot { isModelDownloaded(it) || it in plannedModels }
+            .sumOf { it.approxSizeBytes }
 
     private fun plannedVoicesFor(output: VoiceOutputEngine?): List<SherpaPiperVoice> =
         output?.let { plannedVoicesFor(it) { voice -> isDownloaded(voice) } } ?: emptyList()
@@ -329,8 +308,7 @@ class SetupWizardViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(
             inputEngine = engine,
             plannedModels = models,
-            heyJandalExtraBytes = heyJandalExtraBytes(engine, models),
-            heyJandalZipformerBytes = heyJandalZipformerBytes(engine, models),
+            heyJandalExtraBytes = heyJandalExtraBytes(models),
         )
     }
 
@@ -342,8 +320,7 @@ class SetupWizardViewModel @Inject constructor(
             outputEngine = engine,
             plannedModels = models,
             plannedVoices = plannedVoicesFor(engine) { isDownloaded(it) },
-            heyJandalExtraBytes = heyJandalExtraBytes(input, models),
-            heyJandalZipformerBytes = heyJandalZipformerBytes(input, models),
+            heyJandalExtraBytes = heyJandalExtraBytes(models),
         )
     }
 
@@ -476,7 +453,7 @@ class SetupWizardViewModel @Inject constructor(
     }
 
     /**
-     * Queues the Zipformer files the chosen input needs, after the network choice is saved. Files already on
+     * Queues the asr4all files the chosen input needs, after the network choice is saved. Files already on
      * disk are skipped, and a stored Automatic with deleted files is queued again, matching the size line.
      */
     private suspend fun startChosenInput(input: VoiceInputEngine) {
@@ -512,7 +489,9 @@ class SetupWizardViewModel @Inject constructor(
             return
         }
         if (state.wakeWordStored || MakeYoursRows.heyJandalBlock(state.platform) != null) return
-        queueHeyJandalSttModel(voiceInputPreferences, downloadManager, releaseBuild)
+        wakeVerifierKernelModels().forEach { model ->
+            downloadManager.startDownload(model, source = DownloadSource.AUTO_QUEUED)
+        }
         wakeWordPreferences.setHeyJandalEnabled(true)
     }
 

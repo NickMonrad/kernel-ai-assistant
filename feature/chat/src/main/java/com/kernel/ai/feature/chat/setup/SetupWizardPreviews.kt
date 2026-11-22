@@ -12,7 +12,6 @@ import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
-import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -24,7 +23,7 @@ private val SamplePlan = listOf(
     KernelModel.GEMMA_4_E4B,
     KernelModel.ARCTIC_EMBED_M_V1_5,
     KernelModel.ARCTIC_EMBED_V1_5_VOCAB,
-) + VoiceDefaultsProvisioner.zipformerModels()
+)
 
 private val ReadyPlatform = MakeYoursPlatform(
     hasMicrophone = true,
