@@ -1230,7 +1230,7 @@ The verifier implementation is described in the current voice controller documen
 - Settings → Voice shows per-engine download state via `VoiceViewModel.SherpaSttDownloadState` with independent progress/cancel/delete controls
 
 **Model files:** Downloaded to app-managed model storage. Required files are engine-specific:
-- asr4all M files for the default offline Automatic route
+- asr4all files (M or L, the effective size for the phone) for the default offline Automatic route
 - Encoder, decoder and joiner (Paraformer), or unified model (SenseVoice and Whisper tiny.en)
 - Tokens files for the Sherpa-ONNX engines
 All speech-model downloads and deletion are managed from Voice settings.

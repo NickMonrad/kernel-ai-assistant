@@ -74,7 +74,7 @@ data class ModelManagementUiState(
     val stillNeeded: List<StillNeededItem> = emptyList(),
     /** Current device hardware tier: drives recommendations and "Not needed on this phone". */
     val deviceTier: HardwareTier? = null,
-    /** Speech recognition (Whisper verifier) status, read-only on the Models screen. */
+    /** Selected speech-input engine status, read-only on the Models screen. */
     val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
     /** Jandal's voice (Cori) status, read-only on the Models screen. */
     val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
