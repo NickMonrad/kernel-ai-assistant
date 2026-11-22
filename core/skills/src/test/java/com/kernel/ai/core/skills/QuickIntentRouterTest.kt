@@ -4245,6 +4245,8 @@ class QuickIntentRouterTest {
             Arguments.of("What's the weather in Apia tomorrow and today", "Apia", null, "tomorrow"),
             Arguments.of("weather in Apia today and tomorrow", "Apia", null, "tomorrow"),
             Arguments.of("Will it rain in Apia today and tomorrow?", "Apia", null, "tomorrow"),
+            Arguments.of("What's the weather in Apia today or tomorrow", "Apia", null, "tomorrow"),
+            Arguments.of("What's the weather for Auckland over the next seven days", "Auckland", "7", null),
         )
 
         // ── Save Memory ──────────────────────────────────────────────────────────

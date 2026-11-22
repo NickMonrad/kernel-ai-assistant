@@ -907,6 +907,10 @@ class ChatTextUtilsTest {
                 "Will it rain in Apia today and tomorrow",
                 "Is it hotter in Brisbane than Auckland",
                 "Should I take an umbrella today",
+                "Is it going to be sunny tomorrow",
+                "Should I take an umbrella in Wellington tomorrow",
+                "Will it be windy in Wellington tomorrow",
+                "Is it raining outside",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -942,6 +946,26 @@ class ChatTextUtilsTest {
                 "Wind down with a book before bed",
                 "Let's look out the window",
                 "Do you remember the weather we talked about yesterday",
+                // Idioms and knowledge/music/creative uses of weather words stay non-tool (#2058 review)
+                "I'm feeling under the weather",
+                "How do I weather the storm at work",
+                "What temperature should I cook chicken to",
+                "What's a normal body temperature",
+                "Explain temperature in physics",
+                "Who sang Purple Rain",
+                "Tell me about Snow White",
+                "Who is Jon Snow",
+                "Who sang Umbrella",
+                "What does umbrella term mean",
+                "Summarise Gone with the Wind",
+                "Who wrote Candle in the Wind",
+                "Explain how a sales forecast works",
+                "Why is the sky blue on sunny days",
+                "Does humidity affect bread dough",
+                "Write a poem about the rain",
+                "Tell me a story about a snowy day",
+                "I hate rainy days",
+                "Why does it rain",
             ],
         )
         fun `returns false for non-tool queries`(query: String) {
