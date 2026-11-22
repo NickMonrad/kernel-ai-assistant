@@ -651,7 +651,9 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
 
             assertEquals(emptyList<String>(), collected.transcripts())
-            assertEquals(1, collected.events.count { it is VoiceInputEvent.Error })
+            val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+            assertEquals(NO_SPEECH_WINDOW_EXHAUSTED, error.category)
+            assertEquals("No speech heard. Try again.", error.message)
         } finally {
             collected.job.cancel()
             scope.cancel()

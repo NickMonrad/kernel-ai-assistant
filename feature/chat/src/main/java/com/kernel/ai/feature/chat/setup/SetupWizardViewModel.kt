@@ -15,6 +15,7 @@ import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -23,9 +24,8 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
-import com.kernel.ai.core.inference.download.DownloadSource
-import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.WakeWordPreferences
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.InflectMicroSetup
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject

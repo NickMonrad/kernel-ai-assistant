@@ -544,7 +544,15 @@ class Asr4allVoiceInputController internal constructor(
             _events.tryEmit(VoiceInputEvent.Transcript(mode, text, sessionId))
         } else if (!stop.get()) {
             JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
-            _events.tryEmit(VoiceInputEvent.Error(mode, "No speech heard. Try again.", sessionId))
+            // Silence is not a recognizer failure: the category stops the Command/wake retry (#2051).
+            _events.tryEmit(
+                VoiceInputEvent.Error(
+                    mode = mode,
+                    message = "No speech heard. Try again.",
+                    captureSessionId = sessionId,
+                    category = NO_SPEECH_WINDOW_EXHAUSTED,
+                ),
+            )
         }
     }
 

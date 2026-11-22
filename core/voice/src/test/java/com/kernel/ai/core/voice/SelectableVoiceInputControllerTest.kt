@@ -312,7 +312,6 @@ class SelectableVoiceInputControllerTest {
         coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
-
     @Test
     fun `cancelled native admission remains owned until its matching terminal`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
@@ -478,8 +477,6 @@ class SelectableVoiceInputControllerTest {
             ),
         )
     }
-
-
 
     @Test
     fun `direct Sherpa waits for the previous native session teardown`() = runTest(dispatcher) {
@@ -892,6 +889,23 @@ class SelectableVoiceInputControllerTest {
             VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE),
             controller().startListening(VoiceCaptureMode.Command),
         )
+    }
+
+    @Test
+    fun `auto keeps the native start failure when asr4all is not downloaded`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } returns
+            VoiceInputStartResult.Unavailable("not ready")
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable("not ready"),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
     @Test
@@ -1314,7 +1328,6 @@ class SelectableVoiceInputControllerTest {
             seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
         )
     }
-
 
     @Test
     fun `deselecting asr4all drops its queued final but forwards the cancellation terminal`() = runTest(dispatcher) {

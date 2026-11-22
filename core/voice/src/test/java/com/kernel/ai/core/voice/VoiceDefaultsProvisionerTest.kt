@@ -118,6 +118,18 @@ class VoiceDefaultsProvisionerTest {
     }
 
     @Test
+    fun `engine picked during the Terms wait decides what is queued`() = runBlocking {
+        val harness = ProvisionerHarness(MutableStateFlow(TermsAcceptanceRecord()))
+        val queue = launch { harness.provisioner.queueSpeechInputModel() }
+        yield()
+        harness.engine.value = VoiceInputEngine.AndroidNative
+        harness.terms.value = TermsAcceptanceRecord(acceptedVersion = TERMS_VERSION, acceptedAtMillis = 1L)
+        queue.join()
+        assertEquals(emptyList<KernelModel>(), harness.downloads)
+        assertFalse(harness.markerSet)
+    }
+
+    @Test
     fun `queueSpeechInput queues no asr4all file while the Terms are unaccepted`() = runBlocking {
         val harness = ProvisionerHarness(MutableStateFlow(TermsAcceptanceRecord()))
         harness.provisioner.queueSpeechInput(VoiceInputEngine.Auto)
@@ -135,7 +147,10 @@ class VoiceDefaultsProvisionerTest {
 private const val ASR4ALL_MARKER = "asr4all_queued_v1"
 
 /** Provisioner with mocked preferences and downloads; [terms] drives the Terms gate. */
-private class ProvisionerHarness(val terms: MutableStateFlow<TermsAcceptanceRecord>) {
+private class ProvisionerHarness(
+    val terms: MutableStateFlow<TermsAcceptanceRecord>,
+    val engine: MutableStateFlow<VoiceInputEngine> = MutableStateFlow(VoiceInputEngine.Auto),
+) {
     val downloads = mutableListOf<KernelModel>()
     var markerSet = false
     val provisioner: VoiceDefaultsProvisioner
@@ -157,7 +172,7 @@ private class ProvisionerHarness(val terms: MutableStateFlow<TermsAcceptanceReco
             Unit
         }
         val voiceInput = mockk<VoiceInputPreferences>(relaxed = true) {
-            every { selectedEngine } returns MutableStateFlow(VoiceInputEngine.Auto)
+            every { selectedEngine } returns engine
             every { asr4allSize } returns MutableStateFlow(Asr4AllSize.M)
         }
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {

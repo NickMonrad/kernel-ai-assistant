@@ -80,7 +80,9 @@ class VoiceDefaultsProvisioner @Inject constructor(
         // asr4all waits for the Terms of Use (#1998): nothing is queued, and the marker stays unset, until they are accepted.
         if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && needsAsr4all(engine)) {
             termsAcceptance.record.first { it.isAccepted() }
-            if (queueAsr4all(engine)) {
+            // Re-read after the Terms wait: an engine the user picked in Settings during the wait decides what is queued (#2051).
+            val current = voiceInputPreferences.selectedEngine.first()
+            if (queueAsr4all(current)) {
                 prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
             }
         }
