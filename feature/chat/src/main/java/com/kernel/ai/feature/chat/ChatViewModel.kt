@@ -3744,8 +3744,8 @@ class ChatViewModel @Inject constructor(
                             // creating a token pattern where EOS is most likely. LiteRT then
                             // self-heals by resetting the session (#841).
                             // Retry once without RAG context (stripped prompt) before showing fallback.
-                            // A DirectReply already supplies the visible answer and returns no text to Gemma.
-                            // Do not mistake that expected empty generation for an immediate EOS.
+                            // A DirectReply already supplies the visible answer (its card text); the model's
+                            // text after the tool response is not shown. Do not mistake an empty follow-up for an immediate EOS.
                             val completedDirectReplyHasContent =
                                 kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
                                     kernelAIToolSet.terminalToolSucceededInCurrentAttempt() &&

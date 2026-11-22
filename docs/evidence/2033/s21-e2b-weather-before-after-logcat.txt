@@ -1,0 +1,119 @@
+# Sanitized logcat excerpts for #2033 S21 weather runs (serial R5CR605B71K, SM-G991B, gemma-4-E2B GPU).
+# run1/r2_1 = before the fix (APK md5 10c67b90...). a1..a6 = after the fix (APK md5 e384b0ef...).
+# Timestamps and pids removed. Locations are synthetic test inputs. 'E-2B text' is the model text after the tool response; DirectReply discards it.
+
+## run1
+ADB_ROUTE_DECISION commandId=17760c6f-1 result=fallthrough best_guess=get_weather confidence=0.54440105
+llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.54440105
+event_seq: tool_call name=get_weather argsLen=39 args={}
+verbose_tool_call: name=get_weather request={"location":"Apia","forecast_days":"1"}
+GetWeatherSkill: fetched 1-day forecast
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true returnedToGemma=false contentLen=120
+verbose_tool_result: name=get_weather_gps content=Apia, Samoa forecast:
+llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+llm_tools_assistant_reply: len=120
+verbose_reply: Apia, Samoa forecast: Sun 22 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 10 (Very High) | 🌅 05:48 / 18:37
+E-2B text (discarded by DirectReply): It will be hotter tomorrow in Apia than today. Today's high is 31°C, and tomorrow's forecast high is 30°C.
+
+## r2_1
+ADB_ROUTE_DECISION commandId=751ce0d0-1 result=fallthrough best_guess=get_weather confidence=0.7165007
+llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.7165007
+event_seq: tool_call name=get_weather argsLen=45 args={}
+verbose_tool_call: name=get_weather request={"location":"Wellington","forecast_days":"1"}
+GetWeatherSkill: fetched 1-day forecast
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true returnedToGemma=false contentLen=127
+verbose_tool_result: name=get_weather_gps content=Wellington, New Zealand forecast:
+llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+llm_tools_assistant_reply: len=127
+verbose_reply: Wellington, New Zealand forecast: Sun 22 Nov: 🌫️ Fog, high 21°C, low 13°C, 0mm rain | UV max: 8 (Very High) | 🌅 05:47 / 20:27
+E-2B text (discarded by DirectReply): It will be colder in Wellington tomorrow than today.
+
+## r2_2
+ADB_ROUTE_DECISION commandId=712b630a-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Brisbane, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: ☁️ Overcast, high 27°C, low 17°C, 0mm rain | UV max: 9 (Very High) | 🌅 04:45 / 18:22
+E-2B text (discarded by DirectReply): 
+
+## r2_3
+ADB_ROUTE_DECISION commandId=091b9bf7-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={raw_query=How hot will it be in Sydney tomorrow, location=Sydney, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: 🌦️ Rain showers, high 30°C, low 23°C, 3mm rain | UV max: 6 (High) | 🌅 05:39 / 19:43
+E-2B text (discarded by DirectReply): 
+
+## r2_4
+ADB_ROUTE_DECISION commandId=7cd3acc8-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Auckland for the, forecast_days=3}
+GetWeatherSkill: fetched 3-day forecast
+verbose_direct_reply: Auckland for the, New Zealand forecast:
+E-2B text (discarded by DirectReply): 
+
+## r2_5
+ADB_ROUTE_DECISION commandId=cd6a61c9-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Hamilton, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Sun 22 Nov)
+verbose_direct_reply: Sun 22 Nov: ☁️ Overcast, high 18°C, low 5°C, 0mm rain | UV max: 3 (Moderate) | 🌅 07:21 / 16:49
+E-2B text (discarded by DirectReply): 
+
+## a1
+ADB_ROUTE_DECISION commandId=fb500b0c-1 result=fallthrough best_guess=get_weather confidence=0.54440105
+llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.54440105
+event_seq: tool_call name=get_weather argsLen=39 args={}
+verbose_tool_call: name=get_weather request={"location":"Apia","forecast_days":"2"}
+GetWeatherSkill: fetched 2-day forecast
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true deliveredToModel=true contentLen=218
+verbose_tool_result: name=get_weather_gps content=Apia, Samoa forecast:
+llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+llm_tools_assistant_reply: len=218
+verbose_reply: Apia, Samoa forecast: Sun 22 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 10 (Very High) | 🌅 05:48 / 18:37 Mon 23 Nov: 🌦️ Drizzle, high 31°C, low 25°C, 3mm rain | UV max: 8 (Very High) | 🌅 05:48 / 18:37
+E-2B text (discarded by DirectReply): 
+
+## a2
+ADB_ROUTE_DECISION commandId=7171ecba-1 result=fallthrough best_guess=get_weather confidence=0.7165007
+llm_tools_route: result=fallthrough best_guess=get_weather confidence=0.7165007
+event_seq: tool_call name=get_weather argsLen=45 args={}
+verbose_tool_call: name=get_weather request={"location":"Wellington","forecast_days":"2"}
+GetWeatherSkill: fetched 2-day forecast
+event_seq: tool_result name=get_weather_gps resultType=DirectReply directReply=true deliveredToModel=true contentLen=220
+verbose_tool_result: name=get_weather_gps content=Wellington, New Zealand forecast:
+llm_tools_skill_result: tool=get_weather mode=direct_reply success=true
+llm_tools_assistant_reply: len=220
+verbose_reply: Wellington, New Zealand forecast: Sun 22 Nov: 🌫️ Fog, high 21°C, low 13°C, 0mm rain | UV max: 8 (Very High) | 🌅 05:47 / 20:27 Mon 23 Nov: ☁️ Overcast, high 18°C, low 15°C, 0mm rain | UV max: 6 (High) | 🌅 05:46 / 20:28
+E-2B text (discarded by DirectReply): Yes, it will be hotter in Wellington tomorrow (Monday, November 23rd) with a high of 18°C compared to today's high of 1°C. The weather forecast shows rain for today and overcast skies tomorrow.
+
+## a3
+ADB_ROUTE_DECISION commandId=e0d8f443-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Brisbane, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: ☁️ Overcast, high 27°C, low 17°C, 0mm rain | UV max: 9 (Very High) | 🌅 04:45 / 18:22
+E-2B text (discarded by DirectReply): 
+
+## a4
+ADB_ROUTE_DECISION commandId=6a2c2bc2-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={raw_query=How hot will it be in Sydney tomorrow, location=Sydney, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: 🌦️ Rain showers, high 30°C, low 23°C, 3mm rain | UV max: 6 (High) | 🌅 05:39 / 19:43
+E-2B text (discarded by DirectReply): 
+
+## a5
+ADB_ROUTE_DECISION commandId=6934ae58-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Auckland for the, forecast_days=3}
+GetWeatherSkill: fetched 3-day forecast
+verbose_direct_reply: Auckland for the, New Zealand forecast:
+E-2B text (discarded by DirectReply): 
+
+## a6
+ADB_ROUTE_DECISION commandId=d87f2fe9-1 result=classified intent=get_weather
+llm_tools_route: result=classified intent=get_weather
+verbose_params: intent=get_weather params={location=Hamilton, New Zealand, day=tomorrow}
+GetWeatherSkill: fetched forecast for day 1 (Mon 23 Nov)
+verbose_direct_reply: Mon 23 Nov: ☁️ Overcast, high 22°C, low 12°C, 0mm rain | UV max: 9 (Very High) | 🌅 05:53 / 20:16
+E-2B text (discarded by DirectReply): 

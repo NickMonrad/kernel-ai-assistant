@@ -850,7 +850,7 @@ class ChatViewModelRetryStateMachineTest {
         val snapshot = realToolSet.finishLocalDiagnosticCapture()
         coVerify(exactly = 2) { inferenceEngine.generate(any()) }
         assertEquals(listOf("load_skill", "run_intent"), snapshot.calls.map { it.name })
-        assertEquals(listOf(true, false), snapshot.calls.map { it.returnedToGemma })
+        assertEquals(listOf(true, true), snapshot.calls.map { it.deliveredToModel })
         assertEquals("run_intent", realToolSet.terminalToolName())
         assertEquals("Alarm set", savedContents.last())
     }
@@ -899,7 +899,7 @@ class ChatViewModelRetryStateMachineTest {
         assertTrue(savedContents.last().contains("wasn't able to complete that action"))
         assertTrue(viewModel.getConversationAsText().contains("wasn't able to complete that action"))
         assertEquals(listOf("load_skill"), snapshot.calls.map { it.name })
-        assertEquals(true, snapshot.calls.single().returnedToGemma)
+        assertEquals(true, snapshot.calls.single().deliveredToModel)
         assertNull(snapshot.terminalCall)
         assertEquals(2, snapshot.generationAttempts.size)
         assertNull(realToolSet.terminalToolName())
@@ -944,7 +944,7 @@ class ChatViewModelRetryStateMachineTest {
         assertTrue(viewModel.getConversationAsText().contains(honestFailure))
         assertFalse(viewModel.getConversationAsText().contains("Sorry, generation was cancelled."))
         assertEquals(listOf("load_skill"), snapshot.calls.map { it.name })
-        assertEquals(true, snapshot.calls.single().returnedToGemma)
+        assertEquals(true, snapshot.calls.single().deliveredToModel)
         assertNull(snapshot.terminalCall)
         val readyState = viewModel.uiState.value as ChatUiState.Ready
         assertFalse(readyState.isGenerating)
@@ -1006,7 +1006,7 @@ class ChatViewModelRetryStateMachineTest {
         assertTrue(requireNotNull(returnedToolResult).isEmpty())
         assertEquals(1, savedContents.count { it == honestFailure })
         assertEquals(emptyMap<String, String>(), snapshot.calls.single().toolResult)
-        assertEquals(false, snapshot.calls.single().returnedToGemma)
+        assertEquals(false, snapshot.calls.single().deliveredToModel)
 
         viewModel.onInputChanged("what is 2 + 2")
         viewModel.sendMessage()

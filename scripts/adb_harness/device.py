@@ -866,7 +866,7 @@ _LLM_TOOL_EVENT_PATTERN = re.compile(
     r"(?:\s+argsLen=\d+)?"
     r"(?:\s+args=(?P<args>[^\n]+))?"
     r"(?:\s+resultType=(?P<result_type>\S+)\s+directReply=(?P<direct_reply>true|false)"
-    r"\s+returnedToGemma=(?P<returned_to_gemma>true|false))?"
+    r"\s+deliveredToModel=(?P<delivered_to_model>true|false))?"
 )
 _LLM_TOOL_SEQUENCE_PATTERN = re.compile(r"llm_tools_tool_sequence:\s*(.+)")
 
@@ -892,7 +892,7 @@ def extract_llm_tool_events(logcat_output: str) -> list[dict[str, str | bool]]:
         if match.group("result_type") is not None:
             event["result_type"] = match.group("result_type")
             event["direct_reply"] = match.group("direct_reply") == "true"
-            event["returned_to_gemma"] = match.group("returned_to_gemma") == "true"
+            event["delivered_to_model"] = match.group("delivered_to_model") == "true"
         events.append(event)
     return events
 
@@ -980,8 +980,8 @@ def validate_llm_tool_sequence(
         if name == "load_skill":
             if result.get("result_type") != "Success":
                 failures.append("load_skill result was not successful")
-            if result.get("returned_to_gemma") is not True:
-                failures.append("load_skill result did not return to Gemma")
+            if result.get("delivered_to_model") is not True:
+                failures.append("load_skill result was not delivered to the model")
         elif position == len(expected) - 1:
             if result.get("result_type") not in {"Success", "DirectReply"}:
                 failures.append(f"terminal tool {name} did not succeed")

@@ -407,8 +407,8 @@ class ThinkingStreamStateMachineTest {
         //
         // Flow: router fallthrough -> initial thinking (145 callbacks) ->
         //   load_skill(run_intent) -> SkillResult.Success (directReply=false,
-        //   returnedToGemma=true) -> model calls run_intent(open_app) ->
-        //   SkillResult.Success (directReply=false, returnedToGemma=true) ->
+        //   deliveredToModel=true) -> model calls run_intent(open_app) ->
+        //   SkillResult.Success (directReply=false, deliveredToModel=true) ->
         //   later thinking (seq 398-450) -> clean final answer (seq 451-458)
         val resource = javaClass.classLoader!!.getResource("physical_callback_fixture.json")
             ?: throw IllegalStateException("Missing test resource: physical_callback_fixture.json")
@@ -496,8 +496,8 @@ class ThinkingStreamStateMachineTest {
             "load_skill result must be Success")
         assertEquals(false, loadSkillResults[0].getBoolean("directReply"),
             "load_skill directReply must be false")
-        assertTrue(loadSkillResults[0].getBoolean("returnedToGemma"),
-            "load_skill returnedToGemma must be true")
+        assertTrue(loadSkillResults[0].getBoolean("deliveredToModel"),
+            "load_skill deliveredToModel must be true")
 
         // ── Qualifying run_intent assertions ────────────────────────
         assertNotNull(qualifyingCall, "qualifying run_intent call must exist")
@@ -515,8 +515,8 @@ class ThinkingStreamStateMachineTest {
             "qualifying result type must be Success")
         assertEquals(false, qualifyingResult!!.getBoolean("directReply"),
             "qualifying result directReply must be false")
-        assertTrue(qualifyingResult!!.getBoolean("returnedToGemma"),
-            "qualifying result returnedToGemma must be true")
+        assertTrue(qualifyingResult!!.getBoolean("deliveredToModel"),
+            "qualifying result deliveredToModel must be true")
         val runIntentContent = qualifyingResult!!.optString("content", "")
         assertTrue(runIntentContent.contains("Opening"),
             "qualifying result content must confirm opening")

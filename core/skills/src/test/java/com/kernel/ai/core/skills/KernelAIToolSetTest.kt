@@ -446,7 +446,7 @@ class KernelAIToolSetTest {
                     it.resultType == "Blocked" &&
                         it.succeeded == false &&
                         it.directReply == false &&
-                        it.returnedToGemma == true
+                        it.deliveredToModel == true
                 },
             )
             assertEquals("private test query", snapshot.calls[11].arguments.get("query"))
@@ -742,7 +742,7 @@ class KernelAIToolSetTest {
         assertEquals("query_wikipedia", snapshot.calls[0].arguments["skill_name"])
         assertEquals(instructions, snapshot.calls[0].resultContent)
         assertEquals(mapOf("result" to instructions), snapshot.calls[0].toolResult)
-        assertTrue(snapshot.calls[0].returnedToGemma == true)
+        assertTrue(snapshot.calls[0].deliveredToModel == true)
 
         val terminalCall = snapshot.terminalCall
         assertEquals(1, terminalCall?.order)
@@ -750,7 +750,7 @@ class KernelAIToolSetTest {
         assertEquals(response, terminalCall?.resultContent)
         assertEquals(mapOf("result" to response), terminalCall?.toolResult)
         assertTrue(terminalCall?.directReply == true)
-        assertFalse(terminalCall?.returnedToGemma == true)
+        assertTrue(terminalCall?.deliveredToModel == true)
         assertTrue(terminalCall?.succeeded == true)
 
         toolSet.recordLocalGenerationAttempt(StringBuilder("after finish"), StringBuilder("after finish"))
