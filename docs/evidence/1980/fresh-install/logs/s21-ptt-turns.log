@@ -1,0 +1,10 @@
+# S21 (R5CR605B71K) PTT turns on S21 target: command (18:59:49) and dictation-style (19:00:13)
+11-22 18:59:49.783 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 18:59:54.594 24705 24705 D KernelAI: ADB_ROUTE_DECISION commandId=550047b9-1 result=classified intent=get_time
+11-22 18:59:54.595 24705 24705 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 18:59:54.596 24705 24705 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 18:59:54.597 24705 24705 D KernelAI: DirectReply: len=12
+11-22 18:59:57.750 24705 24705 D KernelAI: ADB_TOOL_COMPLETE commandId=550047b9-1 intent=get_time result=direct_reply
+11-22 19:00:13.164 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 19:00:17.779 24705 24705 D KernelAI: ADB_ROUTE_DECISION commandId=311d0ac9-2 result=fallthrough best_guess=null confidence=0.0
+11-22 19:00:17.782 24705 24705 D KernelAI: ADB_MODEL_STATE commandId=311d0ac9-2 status=generating route=llm_fallthrough

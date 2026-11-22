@@ -1,0 +1,10 @@
+# S23U (RFCW11265XH) PTT captures, route and tool result. Command and dictation-style turns.
+11-22 18:54:11.182  6752  6752 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 18:54:14.932  6752  6752 D KernelAI: ADB_ROUTE_DECISION commandId=90702a24-1 result=classified intent=get_time
+11-22 18:54:14.934  6752  6752 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[intent_name,query_type]
+11-22 18:54:14.935  6752  6752 D KernelAI: NativeIntentHandler.handle: intent=get_time paramKeys=[query_type]
+11-22 18:54:14.936  6752  6752 D KernelAI: DirectReply: len=12
+11-22 18:54:15.552  6752  6752 D KernelAI: ADB_TOOL_COMPLETE commandId=90702a24-1 intent=get_time result=direct_reply
+11-22 18:54:42.165  6752  6752 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 18:54:44.928  6752  6752 D KernelAI: ADB_ROUTE_DECISION commandId=46183dd2-2 result=fallthrough best_guess=null confidence=0.0
+11-22 18:54:44.929  6752  6752 D KernelAI: ADB_MODEL_STATE commandId=46183dd2-2 status=generating route=llm_fallthrough
