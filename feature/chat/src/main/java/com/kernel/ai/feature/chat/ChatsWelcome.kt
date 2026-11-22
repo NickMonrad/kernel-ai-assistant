@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import kotlin.math.roundToInt
 
 /** What the Chats empty state shows. [Loading] renders nothing until preferences are known. */
@@ -273,6 +274,7 @@ internal fun ChatsWelcome(
                 onAction = { onDownloadModel(download.model) },
             )
         }
+        if (download is WelcomeDownload.Waiting) TermsOfUseLinkWithSheet()
 
         if (examples.isNotEmpty()) {
             Text(

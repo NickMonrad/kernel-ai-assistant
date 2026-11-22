@@ -37,6 +37,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 
@@ -89,6 +90,8 @@ data class VoiceUiState(
     val asr4allPendingSize: Asr4AllSize? = null,
     /** The message of the last failed size switch. Shown under the asr4all card whatever the card's state. */
     val asr4allSwitchFailure: String? = null,
+    /** True once the Terms of Use are accepted for the current version. Gates the asr4all download (#1998). */
+    val termsAccepted: Boolean = false,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
@@ -266,6 +269,7 @@ class VoiceViewModel @Inject constructor(
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
     private val piperVoiceSetup: PiperVoiceSetup,
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -291,6 +295,11 @@ class VoiceViewModel @Inject constructor(
 
 
     init {
+        viewModelScope.launch {
+            termsAcceptancePreferences.record.collect { record ->
+                _uiState.update { it.copy(termsAccepted = record.isAccepted()) }
+            }
+        }
         viewModelScope.launch {
             val availability = androidNativeRecognitionSupport.getAvailability()
             val nativeWarning = resolveAndroidNativeAvailabilityMessage(availability)
@@ -812,6 +821,11 @@ class VoiceViewModel @Inject constructor(
      * and stores it once every file is present.
      */
     fun setAsr4allSize(size: Asr4AllSize) = asr4allSizeSwitcher.select(size)
+
+    /** Ticks or unticks the Terms of Use on the asr4all speech card. Stored at once (#1998). */
+    fun onTermsAcceptedChanged(accepted: Boolean) {
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+    }
 
     fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {
         _uiState.update { it.copy(autoStartAlertVoiceCommandsEnabled = enabled) }
