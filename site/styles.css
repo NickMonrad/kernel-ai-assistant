@@ -68,7 +68,6 @@ h1 span { color: var(--green); }
 .video-link:hover { filter: brightness(1.08); }
 .video-link:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 .play-status { padding: 10px 14px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface); font-size: .95rem; font-weight: 650; }
-.hero-note { margin: 24px 0 0; color: var(--muted); font-size: .95rem; }
 .hero-art { position: relative; display: grid; place-items: center; isolation: isolate; }
 .hero-scene { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 28px; box-shadow: var(--shadow); }
 .icon-halo { position: absolute; left: 12%; top: 50%; z-index: 1; width: min(170px, 34%); border-radius: 28%; box-shadow: 0 16px 36px rgb(20 40 15 / 35%); transform: translateY(-50%) rotate(-5deg); }
