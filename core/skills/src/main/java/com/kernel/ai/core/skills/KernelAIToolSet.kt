@@ -794,6 +794,7 @@ class KernelAIToolSet @Inject constructor(
             args["location"] = location
         }
         args.putAll(forecastWindowArgs(forecastDays, turnUserMessage))
+        Log.d(TAG, "ToolSet: getWeather effective window=${args.filterKeys { it != "location" }}")
 
         val result = executeSkill("get_weather_gps", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
@@ -802,15 +803,15 @@ class KernelAIToolSet @Inject constructor(
     }
 
     /**
-     * Forecast window for get_weather_gps, decided from the user's turn rather than the model (#2033).
-     * A model forecastDays of 3 or more is an explicit multi-day request and is kept. Otherwise "tomorrow"
-     * with "today" gives forecast_days=2 (today and tomorrow), and "tomorrow" alone gives day=tomorrow
-     * (one row, the same request the QuickIntentRouter path sends).
+     * Forecast window for get_weather_gps, decided from the user's turn when the model asked for at most one day (#2033).
+     * A model forecastDays of 2 or more is kept, so an implicit comparison ("hotter tomorrow?") keeps today's row.
+     * Turn with "tomorrow" and "today" gives forecast_days=2; "tomorrow" alone gives day=tomorrow (one row, the same
+     * request the QuickIntentRouter path sends). Otherwise the model's forecastDays is used unchanged.
      */
     private fun forecastWindowArgs(modelForecastDays: String, userMessage: String?): Map<String, String> {
         val message = userMessage.orEmpty()
         val modelDays = modelForecastDays.trim().toIntOrNull() ?: 0
-        val asksTomorrow = TOMORROW_WORD.containsMatchIn(message) && modelDays < 3
+        val asksTomorrow = TOMORROW_WORD.containsMatchIn(message) && modelDays <= 1
         return when {
             asksTomorrow && TODAY_WORD.containsMatchIn(message) -> mapOf("forecast_days" to "2")
             asksTomorrow -> mapOf("day" to "tomorrow")

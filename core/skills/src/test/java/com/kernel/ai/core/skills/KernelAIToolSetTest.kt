@@ -221,6 +221,14 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `getWeather keeps a two-day model forecast for an implicit tomorrow comparison`() {
+        assertEquals(
+            mapOf("location" to "Apia", "forecast_days" to "2"),
+            weatherArgsSentFor("Will it be hotter in Apia tomorrow", modelForecastDays = "2"),
+        )
+    }
+
+    @Test
     fun `loadSkill description mentions intent names`() {
         val skill = mockk<Skill>()
         every { skill.name } returns "load_skill"
