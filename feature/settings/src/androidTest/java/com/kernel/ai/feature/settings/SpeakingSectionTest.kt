@@ -6,11 +6,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -630,7 +632,7 @@ class SpeakingSectionTest {
         speakingCardTestTag(SpeakingOption.PiperVoice(SherpaVoiceRowUiState(voice)))
 
     private fun tapCard(tag: String) {
-        composeTestRule.onNode(hasTestTag(tag)).performScrollTo().performClick()
+        composeTestRule.onAllNodes(hasClickAction() and hasAnyAncestor(hasTestTag(tag))).onFirst().performScrollTo().performClick()
     }
 
     private val inflectCardTag = speakingCardTestTag(SpeakingOption.InflectMicro)
