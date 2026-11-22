@@ -96,6 +96,7 @@ import com.kernel.ai.feature.chat.model.toolCallInfoFromJson
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceRecovery
 import com.kernel.ai.core.voice.VoiceRefusal
@@ -856,8 +857,9 @@ class ChatViewModel @Inject constructor(
                         voicePresynthesis.discard()
                         // #790: Retry once before surfacing the error to the user. #1853: not after
                         // an asr4all hand-off; a retry would start the failing native recognizer again.
+                        // #2051: no retry after silence (no-speech window exhausted): the user hears "No speech heard".
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
-                        if (chatCommandVoiceRetryCount < 1 && !handedOff) {
+                        if (chatCommandVoiceRetryCount < 1 && !handedOff && event.category != NO_SPEECH_WINDOW_EXHAUSTED) {
                             chatCommandVoiceRetryCount++
                             Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
                             val attemptId = beginChatVoiceAttempt()

@@ -26,7 +26,7 @@ internal object SetupSpeechOptions {
         if (androidNativeReady) {
             null
         } else if (isRelease) {
-            "Android speech recognition isn't ready on this phone, so Automatic will use the offline asr4all model."
+            "Android speech recognition isn't ready on this phone, so Automatic will use the offline asr4all model once it has downloaded."
         } else {
             "Android's own listener can't be used on this phone, so Automatic is the one that works here."
         }

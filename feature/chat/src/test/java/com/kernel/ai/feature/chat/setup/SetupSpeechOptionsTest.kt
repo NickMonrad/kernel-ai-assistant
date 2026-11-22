@@ -32,7 +32,9 @@ class SetupSpeechOptionsTest {
     @Test
     fun `release reason names the offline asr4all model Automatic falls back to`() {
         assertNull(SetupSpeechOptions.inputReason(androidNativeReady = true, isRelease = true))
-        assertTrue(SetupSpeechOptions.inputReason(androidNativeReady = false, isRelease = true)!!.contains("asr4all"))
+        val reason = SetupSpeechOptions.inputReason(androidNativeReady = false, isRelease = true)!!
+        assertTrue(reason.contains("asr4all"))
+        assertTrue(reason.contains("once it has downloaded"))
     }
 
     @Test

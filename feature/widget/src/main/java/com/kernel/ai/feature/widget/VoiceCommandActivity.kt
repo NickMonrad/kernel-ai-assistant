@@ -541,7 +541,7 @@ class VoiceCommandActivity : ComponentActivity() {
                         is VoiceInputEvent.Error -> {
                             phase = phaseAfter(phase, event)
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                            if (mayRetry()) {
+                            if (restartsAfterError(event, mayRetry())) {
                                 retryAttempted = true
                                 partialText = ""
                                 ownedCaptureSessionId = null

@@ -370,7 +370,6 @@ class SelectableVoiceInputControllerTest {
         coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
-
     @Test
     fun `cancelled native admission remains owned until its matching terminal`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
@@ -536,8 +535,6 @@ class SelectableVoiceInputControllerTest {
             ),
         )
     }
-
-
 
     @Test
     fun `direct Sherpa waits for the previous native session teardown`() = runTest(dispatcher) {
@@ -953,6 +950,23 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `auto keeps the native start failure when asr4all is not downloaded`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } returns
+            VoiceInputStartResult.Unavailable("not ready")
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable("not ready"),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+    }
+
+    @Test
     fun `explicit android native engine passes the online fallback setting`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.AndroidNative)
 
@@ -1090,6 +1104,22 @@ class SelectableVoiceInputControllerTest {
         val lines = JandalEvents.exportLines()
         assertTrue(
             lines.any { " voice stt_route " in it && "route=ASR4ALL" in it && "online_fallback=false" in it },
+            lines.toString(),
+        )
+    }
+
+    @Test
+    fun `auto with the offline model winning logs native_ready as skipped`() = runTest(dispatcher) {
+        JandalEvents.install(Files.createTempFile("jandal-auto-skipped", ".log").toFile())
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+
+        controller().startListening(VoiceCaptureMode.Command)
+        JandalEvents.awaitWritesForTest()
+
+        val lines = JandalEvents.exportLines()
+        assertTrue(
+            lines.any { " voice stt_route " in it && "native_ready=SKIPPED" in it },
             lines.toString(),
         )
     }
@@ -1372,7 +1402,6 @@ class SelectableVoiceInputControllerTest {
             seen.filterIsInstance<VoiceInputEvent.ListeningStopped>(),
         )
     }
-
 
     @Test
     fun `deselecting asr4all drops its queued final but forwards the cancellation terminal`() = runTest(dispatcher) {

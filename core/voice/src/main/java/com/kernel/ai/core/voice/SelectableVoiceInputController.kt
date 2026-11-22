@@ -143,6 +143,10 @@ private data class NativeTeardownSettle(
     val settleUntilElapsedMs: Long,
     val settled: CompletableDeferred<Unit>,
 )
+
+/** Native on-device check outcome for the Auto route record. Enum names pass the JandalEvents allowlist; free text does not. */
+private enum class NativeCheckState { READY, NOT_READY, SKIPPED }
+
 private data class PendingAsr4allStart(val generation: Long, val job: Job)
 
 /**
@@ -738,8 +742,9 @@ class SelectableVoiceInputController @Inject constructor(
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
         var ranLiveCheck = false
-        val nativeOnDeviceReady = if (offlineModelWins) {
-            false
+        // Null when the check is skipped, so the log and JandalEvents say "skipped" rather than a false "not ready" (#2051).
+        val nativeCheck: Boolean? = if (offlineModelWins) {
+            null
         } else {
             val cached = androidNativeRecognitionSupport.getCaptureAvailability()
             val availability = if (
@@ -754,20 +759,26 @@ class SelectableVoiceInputController @Inject constructor(
             availability.blockingReason == null &&
                 availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
         }
+        val nativeLog = nativeCheck?.toString() ?: "skipped"
         val route = resolveAutoSttRoute(
-            nativeOnDeviceReady = nativeOnDeviceReady,
+            nativeOnDeviceReady = nativeCheck == true,
             asr4allReady = asr4allReady,
             allowOnlineFallback = allowOnlineFallback,
         )
         Log.i(
             TAG,
-            "Auto STT route=$route mode=$mode nativeOnDeviceReady=$nativeOnDeviceReady " +
+            "Auto STT route=$route mode=$mode native=$nativeLog " +
                 "asr4allReady=$asr4allReady " +
                 "allowOnlineFallback=$allowOnlineFallback",
         )
+        val nativeState = when (nativeCheck) {
+            null -> NativeCheckState.SKIPPED
+            true -> NativeCheckState.READY
+            false -> NativeCheckState.NOT_READY
+        }
         JandalEvents.record(
             "voice", "stt_route", "route" to route,
-            "native_ready" to nativeOnDeviceReady, "asr4all_ready" to asr4allReady,
+            "native_ready" to nativeState, "asr4all_ready" to asr4allReady,
             "online_fallback" to allowOnlineFallback,
         )
         // Auto keeps a loaded asr4all engine for its next start. Every other route releases it first.

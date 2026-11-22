@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceCaptureAdmissionController
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceNotice
@@ -3161,6 +3162,32 @@ class ActionsViewModelVoiceTest {
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         // No third startListening call.
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+    }
+
+    @Test
+    fun `silent command capture is not retried and surfaces no speech heard`() = runTest(dispatcher) {
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+
+        // The asr4all silence timeout is not a recognizer failure: no reprompt, no second capture.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals("No speech heard. Try again.", viewModel.error.value)
+        assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test
