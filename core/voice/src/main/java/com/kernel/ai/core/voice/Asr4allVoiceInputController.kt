@@ -172,9 +172,19 @@ class Asr4allVoiceInputController internal constructor(
     /** Runs on the caller just before a cancelled stop joins its reader; lets a test observe the reader still parked. */
     internal var beforeCancelledStopJoinForTest: (() -> Unit)? = null
 
+    /** Weights on disk for the size to load now. */
+    private suspend fun modelDownloaded(): Boolean = availableForTest?.invoke()
+        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) }
+
     /** Missing weights and a refused Terms acceptance both read as unavailable, so callers fall back the same way. */
-    suspend fun isAvailable(): Boolean = termsAccepted() && (availableForTest?.invoke()
-        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) })
+    suspend fun isAvailable(): Boolean = termsAccepted() && modelDownloaded()
+
+    /**
+     * True when the Terms refuse the offline model. Nothing downloads without the Terms, so this does not depend on
+     * the weights being on disk. Auto and the native fallback then surface the Terms refusal with its Settings
+     * action, not another recognizer's message (#2049).
+     */
+    suspend fun isBlockedByTerms(): Boolean = !termsAccepted()
 
     /** The size to load now: the user's choice, subject to the tier policy. */
     private suspend fun selectedSize(): Asr4AllSize = Asr4AllInstall.effectiveSize(
@@ -203,6 +213,9 @@ class Asr4allVoiceInputController internal constructor(
         return startLock.withLock {
             if (!awaitCaptureEnded()) {
                 return@withLock VoiceInputStartResult.Unavailable("The previous microphone session is still closing. Try again.")
+            }
+            if (!termsAccepted()) {
+                return@withLock termsNotAcceptedStart()
             }
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(

@@ -89,8 +89,11 @@ data class VoiceUiState(
     val asr4allPendingSize: Asr4AllSize? = null,
     /** The message of the last failed size switch. Shown under the asr4all card whatever the card's state. */
     val asr4allSwitchFailure: String? = null,
-    /** True once the Terms of Use are accepted for the current version. Gates the asr4all download (#1998). */
-    val termsAccepted: Boolean = false,
+    /**
+     * Whether the Terms of Use are accepted for the current version, gating the asr4all download (#1998). Null
+     * until the saved acceptance is read, so the Terms row is not drawn from a stale value (#2049).
+     */
+    val termsAccepted: Boolean? = null,
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,

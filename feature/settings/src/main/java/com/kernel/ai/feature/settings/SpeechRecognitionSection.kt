@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
@@ -22,15 +24,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import com.kernel.ai.core.ui.ChipStatus
 import com.kernel.ai.core.ui.ChoiceCard
@@ -84,10 +90,15 @@ internal fun SpeechRecognitionSection(
     onDelete: (VoiceInputEngine) -> Unit,
     onAsr4allSize: (Asr4AllSize) -> Unit,
     onTermsAcceptedChanged: (Boolean) -> Unit = {},
+    /** Scrolls the asr4all Terms row into view once it is shown, when Settings › Voice opens from a refusal (#2049). */
+    scrollToTermsRow: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
     var termsSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var termsRowScrolled by rememberSaveable { mutableStateOf(false) }
+    val termsRowRequester = remember { BringIntoViewRequester() }
+    val sttStatesLoaded = uiState.sherpaSttStates.isNotEmpty()
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -104,7 +115,7 @@ internal fun SpeechRecognitionSection(
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
                 val isReady = !engine.hasDownloadableModel || sttState?.isDownloaded == true
-                val termsGate = engine != VoiceInputEngine.Asr4all || uiState.termsAccepted
+                val termsGate = engine != VoiceInputEngine.Asr4all || uiState.termsAccepted == true
                 val nativeWarning = if (engine == VoiceInputEngine.AndroidNative && selected) {
                     androidNativeSettingsWarning(
                         blockingMessage = uiState.androidNativeAvailabilityMessage,
@@ -123,7 +134,10 @@ internal fun SpeechRecognitionSection(
                 }
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
                 val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
-                val hasSub = nativeWarning != null || engineWarning != null || automaticNote != null || showOnline || showDownloadCard
+                val termsRowShown = engine == VoiceInputEngine.Asr4all && uiState.termsAccepted != null &&
+                    (showDownloadCard || (uiState.selectedInputEngine == VoiceInputEngine.Auto && !uiState.termsAccepted))
+                val hasSub = nativeWarning != null || engineWarning != null || automaticNote != null || showOnline ||
+                    showDownloadCard || termsRowShown
                 val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
                 } else if (sttState != null && engine.hasDownloadableModel) {
@@ -174,15 +188,27 @@ internal fun SpeechRecognitionSection(
                                 moreDescription = "More about online speech recognition",
                             )
                         }
-                        if (showDownloadCard) {
-                            if (engine == VoiceInputEngine.Asr4all) {
-                                TermsAcceptRow(
-                                    accepted = uiState.termsAccepted,
-                                    onAcceptedChange = onTermsAcceptedChanged,
-                                    onOpenTerms = { termsSheetOpen = true },
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                )
+                        if (termsRowShown) {
+                            LaunchedEffect(scrollToTermsRow, sttStatesLoaded) {
+                                // Once per back-stack entry, after the download states (and so the rows above the
+                                // asr4all card) have loaded and one frame has laid out. Scrolling on the first
+                                // composition stopped short: the placeholder state had no download cards above.
+                                if (scrollToTermsRow && sttStatesLoaded && !termsRowScrolled) {
+                                    withFrameNanos { }
+                                    termsRowRequester.bringIntoView()
+                                    termsRowScrolled = true
+                                }
                             }
+                            TermsAcceptRow(
+                                accepted = uiState.termsAccepted == true,
+                                onAcceptedChange = onTermsAcceptedChanged,
+                                onOpenTerms = { termsSheetOpen = true },
+                                modifier = Modifier
+                                    .padding(vertical = 4.dp)
+                                    .bringIntoViewRequester(termsRowRequester),
+                            )
+                        }
+                        if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
                                 Asr4AllSizeRow(
                                     selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,
@@ -208,6 +234,9 @@ internal fun SpeechRecognitionSection(
                                         color = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.padding(vertical = 4.dp),
                                     )
+                                    if (message == TERMS_NOT_ACCEPTED_MESSAGE) {
+                                        TermsOfUseLinkWithSheet()
+                                    }
                                 }
                             }
                             when {

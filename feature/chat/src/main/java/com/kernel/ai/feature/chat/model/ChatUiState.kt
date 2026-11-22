@@ -7,6 +7,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.voice.VoiceRecovery
 
 sealed interface ChatUiState {
     data object Loading : ChatUiState
@@ -25,6 +26,8 @@ sealed interface ChatUiState {
         /** Text of the latest ViewModel-originated replacement (paired with the revision). */
         val inputTextReplacementText: String = "",
         val error: String?,
+        /** The fix for [error] when it is a voice refusal with an action (#2049); null otherwise. */
+        val errorRecovery: VoiceRecovery? = null,
         val isLoadingModel: Boolean = false,
         /** True while a submitted message is being routed or prepared for generation. */
         val isPreparingResponse: Boolean = false,

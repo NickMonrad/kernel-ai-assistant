@@ -795,9 +795,16 @@ class SelectableVoiceInputController @Inject constructor(
                 startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
             }
             AutoSttRoute.Asr4all -> startAsr4all(mode, gen, onSessionAdmitted)
-            AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
+            AutoSttRoute.Unavailable -> termsBlockedRefusal() ?: VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }
     }
+
+    /**
+     * The Terms refusal when the Terms block the offline model, else null. Not build-gated: the Auto route
+     * uses asr4all in release builds too (#2049).
+     */
+    private suspend fun termsBlockedRefusal(): VoiceInputStartResult.Unavailable? =
+        if (asr4allVoiceInputController.isBlockedByTerms()) termsNotAcceptedStart() else null
 
     /**
      * Starts Android native. If it cannot start at all and the asr4all model is ready, the capture
@@ -848,7 +855,8 @@ class SelectableVoiceInputController @Inject constructor(
         }
         if (nativeSessionId == null) endNativeStart(nativeStart)
         // A native failure stays a native failure: release builds never start asr4all here, and debug starts it only when the model can take the request.
-        if (!voiceInputPreferences.allowsSherpaRuntime() || !asr4allVoiceInputController.isAvailable()) return nativeResult
+        if (!voiceInputPreferences.allowsSherpaRuntime()) return nativeResult
+        if (!asr4allVoiceInputController.isAvailable()) return termsBlockedRefusal() ?: nativeResult
         // Keep the backend mapping until its post-cleanup terminal is routed. A start-time
         // fallback can suspend while that physical stop is queued.
         // Its post-cleanup terminal retires the Native mapping after fallback suspension.

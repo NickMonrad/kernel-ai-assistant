@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.KernelModel
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 
 /**
  * Shared shell for one titled section on the Models screen: a title, one summary line, then
@@ -410,6 +411,11 @@ private fun ModelRoleRowItem(
                         }
                     }
                 }
+            }
+
+            // Gemma and asr4all downloads are under Terms of Use; the link opens them here too (#2049).
+            if (model.showsTermsOfUseLink) {
+                TermsOfUseLinkWithSheet(modifier = Modifier.padding(top = 4.dp))
             }
         }
     }
