@@ -71,7 +71,7 @@ enum class WakeCategory {
 enum class WakeOutcome { HANDED_OFF, FAILED, OTHER }
 
 /** Sherpa STT failure categories for the support export (#1870). */
-enum class SttFailure { MODEL_UNAVAILABLE, MIC_UNAVAILABLE, AUDIO_LOOP, NO_SPEECH }
+enum class SttFailure { MODEL_UNAVAILABLE, MIC_UNAVAILABLE, AUDIO_LOOP, NO_SPEECH, EMPTY_FINAL }
 
 enum class NativeFallbackReason { NATIVE_NOT_READY, NATIVE_ERROR }
 

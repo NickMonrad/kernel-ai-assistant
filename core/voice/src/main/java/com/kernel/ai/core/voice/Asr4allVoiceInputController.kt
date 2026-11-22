@@ -111,7 +111,8 @@ private class SpeechGate {
  *
  * Two ways a capture ends:
  * - [stopListening] is an explicit finalize: the utterance so far is decoded and emitted.
- * - [supersedeCapture] (and [releaseEngine]) discards: nothing from it is emitted.
+ * - [supersedeCapture] (and [releaseEngine]) discards: nothing decided after it is emitted. A result decided
+ *   before it may still be emitted, tagged with the superseded session; consumers filter by sessionId (#2039).
  */
 @Singleton
 class Asr4allVoiceInputController internal constructor(
@@ -171,6 +172,8 @@ class Asr4allVoiceInputController internal constructor(
     internal var beforeFailedLoadJoinForTest: (() -> Unit)? = null
     /** Runs on the caller just before a cancelled stop joins its reader; lets a test observe the reader still parked. */
     internal var beforeCancelledStopJoinForTest: (() -> Unit)? = null
+    /** Runs on the capture job between its final supersede check and its emit; lets a test supersede inside that window. */
+    internal var beforeFinalEmitForTest: (() -> Unit)? = null
 
     /** Weights on disk for the size to load now. */
     private suspend fun modelDownloaded(): Boolean = availableForTest?.invoke()
@@ -511,8 +514,13 @@ class Asr4allVoiceInputController internal constructor(
         var chunks = 0
         val gate = SpeechGate()
         var quietChunks = 0 // consecutive chunks that are not speech
+        var bufferEnded = false // set only when the mic reader ends the buffer; the sole microphone failure (#2059)
         while (!discard.get() && chunks < MAX_UTTERANCE_CHUNKS) {
-            val pcm = nextCaptureChunk(preRoll, buffer) ?: break
+            val pcm = nextCaptureChunk(preRoll, buffer)
+            if (pcm == null) {
+                bufferEnded = true
+                break
+            }
             chunks++
             val n = pcm.size
             val floats = FloatArray(n)
@@ -552,33 +560,50 @@ class Asr4allVoiceInputController internal constructor(
         val text = eng.finish().trim()
         // A release may arrive during the final decode; a superseded transcript is dropped.
         if (discard.get()) return
+        beforeFinalEmitForTest?.invoke()
         if (text.isNotEmpty()) {
             JandalEvents.record("voice", "stt_result", "chars" to text.length)
             _events.tryEmit(VoiceInputEvent.Transcript(mode, text, sessionId))
         } else if (!stop.get()) {
-            // Only the window's own timer exhausts the no-speech window. An empty final with an
-            // early end means the mic reader stopped: that gets the normal single retry (#2051).
-            val timedOut = !textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS
-            if (timedOut) {
-                JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
-                // Silence is not a recognizer failure: the category stops the Command/wake retry (#2051).
-                _events.tryEmit(
-                    VoiceInputEvent.Error(
-                        mode = mode,
-                        message = "No speech heard. Try again.",
-                        captureSessionId = sessionId,
-                        category = NO_SPEECH_WINDOW_EXHAUSTED,
-                    ),
-                )
-            } else {
-                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
-                _events.tryEmit(
-                    VoiceInputEvent.Error(
-                        mode = mode,
-                        message = "Microphone stopped. Try again.",
-                        captureSessionId = sessionId,
-                    ),
-                )
+            // An explicit stop with nothing decoded ends without an error, as before.
+            when {
+                // Only a real early end of the mic buffer is a microphone failure (#2059).
+                bufferEnded -> {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
+                    _events.tryEmit(
+                        VoiceInputEvent.Error(
+                            mode = mode,
+                            message = "Microphone stopped. Try again.",
+                            captureSessionId = sessionId,
+                        ),
+                    )
+                }
+                // Only the window's own timer exhausts the no-speech window. Silence is not a recognizer
+                // failure: the category stops the Command/wake retry (#2051).
+                !textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS -> {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
+                    _events.tryEmit(
+                        VoiceInputEvent.Error(
+                            mode = mode,
+                            message = "No speech heard. Try again.",
+                            captureSessionId = sessionId,
+                            category = NO_SPEECH_WINDOW_EXHAUSTED,
+                        ),
+                    )
+                }
+                // Text was heard, the utterance endpointed or hit the cap, and the final decode is empty. This is a
+                // failed recognition, not a microphone failure. The export records EMPTY_FINAL; the Error carries no
+                // category, so the normal single retry applies.
+                else -> {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.EMPTY_FINAL)
+                    _events.tryEmit(
+                        VoiceInputEvent.Error(
+                            mode = mode,
+                            message = "Didn't catch that. Try again.",
+                            captureSessionId = sessionId,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -630,8 +655,9 @@ class Asr4allVoiceInputController internal constructor(
     }
 
     /**
-     * Discards the current capture, if any, without emitting it, and ends its mic now. Callers
-     * that begin a newer start or switch engines call this before waiting for the start lock.
+     * Discards the current capture, if any, and ends its mic now. A result decided before this call may still be
+     * emitted, tagged with the superseded session. Callers that begin a newer start or switch engines call this
+     * before waiting for the start lock.
      */
     fun supersedeCapture(): Unit = synchronized(captureLock) {
         supersedeCaptureLocked()
