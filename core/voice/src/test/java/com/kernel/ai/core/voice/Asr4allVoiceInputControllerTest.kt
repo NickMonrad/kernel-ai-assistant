@@ -214,7 +214,7 @@ class Asr4allVoiceInputControllerTest {
             c.stopListening()
             collected.awaitStops(1)
 
-            assertEquals(listOf("Final text."), collected.transcripts())
+            assertEquals(listOf("Final text"), collected.transcripts())
             assertEquals(1, log.count { it == "finish#1" })
             assertFalse(log.contains("close#1"))
         } finally {
@@ -690,6 +690,25 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `a trailing period from the recogniser is stripped before the transcript is emitted`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            partialForCall = { "Set a timer." }
+            finalText = "Set a timer."
+            firstFrame = CountDownLatch(1)
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            assertEquals(listOf("Set a timer"), collected.transcripts())
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `mic reader stopping mid-capture is retryable and not reported as no speech`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
@@ -827,7 +846,7 @@ class Asr4allVoiceInputControllerTest {
                 collected.awaitStops(1)
 
                 val transcript = collected.events.filterIsInstance<VoiceInputEvent.Transcript>().single()
-                assertEquals("Final text.", transcript.text)
+                assertEquals("Final text", transcript.text)
                 assertEquals(first, transcript.captureSessionId)
             } finally {
                 c.beforeFinalEmitForTest = null
@@ -1041,7 +1060,7 @@ class Asr4allVoiceInputControllerTest {
             collected.awaitStops(1)
             readAhead = null
 
-            assertEquals(listOf("Final text."), collected.transcripts())
+            assertEquals(listOf("Final text"), collected.transcripts())
             assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
             assertEquals(1, log.count { it == "finish#1" })
         } finally {
@@ -1069,7 +1088,7 @@ class Asr4allVoiceInputControllerTest {
                 // Chunk 1 is the only quiet reference; it leaves the 3 s window at chunk 31, after which the
                 // hiss is the floor and 10 quiet chunks endpoint. The old fixed gate ran to the 600-chunk cap.
                 assertTrue(acceptCalls.get() < 60, "steady noise ran ${acceptCalls.get()} chunks")
-                assertEquals(listOf("Final text."), collected.transcripts())
+                assertEquals(listOf("Final text"), collected.transcripts())
             } finally {
                 collected.job.cancel()
                 scope.cancel()
@@ -1138,7 +1157,7 @@ class Asr4allVoiceInputControllerTest {
 
             val partials = collected.events.filterIsInstance<VoiceInputEvent.PartialTranscript>()
             assertEquals(listOf("weather", "Weather, 42."), partials.map { it.text })
-            assertEquals(listOf("Weather, 42."), collected.transcripts())
+            assertEquals(listOf("Weather, 42"), collected.transcripts())
             assertEquals(1, log.count { it == "finish#1" })
         } finally {
             collected.job.cancel()

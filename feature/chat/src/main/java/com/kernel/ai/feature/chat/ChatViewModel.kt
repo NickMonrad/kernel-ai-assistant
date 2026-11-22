@@ -78,6 +78,7 @@ import com.kernel.ai.core.permissions.DenialOutcome
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.PermissionDenialClassifier
 import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.SpeechStopReason
 import com.kernel.ai.core.voice.stopFor
@@ -96,7 +97,6 @@ import com.kernel.ai.feature.chat.model.toolCallInfoFromJson
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
-import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceRecovery
 import com.kernel.ai.core.voice.VoiceRefusal
@@ -855,16 +855,27 @@ class ChatViewModel @Inject constructor(
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
                         voicePresynthesis.discard()
-                        // #790: Retry once before surfacing the error to the user. #1853: not after
+                        // #790: Retry before surfacing the error to the user. #1853: not after
                         // an asr4all hand-off; a retry would start the failing native recognizer again.
-                        // #2051: no retry after silence (no-speech window exhausted): the user hears "No speech heard".
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
-                        if (chatCommandVoiceRetryCount < 1 && !handedOff && event.category != NO_SPEECH_WINDOW_EXHAUSTED) {
+                        // #2070: a pending slot question gets the slot budget (same as Actions); plain command gets one.
+                        val slotPrompt = conversationId?.let { slotFillerManager.pendingRequestFor(it) }?.promptMessage
+                        val retryBudget = if (slotPrompt != null) SLOT_REPLY_MAX_VOICE_RETRIES else COMMAND_MAX_VOICE_RETRIES
+                        if (chatCommandVoiceRetryCount < retryBudget && !handedOff) {
                             chatCommandVoiceRetryCount++
-                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/$retryBudget")
                             val attemptId = beginChatVoiceAttempt()
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
-                            launchChatVoiceAttempt(attemptId) { _error.value = null }
+                            launchChatVoiceAttempt(attemptId) {
+                                _error.value = null
+                                // #2070: speak the re-prompt, then reopen the mic. Off when spoken responses are off.
+                                // A pending slot re-asks its question so the reply stays on the slot path.
+                                if (spokenResponsesEnabled) {
+                                    val retry = slotPrompt?.let { "Sorry, I didn't catch that. $it" }
+                                        ?: "Sorry, I didn't catch that. Please try again."
+                                    voiceOutputController.speak(VoiceSpeakRequest(retry))
+                                }
+                            }
                         } else {
                             _voiceMode.value = null
                             _voiceCaptureState.value = VoiceCaptureState.Idle
@@ -1851,6 +1862,8 @@ class ChatViewModel @Inject constructor(
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
+        // #2070: each back-and-forth turn gets its own silence retry.
+        chatCommandVoiceRetryCount = 0
         val attemptId = beginChatVoiceAttempt()
         _voiceCaptureState.value = VoiceCaptureState.Preparing
         launchChatVoiceAttempt(attemptId) { _error.value = null }

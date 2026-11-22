@@ -35,6 +35,7 @@ import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.voice.VoiceRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -836,6 +837,10 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
         advanceUntilIdle()
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        }
         coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
 
         // Slot prompt ends: the automatic re-arm opens the slot-reply mic.
@@ -2938,7 +2943,7 @@ class ActionsViewModelVoiceTest {
     // ── #790: Slot-fill retry on no-speech + cancel phrase abort ─────────────
 
     @Test
-    fun `slot-fill voice error retries with reprompt up to 2 times then waits for manual input`() = runTest(dispatcher) {
+    fun `silent slot reply re-asks the question up to 2 times then waits for manual input`() = runTest(dispatcher) {
         every { quickIntentRouter.route("send a message to Bob") } returns
             QuickIntentRouter.RouteResult.NeedsSlot(
                 intent = QuickIntentRouter.MatchedIntent(
@@ -2964,7 +2969,12 @@ class ActionsViewModelVoiceTest {
 
         // First error → retry 1: should speak reprompt and keep slot active.
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
+            VoiceInputEvent.Error(
+                VoiceCaptureMode.SlotReply,
+                "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
         )
         advanceUntilIdle()
 
@@ -2991,7 +3001,12 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
+            VoiceInputEvent.Error(
+                VoiceCaptureMode.SlotReply,
+                "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
         )
         advanceUntilIdle()
 
@@ -3017,7 +3032,12 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "I didn't catch that.", captureSessionId = 1L),
+            VoiceInputEvent.Error(
+                VoiceCaptureMode.SlotReply,
+                "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
         )
         advanceUntilIdle()
 
@@ -3165,7 +3185,7 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
-    fun `silent command capture is not retried and surfaces no speech heard`() = runTest(dispatcher) {
+    fun `silent command capture re-prompts once then surfaces no speech heard`() = runTest(dispatcher) {
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.Command)
         } returns VoiceInputStartResult.Started(1L)
@@ -3174,7 +3194,26 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
         advanceUntilIdle()
 
-        // The asr4all silence timeout is not a recognizer failure: no reprompt, no second capture.
+        // First silence: the spoken re-prompt, then the mic reopens once.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(null, viewModel.error.value)
+
+        // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
                 mode = VoiceCaptureMode.Command,
@@ -3187,7 +3226,7 @@ class ActionsViewModelVoiceTest {
 
         assertEquals("No speech heard. Try again.", viewModel.error.value)
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
     }
 
     @Test

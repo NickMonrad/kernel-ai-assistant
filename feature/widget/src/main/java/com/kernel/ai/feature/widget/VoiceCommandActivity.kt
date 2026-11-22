@@ -54,6 +54,9 @@ import androidx.compose.runtime.collectAsState
 import android.view.HapticFeedbackConstants
 import com.kernel.ai.core.voice.MicHintPolicy
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -83,6 +86,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
@@ -134,6 +138,8 @@ class VoiceCommandActivity : ComponentActivity() {
     /** Volume key stops Jandal's speech while the voice overlay is open (#1873). */
     @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
     @Inject lateinit var chatPreferences: ChatPreferences
+    @Inject lateinit var voiceOutputController: VoiceOutputController
+    @Inject lateinit var voiceOutputPreferences: VoiceOutputPreferences
 
     private val speechStopKeys by lazy {
         com.kernel.ai.core.voice.SpeechStopKeyTracker(speechStopCoordinator::requestStop)
@@ -541,23 +547,30 @@ class VoiceCommandActivity : ComponentActivity() {
                         is VoiceInputEvent.Error -> {
                             phase = phaseAfter(phase, event)
                             Log.w(TAG, "VoiceCommandActivity: voice error — ${event.message}")
-                            if (restartsAfterError(event, mayRetry())) {
+                            if (mayRetry()) {
                                 retryAttempted = true
                                 partialText = ""
                                 ownedCaptureSessionId = null
                                 attemptId = ++voiceStartAttemptId
                                 Log.d(TAG, "VoiceCommandActivity: retrying after error")
                                 val retryAttempt = attemptId
-                                when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) {
-                                    bindCapture(it, retryAttempt)
-                                }) {
-                                    is VoiceInputStartResult.Started -> Unit
-                                    is VoiceInputStartResult.Unavailable -> if (retryAttempt == voiceStartAttemptId) {
-                                        showUnavailableAndFinish(result.message, result.recovery)
+                                lifecycleScope.launch {
+                                    // #2070: speak the re-prompt, then reopen the mic. Off when spoken responses are off.
+                                    if (voiceOutputPreferences.spokenResponsesEnabled.first()) {
+                                        voiceOutputController.speak(VoiceSpeakRequest("Sorry, I didn't catch that. Please try again."))
                                     }
-                                    is VoiceInputStartResult.Cancelled -> if (retryAttempt == voiceStartAttemptId) {
-                                        cancelledVoiceStart = true
-                                        finish()
+                                    if (retryAttempt != voiceStartAttemptId) return@launch
+                                    when (val result = voiceInputController.startListening(VoiceCaptureMode.AlertCommand) {
+                                        bindCapture(it, retryAttempt)
+                                    }) {
+                                        is VoiceInputStartResult.Started -> Unit
+                                        is VoiceInputStartResult.Unavailable -> if (retryAttempt == voiceStartAttemptId) {
+                                            showUnavailableAndFinish(result.message, result.recovery)
+                                        }
+                                        is VoiceInputStartResult.Cancelled -> if (retryAttempt == voiceStartAttemptId) {
+                                            cancelledVoiceStart = true
+                                            finish()
+                                        }
                                     }
                                 }
                             } else {

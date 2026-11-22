@@ -557,7 +557,7 @@ class Asr4allVoiceInputController internal constructor(
         // Superseded: no finish, no error, no transcript.
         if (discard.get()) return
         if (textHeard) _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
-        val text = eng.finish().trim()
+        val text = TranscriptNormaliser.stripTrailingSentencePunctuation(eng.finish().trim())
         // A release may arrive during the final decode; a superseded transcript is dropped.
         if (discard.get()) return
         beforeFinalEmitForTest?.invoke()
@@ -579,7 +579,7 @@ class Asr4allVoiceInputController internal constructor(
                     )
                 }
                 // Only the window's own timer exhausts the no-speech window. Silence is not a recognizer
-                // failure: the category stops the Command/wake retry (#2051).
+                // failure. The category feeds WakeWordService's wake no-retry gate (#2051); Command retries once (#2070).
                 !textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS -> {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                     _events.tryEmit(
