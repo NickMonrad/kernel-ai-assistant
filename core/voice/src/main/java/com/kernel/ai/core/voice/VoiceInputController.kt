@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,9 +15,26 @@ import java.util.concurrent.atomic.AtomicLong
 
 sealed interface VoiceInputStartResult {
     data class Started(val captureSessionId: Long) : VoiceInputStartResult
-    data class Unavailable(val message: String) : VoiceInputStartResult
+    /** [recovery] names a fix the user can apply from the UI (#2049). Null when the refusal has no action. */
+    data class Unavailable(val message: String, val recovery: VoiceRecovery? = null) : VoiceInputStartResult
     data class Cancelled(val captureSessionId: Long? = null) : VoiceInputStartResult
 }
+
+/** A fix a refused voice start can point the user to. Each surface maps it to a button. */
+enum class VoiceRecovery {
+    /** Accept the speech model's Terms of Use in Settings › Voice. */
+    ACCEPT_TERMS,
+}
+
+/** A refusal's message with its fix. A surface shows the fix only while [message] is the error on screen (#2049). */
+data class VoiceRefusal(val message: String, val recovery: VoiceRecovery)
+
+/** The fix to show beside [error]: null unless [error] is still [refusal]'s own message, so a later error never inherits it. */
+fun recoveryFor(error: String?, refusal: VoiceRefusal?): VoiceRecovery? =
+    refusal?.takeIf { error != null && error == it.message }?.recovery
+
+/** The start refusal while the Terms of Use are not accepted. It carries the Settings fix (#2049). */
+internal fun termsNotAcceptedStart() = VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS)
 
 internal object VoiceCaptureSessionIds {
     private val nextId = AtomicLong()

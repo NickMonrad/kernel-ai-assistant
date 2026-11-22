@@ -1,11 +1,12 @@
 package com.kernel.ai.navigation
 
+import com.kernel.ai.feature.widget.VOICE_SETTINGS_TERMS_ROUTE
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** `navigation_route` extras accepted by MainActivity → KernelNavHost (Lists deep links, #1553 stopwatch). */
+/** `navigation_route` extras accepted by MainActivity → KernelNavHost (Lists deep links, #1553 stopwatch, #2049 Voice Terms). */
 class ExternalNavigationRouteTest {
 
     @Test
@@ -17,6 +18,13 @@ class ExternalNavigationRouteTest {
     @Test
     fun `stopwatch notification route is accepted`() {
         assertTrue(isAllowedExternalNavigationRoute(ROUTE_CLOCK_STOPWATCH))
+    }
+
+    @Test
+    fun `voice terms refusal route is accepted and equals the widget's route`() {
+        assertEquals("settings/voice?scrollTo=true", ROUTE_VOICE_TERMS)
+        assertEquals(VOICE_SETTINGS_TERMS_ROUTE, ROUTE_VOICE_TERMS)
+        assertTrue(isAllowedExternalNavigationRoute(ROUTE_VOICE_TERMS))
     }
 
     @Test
@@ -36,6 +44,7 @@ class ExternalNavigationRouteTest {
             "settings/side_panel?tab=timer",
             "settings/side_panel?tab=stopwatch&x=1",
             "settings/model_management?scrollTo=true",
+            "settings/voice",
         )) {
             assertFalse(isAllowedExternalNavigationRoute(route), route)
         }

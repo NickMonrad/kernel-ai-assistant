@@ -81,6 +81,7 @@ class ModelDownloadWorker(
         val termsRecord = TermsAcceptancePreferences(applicationContext).record.first()
         val termsModel = KernelModel.entries.firstOrNull { it.fileName == fileName }
         if (termsModel != null && !termsAllowDownload(termsModel, termsRecord)) {
+            Log.w(TAG, "Terms not accepted: refusing ${termsModel.displayName}")
             return@withContext Result.failure(errorData(TERMS_NOT_ACCEPTED_MESSAGE))
         }
         val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME) ?: fileName

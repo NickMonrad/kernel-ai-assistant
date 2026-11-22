@@ -112,6 +112,8 @@ internal const val ROUTE_USER_PROFILE = "settings/user_profile"
 internal const val ROUTE_MEMORY = "settings/memory"
 internal const val ROUTE_IMPORTANT_DATES = "settings/important_dates"
 internal const val ROUTE_VOICE = "settings/voice"
+/** Settings › Voice scrolled to the speech model's Terms row. Reached from a voice refusal's action (#2049). */
+internal const val ROUTE_VOICE_TERMS = "settings/voice?scrollTo=true"
 private const val ROUTE_MODEL_SETTINGS = "settings/model_settings"
 private const val ROUTE_MODEL_MANAGEMENT = "settings/model_management?scrollTo={scrollTo}"
 private const val ARG_SCROLL_TO = "scrollTo"
@@ -205,7 +207,8 @@ internal val ROUTE_CLOCK_STOPWATCH: String = buildSidePanelTabRoute("stopwatch")
  * shortcut/widget deep links and the stopwatch notification. Anything else is ignored.
  */
 internal fun isAllowedExternalNavigationRoute(route: String): Boolean =
-    route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK) || route == ROUTE_CLOCK_STOPWATCH
+    route == ROUTE_LISTS || route.matches(LISTS_WIDGET_DEEP_LINK) || route == ROUTE_CLOCK_STOPWATCH ||
+        route == ROUTE_VOICE_TERMS
 
 /**
  * #1952: widget/ADB voice handoff from a chat back stack into Actions. The default crossfade let the
@@ -654,6 +657,7 @@ fun KernelNavHost(
                     val draftFromExternalApp = backStackEntry.arguments?.getBoolean(ARG_DRAFT_EXTERNAL) ?: false
                     Box(modifier = Modifier.padding(innerPadding)) {
                         ActionsScreen(
+                            onOpenVoiceSettings = { navController.navigate(ROUTE_VOICE_TERMS) },
                             autoOpenSheet = openSheet,
                             autoStartVoiceCommand = startVoice,
                             initialQuery = widgetQuery,
@@ -742,6 +746,7 @@ fun KernelNavHost(
                     ChatHandoffCover(quickActionHandoffPending) {
                         ChatScreen(
                             conversationId = null,
+                            onOpenVoiceSettings = { navController.navigate(ROUTE_VOICE_TERMS) },
                             initialQuery = initialQuery,
                             speakInitialResponse = speakResponse,
                             externalDraft = externalDraft,
@@ -782,6 +787,7 @@ fun KernelNavHost(
                     ChatHandoffCover(quickActionHandoffPending) {
                         ChatScreen(
                             conversationId = conversationId,
+                            onOpenVoiceSettings = { navController.navigate(ROUTE_VOICE_TERMS) },
                             onBack = { navController.popBackOrNavigateHome() },
                             onNewConversation = {
                                 navController.navigate(ROUTE_CHAT)
@@ -964,9 +970,16 @@ fun KernelNavHost(
                     )
                 }
 
-                composable(ROUTE_VOICE) {
+                composable(
+                    "$ROUTE_VOICE?scrollTo={$ARG_SCROLL_TO}",
+                    arguments = listOf(navArgument(ARG_SCROLL_TO) {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }),
+                ) { backStackEntry ->
                     VoiceScreen(
                         onBack = { navController.popBackOrNavigateHome() },
+                        scrollToTerms = backStackEntry.arguments?.getBoolean(ARG_SCROLL_TO) ?: false,
                     )
                 }
 
