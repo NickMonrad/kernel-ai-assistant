@@ -228,11 +228,10 @@ internal fun shouldRefreshAlertRecognizerOnNoSpeech(
         !sawPartialTranscript
 
 /**
- * Stable error category emitted when an alert session's no-speech window is fully
- * exhausted (in-place refreshes spent and the platform still heard nothing).  The
- * wake-command handoff uses this to skip the session-level retry: the command
- * window has already closed, so a second attempt would only re-wait.  The journal's
- * STT_ERROR category remains the standard "stt_recognition_failed".
+ * Stable error category for a capture whose no-speech window is fully exhausted: the native alert session
+ * after its in-place refreshes, and the asr4all capture after its silence timeout with no decoded text (#2051).
+ * Consumers skip the session-level retry: the window has already closed, so a second attempt would only
+ * re-wait. The journal's STT_ERROR category remains the standard "stt_recognition_failed" (native) or "no_speech".
  */
 const val NO_SPEECH_WINDOW_EXHAUSTED = "no_speech_window_exhausted"
 

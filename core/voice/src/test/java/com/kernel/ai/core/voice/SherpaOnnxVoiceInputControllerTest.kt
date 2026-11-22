@@ -122,7 +122,7 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     @Test
-    fun `wake verification returns null when Whisper is absent without another verifier`() = runTest {
+    fun `wake verification returns null when Whisper is absent even with other Sherpa models on disk`() = runTest {
         // Paraformer and SenseVoice are on disk, so a fallback verifier exists; only Whisper is missing.
         (SherpaSttModelSpec.PARAFORMER.requiredFileNames + SherpaSttModelSpec.SENSE_VOICE.requiredFileNames)
             .forEach { File(tempModelsDir, it).writeText("stub") }
@@ -137,7 +137,6 @@ class SherpaOnnxVoiceInputControllerTest {
     }
 
     // ── #1440: wake-verifier cache mutual exclusion and lifecycle ──────────────
-
 
     @Test
     fun `consecutive wake verifications reuse the Whisper recognizer`() = runTest {
@@ -154,7 +153,6 @@ class SherpaOnnxVoiceInputControllerTest {
         assertEquals(2, firstWhisper.streams.size)
         assertTrue(controller.wakeWhisperVerifierCached)
     }
-
 
     @Test
     fun `wake-verifier lifecycle leaves the interactive recognizer and engine selection untouched`() = runTest {
@@ -509,7 +507,6 @@ class SherpaOnnxVoiceInputControllerTest {
         controller.stopListeningForSession(secondResult.captureSessionId)
     }
 
-
     private fun micRecorder(): AudioRecord = mockk(relaxed = true) {
         every { read(any<ShortArray>(), any(), any()) } answers { Thread.sleep(1); 0 }
     }
@@ -559,7 +556,6 @@ class SherpaOnnxVoiceInputControllerTest {
         ).forEach { name -> File(tempModelsDir, name).writeText("stub") }
     }
 
-
     /**
      * Installs the #1440 wake-verifier construction test double: fake recognizers
      * drive the real cache-ownership lifecycle in [transcribeBlocking] without the
@@ -578,7 +574,6 @@ class SherpaOnnxVoiceInputControllerTest {
                 return rec to whisperMethodsFor(rec)
             }
         }
-
 
     private fun whisperMethodsFor(rec: FakeWhisperRecognizer): SherpaOnnxVoiceInputController.WakeWhisperMethods {
         val streamCls = FakeWhisperStream::class.java
@@ -625,7 +620,6 @@ class SherpaOnnxVoiceInputControllerTest {
             stream.decoded = true
             events.add("online_decode")
         }
-
 
         fun getResult(stream: FakeOnlineStream): FakeResult = FakeResult("hy general")
         fun isEndpoint(stream: FakeOnlineStream): Boolean = false

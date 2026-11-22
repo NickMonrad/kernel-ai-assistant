@@ -4,8 +4,9 @@ import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.download.DownloadConsent
+import com.kernel.ai.core.inference.download.DownloadNetworkChoice
+import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
@@ -13,8 +14,9 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
-import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -23,10 +25,8 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoicePackDownloadState
-import com.kernel.ai.core.inference.download.DownloadSource
-import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.WakeWordPreferences
-import com.kernel.ai.core.voice.InflectMicroSetup
+import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
