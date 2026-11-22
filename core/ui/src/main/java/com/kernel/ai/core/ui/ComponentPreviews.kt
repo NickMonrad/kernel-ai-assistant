@@ -36,7 +36,7 @@ private fun ChoiceCardPreview() = PreviewSurface {
     ChoiceGroup(count = 3) {
         ChoiceCard(
             title = "Automatic",
-            description = "Works offline on this phone.",
+            description = "Uses the offline speech model once it has downloaded, and your phone's own speech recognition until then.",
             selected = true,
             onSelect = {},
             index = 0,

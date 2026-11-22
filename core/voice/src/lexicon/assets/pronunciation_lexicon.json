@@ -101,6 +101,12 @@
       "say": "Kee-ora",
       "verify": false,
       "source": "#1936: one-word spelling of Kia ora, same owner pick"
+    },
+    {
+      "word": "mahi",
+      "say": "ma-hee",
+      "verify": false,
+      "source": "owner, by ear, 2026-11-22 (#1993)"
     }
   ]
 }

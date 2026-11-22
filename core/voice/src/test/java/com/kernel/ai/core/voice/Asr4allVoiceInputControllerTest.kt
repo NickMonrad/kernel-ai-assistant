@@ -100,7 +100,10 @@ class Asr4allVoiceInputControllerTest {
         return 1
     }
 
-    private fun controller(captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs): Asr4allVoiceInputController {
+    private fun controller(
+        captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs,
+        termsAccepted: Boolean = true,
+    ): Asr4allVoiceInputController {
         var opened = 0
         val context = mockk<Context>(relaxed = true)
         every { context.getSystemService(AudioManager::class.java) } returns mockk<AudioManager>(relaxed = true) {
@@ -116,7 +119,7 @@ class Asr4allVoiceInputControllerTest {
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {
             every { profile.tier } answers { tier }
         }
-        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs).apply {
+        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, { termsAccepted }).apply {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
@@ -212,6 +215,15 @@ class Asr4allVoiceInputControllerTest {
             collected.job.cancel()
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `without accepted terms the downloaded weights read as missing and nothing opens`() = runBlocking(Dispatchers.IO) {
+        val c = controller(termsAccepted = false)
+        assertFalse(c.isAvailable())
+        assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Unavailable)
+        assertTrue(openLog.isEmpty())
+        assertEquals(0, micOpens.get())
     }
 
     @Test

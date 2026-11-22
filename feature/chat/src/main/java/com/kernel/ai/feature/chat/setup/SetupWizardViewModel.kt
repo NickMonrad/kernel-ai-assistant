@@ -14,6 +14,7 @@ import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -87,6 +88,8 @@ data class SetupWizardUiState(
     val welcomeTotalBytes: Long = 0L,
     /** True when the wizard was opened from Settings after a finished first run. */
     val isRerun: Boolean = false,
+    /** True once the Terms of Use are accepted for the current version. Every step after Welcome needs it (#1998). */
+    val termsAccepted: Boolean = false,
 )
 
 /**
@@ -107,6 +110,7 @@ class SetupWizardViewModel @Inject constructor(
     private val downloadManager: ModelDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
     private val setupWizardPreferences: SetupWizardPreferences,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val voiceInputPreferences: VoiceInputPreferences,
@@ -136,9 +140,16 @@ class SetupWizardViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            termsAcceptancePreferences.record.collect { record ->
+                _uiState.value = _uiState.value.copy(termsAccepted = record.isAccepted())
+            }
+        }
+        viewModelScope.launch {
             val progress = setupWizardPreferences.progress.first()
             // A completed wizard (re-run from Settings) always starts from the first step.
-            val start = if (progress.completed) SetupStep.HOW_IT_WORKS else progress.step
+            val accepted = termsAcceptancePreferences.record.first().isAccepted()
+            // The wizard resumes after Welcome only once the Terms of Use are accepted (#1998).
+            val start = if (!accepted || progress.completed) SetupStep.HOW_IT_WORKS else progress.step
             val stored = downloadNetworkPreferences.choice.first()
             storedChoice = stored
             val selected = savedStateHandle.get<String>(KEY_SELECTED_CHOICE)
@@ -146,7 +157,7 @@ class SetupWizardViewModel @Inject constructor(
 
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
             val isRelease = setupVoiceDevice.isReleaseBuild()
-            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady, isRelease)
+            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
                 hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
@@ -175,7 +186,7 @@ class SetupWizardViewModel @Inject constructor(
             // choice that is not offered shows nothing selected, and is never overwritten (see inputToSave).
             val inputEngine = when {
                 savedInput != null -> SetupSpeechOptions.offered(savedInput, inputOptions)
-                    ?: if (isRelease) VoiceInputEngine.AndroidNative else null
+                    ?: if (isRelease) VoiceInputEngine.Auto else null
                 currentInput == null -> inputOptions.first()
                 else -> SetupSpeechOptions.offered(currentInput, inputOptions)
             }
@@ -344,12 +355,20 @@ class SetupWizardViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(notificationsAsked = true)
     }
 
+    /** Ticks or unticks "I agree to the Terms of Use" on Welcome. Stored at once so process death keeps it (#1998). */
+    fun onTermsAcceptedChanged(accepted: Boolean) {
+        _uiState.value = _uiState.value.copy(termsAccepted = accepted)
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+    }
+
     /**
      * Advances one step. Nothing is saved here: choices are stored only by [onFinish] or [onSkip].
      * On the last step, finishes the wizard, then [onDone].
      */
     fun onContinue(onDone: () -> Unit) {
         val state = _uiState.value
+        // Every step needs the Terms of Use accepted first; the UI disables Continue too (#1998).
+        if (!state.termsAccepted) return
         // Saved on every Continue so the choice shown on the download step survives process death.
         savedStateHandle[KEY_SELECTED_CHOICE] = state.choice.name
         val next = SetupWizardFlow.next(state.step)
@@ -393,6 +412,7 @@ class SetupWizardViewModel @Inject constructor(
      */
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
         val state = _uiState.value
+        if (!state.termsAccepted) return
         viewModelScope.launch {
             val effective = storedChoice ?: DownloadNetworkChoice.WIFI_ONLY
             val output = saveSpeechChoices(state)

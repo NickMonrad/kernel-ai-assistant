@@ -98,9 +98,14 @@ import com.kernel.ai.core.ui.SwitchSubSetting
 import com.kernel.ai.core.ui.findActivity
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
 import com.kernel.ai.core.ui.theme.JandalTheme
+import com.kernel.ai.core.ui.terms.TermsAcceptRow
+import com.kernel.ai.core.ui.terms.TermsOfUseLink
+import com.kernel.ai.core.ui.terms.TermsSheet
+import com.kernel.ai.core.ui.terms.rememberBundledTerms
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 import com.kernel.ai.feature.chat.R
@@ -227,6 +232,7 @@ fun SetupWizardScreen(
     BackHandler(enabled = state.loaded && state.step != SetupStep.HOW_IT_WORKS) {
         viewModel.onBack(onExit)
     }
+    val termsText = rememberBundledTerms()
     if (!state.loaded) return
     SetupWizardContent(
         state = state,
@@ -234,6 +240,8 @@ fun SetupWizardScreen(
         onOutputSelected = viewModel::onOutputSelected,
         onChoiceSelected = viewModel::onChoiceSelected,
         onOnlineSpeechChanged = viewModel::onOnlineSpeechChanged,
+        termsText = termsText,
+        onTermsAcceptedChanged = viewModel::onTermsAcceptedChanged,
         makeYours = makeYours,
         onPrimary = {
             if (state.step == SetupStep.entries.last()) {
@@ -298,10 +306,14 @@ internal fun SetupWizardContent(
     onBack: () -> Unit,
     onSkip: () -> Unit,
     onOnlineSpeechChanged: (Boolean) -> Unit = {},
+    termsText: String? = null,
+    onTermsAcceptedChanged: (Boolean) -> Unit = {},
 ) {
     val stepNumber = state.step.ordinal + 1
     val primaryLabel = if (state.step == SetupStep.entries.last()) "Finish" else "Continue"
     val skipLabel = if (state.step == SetupStep.MAKE_JANDAL_YOURS) "Skip these" else "Skip setup"
+    var termsOpen by rememberSaveable { mutableStateOf(false) }
+    val openTerms: () -> Unit = { termsOpen = true }
     val scrollState = rememberSaveable(state.step, saver = ScrollState.Saver) { ScrollState(0) }
     BoxWithConstraints(
         modifier = Modifier
@@ -319,8 +331,11 @@ internal fun SetupWizardContent(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 SetupStepHeader(step = stepNumber)
-                StepContent(state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours)
-                SetupFooterButtons(primaryLabel, skipLabel, onPrimary, onBack, onSkip)
+                StepContent(
+                    state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours,
+                    onOpenTerms = openTerms, onTermsAcceptedChanged = onTermsAcceptedChanged,
+                )
+                SetupFooterButtons(primaryLabel, skipLabel, onPrimary, onBack, onSkip, actionsEnabled = state.termsAccepted)
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -338,7 +353,10 @@ internal fun SetupWizardContent(
                     },
                 )
                 FadingScrollArea(scrollState = scrollState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    StepContent(state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours)
+                    StepContent(
+                        state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours,
+                        onOpenTerms = openTerms, onTermsAcceptedChanged = onTermsAcceptedChanged,
+                    )
                 }
                 SetupFooter(
                     primaryLabel = primaryLabel,
@@ -346,9 +364,13 @@ internal fun SetupWizardContent(
                     onPrimary = onPrimary,
                     onBack = onBack,
                     onSkip = onSkip,
+                    actionsEnabled = state.termsAccepted,
                 )
             }
         }
+    }
+    if (termsOpen) {
+        TermsSheet(termsText = termsText, onDismiss = { termsOpen = false })
     }
 }
 
@@ -360,16 +382,23 @@ private fun StepContent(
     onChoiceSelected: (DownloadNetworkChoice) -> Unit,
     onOnlineSpeechChanged: (Boolean) -> Unit,
     makeYours: MakeYoursActions,
+    onOpenTerms: () -> Unit,
+    onTermsAcceptedChanged: (Boolean) -> Unit,
 ) {
     when (state.step) {
-        SetupStep.HOW_IT_WORKS -> WelcomeStep(totalBytes = state.welcomeTotalBytes)
+        SetupStep.HOW_IT_WORKS -> WelcomeStep(
+            totalBytes = state.welcomeTotalBytes,
+            termsAccepted = state.termsAccepted,
+            onTermsAcceptedChanged = onTermsAcceptedChanged,
+            onOpenTerms = onOpenTerms,
+        )
         SetupStep.VOICE -> VoiceStep(
             state = state,
             onInputSelected = onInputSelected,
             onOutputSelected = onOutputSelected,
             onOnlineSpeechChanged = onOnlineSpeechChanged,
         )
-        SetupStep.DOWNLOAD -> DownloadStep(state = state, onChoiceSelected = onChoiceSelected)
+        SetupStep.DOWNLOAD -> DownloadStep(state = state, onChoiceSelected = onChoiceSelected, onOpenTerms = onOpenTerms)
         SetupStep.MAKE_JANDAL_YOURS -> MakeYoursStep(state, makeYours)
     }
 }
@@ -459,7 +488,12 @@ internal fun welcomeDownloadCopy(totalBytes: Long): WelcomeDownloadCopy =
  * left on a re-run from Settings. Nothing left shows "Chat is ready" ([welcomeDownloadCopy]).
  */
 @Composable
-private fun WelcomeStep(totalBytes: Long) {
+private fun WelcomeStep(
+    totalBytes: Long,
+    termsAccepted: Boolean,
+    onTermsAcceptedChanged: (Boolean) -> Unit,
+    onOpenTerms: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .size(72.dp)
@@ -496,6 +530,12 @@ private fun WelcomeStep(totalBytes: Long) {
         },
         title = download.title,
         body = download.body,
+    )
+    TermsAcceptRow(
+        accepted = termsAccepted,
+        onAcceptedChange = onTermsAcceptedChanged,
+        onOpenTerms = onOpenTerms,
+        modifier = Modifier.padding(top = 8.dp),
     )
 }
 
@@ -559,8 +599,8 @@ private fun VoiceStep(
         state.outputOptions.forEachIndexed { index, engine ->
             val clip = sampleClipFor(engine)
             ChoiceCard(
-                title = outputTitle(engine),
-                description = outputBody(engine),
+                title = VoiceOutputCopy.title(engine),
+                description = VoiceOutputCopy.body(engine),
                 selected = outputEngine == engine,
                 onSelect = { onOutputSelected(engine) },
                 index = index,
@@ -646,23 +686,15 @@ private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
 
 private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
-    else -> "Works offline on this phone."
-}
-
-private fun outputTitle(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "Phone's built-in voice"
-    VoiceOutputEngine.InflectMicroExperimental -> "Inflect Micro"
-    else -> "Cori, natural voice"
-}
-
-private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.AndroidTts -> "No download. Sounds more robotic."
-    VoiceOutputEngine.InflectMicroExperimental -> "Higher-quality voice. Works offline."
-    else -> "Sounds natural and works offline. Can be slower on older phones."
+    else -> VoiceInputEngine.AUTOMATIC_SUMMARY
 }
 
 @Composable
-private fun DownloadStep(state: SetupWizardUiState, onChoiceSelected: (DownloadNetworkChoice) -> Unit) {
+private fun DownloadStep(
+    state: SetupWizardUiState,
+    onChoiceSelected: (DownloadNetworkChoice) -> Unit,
+    onOpenTerms: () -> Unit,
+) {
     val rows = downloadRows(state.plannedModels, state.plannedVoices)
     val totalBytes = rows.sumOf { it.bytes }
     StepHeading(
@@ -689,7 +721,7 @@ private fun DownloadStep(state: SetupWizardUiState, onChoiceSelected: (DownloadN
             }
             rows.forEach { row ->
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                DownloadRow(row)
+                DownloadRow(row, onOpenTerms)
             }
             if (state.isRerun) {
                 Text(
@@ -726,11 +758,11 @@ private fun DownloadStep(state: SetupWizardUiState, onChoiceSelected: (DownloadN
     }
 }
 
-/** One planned item: icon tile, plain name over the technical name, and its size. Read as one node. */
+/** One planned item: icon tile, plain name over the technical name, and its size. The Terms link is its own control. */
 @Composable
-private fun DownloadRow(row: DownloadRowItem) {
+private fun DownloadRow(row: DownloadRowItem, onOpenTerms: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -741,14 +773,23 @@ private fun DownloadRow(row: DownloadRowItem) {
             content = MaterialTheme.colorScheme.onPrimaryContainer,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.plainName, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                text = row.technicalName,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = row.plainName, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        text = row.technicalName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(text = formatBytesShort(row.bytes), style = MaterialTheme.typography.bodyMedium)
+            }
+            TermsOfUseLink(onClick = onOpenTerms)
         }
-        Text(text = formatBytesShort(row.bytes), style = MaterialTheme.typography.bodyMedium)
     }
 }
 

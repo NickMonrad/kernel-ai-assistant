@@ -14,10 +14,8 @@ internal object SetupSpeechOptions {
      * Automatic always works. Android native is offered only when Android's own recognizer is ready:
      * the availability check covers the service, the on-device recognizer, and the language pack.
      */
-    fun inputOptions(androidNativeReady: Boolean, isRelease: Boolean = false): List<VoiceInputEngine> =
-        if (isRelease) {
-            listOf(VoiceInputEngine.AndroidNative)
-        } else if (androidNativeReady) {
+    fun inputOptions(androidNativeReady: Boolean): List<VoiceInputEngine> =
+        if (androidNativeReady) {
             listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative)
         } else {
             listOf(VoiceInputEngine.Auto)
@@ -28,7 +26,7 @@ internal object SetupSpeechOptions {
         if (androidNativeReady) {
             null
         } else if (isRelease) {
-            "Android speech recognition isn't ready on this phone. Voice input will be unavailable until Android speech recognition is available."
+            "Android speech recognition isn't ready on this phone, so Automatic will use the offline asr4all model."
         } else {
             "Android's own listener can't be used on this phone, so Automatic is the one that works here."
         }

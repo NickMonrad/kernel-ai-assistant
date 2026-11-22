@@ -1,0 +1,6 @@
+# S21 R5CR605B71K, Sherpa, debug harness, build 0f746dbf9c + local test-only merge 92afb159 (origin/fix/1961-e2b-tool-prompt-length, never pushed). Trimmed from logcat -v epoch.
+# run1, prompt: Look up kiwi bird on Wikipedia.
+1795299741.037 31474 31474 D KernelAI: Read more: https://en.wikipedia.org/wiki/Kiwi_(bird)
+1795299750.363 31474 31611 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=89 part=1/1 text=Kiwi, bird. Kiwi are flightless birds endemic to New Zealand of the order Apterygiformes.
+1795299756.685 31474 31611 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=75 part=1/1 text=The five extant species fall into the family Apterygidae and genus Apteryx.
+1795299762.522 31474 31611 D KernelAI_TTS: speaking_started engine=sherpa_stream chars=76 part=1/1 text=Approximately the size of a domestic chicken, kiwi are the smallest ratites.

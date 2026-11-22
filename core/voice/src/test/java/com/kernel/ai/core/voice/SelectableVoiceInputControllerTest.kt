@@ -170,7 +170,19 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
-    fun `auto reports unavailable when neither recognizer is ready`() {
+    fun `auto uses asr4all when native is unavailable even with online fallback allowed`() {
+        assertEquals(
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = true,
+                allowOnlineFallback = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto reports unavailable when no recognizer is ready`() {
         assertEquals(
             AutoSttRoute.Unavailable,
             resolveAutoSttRoute(
@@ -181,6 +193,23 @@ class SelectableVoiceInputControllerTest {
         )
     }
 
+    @Test
+    fun `release auto route follows online native, asr4all, on-device native, then unavailable`() {
+        fun route(native: Boolean, asr4all: Boolean, online: Boolean) = resolveAutoSttRoute(
+            nativeOnDeviceReady = native,
+            asr4allReady = asr4all,
+            allowOnlineFallback = online,
+        )
+
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = true, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = false))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = false))
+    }
 
     // ── Controller wiring ───────────────────────────────────────────────────
 

@@ -1,0 +1,33 @@
+# S21 (SM-G991B, R5CR605B71K), release APK ai.jandal.assistant, signed with ~/.android/debug.keystore only
+# Code under test: commit 6843c86d (Terms gate). Evidence commit 4e4f3de5 is docs-only.
+# APK: /tmp/jandal-release-debugkey.apk  sha256=b4236bc5513b9cf560abd12ac411a399eac06f289e4c2e0f9847bb73f812e1fe (not committed)
+#
+# Order of events, from the logcat buffer cleared at 10:42 (pm clear before install).
+# The Terms checkbox was ticked on wizard step 1 before Continue (screen observed in the earlier run; the
+# acceptance write is not logged, and release DataStore is not readable via run-as).
+# Finish on the wizard step 4 comes after the tick:
+11-22 10:46:14.602 I VoiceDefaults: Queuing Piper voice CoriHigh
+11-22 10:46:14.619 I VoiceDefaults: Queuing asr4all M model for engine=Auto: [ASR4ALL_M_CONFIG, ASR4ALL_M_RELEASE_GEOM, ASR4ALL_M_PREPROCESSOR, ASR4ALL_M_METADATA, ASR4ALL_M_ENCODER]
+11-22 10:46:14.627 I VoiceDefaults: Queuing asr4all M model for engine=Auto: [ASR4ALL_M_CONFIG, ASR4ALL_M_RELEASE_GEOM, ASR4ALL_M_PREPROCESSOR, ASR4ALL_M_METADATA, ASR4ALL_M_ENCODER]
+11-22 10:46:14.662 I ModelDownloadManager: Auto-queuing Gemma 4 E-2B
+11-22 10:46:14.663 I ModelDownloadManager: Enqueuing download for Gemma 4 E-2B
+11-22 10:46:14.816 I ModelDownloadManager: Enqueuing Gemma 4 E-2B with policy=REPLACE (existingStates=[])
+11-22 10:46:15.497 I ModelDownloadManager: Download succeeded: .../models/asr4all/m/release_geom.json
+11-22 10:46:15.499 I ModelDownloadManager: Download succeeded: .../models/asr4all/m/preprocessor_config.json
+11-22 10:46:15.505 I ModelDownloadManager: Download succeeded: .../models/asr4all/m/executorch/xnnpack_int8/metadata.json
+11-22 10:46:15.510 I ModelDownloadManager: Download succeeded: .../models/asr4all/m/config.json
+11-22 10:46:28.271 I ModelDownloadManager: Download succeeded: .../models/asr4all/m/executorch/xnnpack_int8/asr_encoder.pte
+11-22 10:48:22.769 I Asr4allSTT: asr4all engine loaded size=M threads=4
+11-22 10:51:58.346 I ModelDownloadWorker: Download complete: .../models/gemma-4-E2B-it.litertlm
+11-22 10:51:58.401 I ModelDownloadManager: Download succeeded: .../models/gemma-4-E2B-it.litertlm
+#
+# Push-to-talk on Actions, run after Gemma finished (logcat cleared at 11:19:00 before this run)
+11-22 11:19:10.523 D KernelAI: ActionsViewModel: startVoiceCapture mode=Command userInitiated=true interruptPlayback=true pendingSlot=false
+11-22 11:19:10.537 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command nativeOnDeviceReady=false asr4allReady=true zipformerReady=false allowOnlineFallback=false
+11-22 11:19:10.759 D KernelAI: ActionsViewModel: voiceInputController.startListening started mode=Command
+11-22 11:19:20.920 D KernelAI: ActionsViewModel: command voice error — retry 1/1
+11-22 11:19:26.060 D KernelAI: ActionsViewModel: startVoiceCapture mode=Command userInitiated=false interruptPlayback=true pendingSlot=false
+11-22 11:19:26.110 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command nativeOnDeviceReady=false asr4allReady=true zipformerReady=false allowOnlineFallback=false
+11-22 11:19:26.179 D KernelAI: ActionsViewModel: voiceInputController.startListening started mode=Command
+#
+# Not verified: transcription (no speech spoken). UI shows "No speech heard. Try again."

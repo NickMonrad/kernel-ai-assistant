@@ -112,6 +112,7 @@ fun ConversationListScreen(
     val downloadStates by viewModel.downloadStates.collectAsStateWithLifecycle()
     val waitingForWifi by viewModel.waitingForWifi.collectAsStateWithLifecycle()
     val setupWizardPending by viewModel.setupWizardPending.collectAsStateWithLifecycle()
+    val termsPromptPending by viewModel.termsPromptPending.collectAsStateWithLifecycle()
     // Set once the wizard has been opened this session (#1855). Pending while it is set means it was left unfinished.
     var setupWizardOpened by rememberSaveable { mutableStateOf(false) }
     val welcomeState = chatsEmptyState(
@@ -343,6 +344,13 @@ fun ConversationListScreen(
                 ChatsDownloadBanner(
                     banner = banner,
                     onClick = onNavigateToGettingStarted,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (termsPromptPending == true) {
+                TermsPromptBanner(
+                    onAccept = viewModel::onTermsPromptAccepted,
+                    onDismiss = viewModel::onTermsPromptDismissed,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 )
             }

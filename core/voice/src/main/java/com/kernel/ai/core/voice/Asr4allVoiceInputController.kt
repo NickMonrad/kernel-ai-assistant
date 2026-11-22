@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.SttFailure
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -119,6 +120,8 @@ class Asr4allVoiceInputController internal constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
     private val captureJoinTimeoutMs: Long,
+    /** Whether the Terms of Use are accepted for the shipped version (#1998). Without it the weights are not used. */
+    private val termsAccepted: suspend () -> Boolean,
 ) : VoiceInputController {
 
     @Inject
@@ -126,7 +129,14 @@ class Asr4allVoiceInputController internal constructor(
         @ApplicationContext context: Context,
         voiceInputPreferences: VoiceInputPreferences,
         hardwareProfileDetector: HardwareProfileDetector,
-    ) : this(context, voiceInputPreferences, hardwareProfileDetector, CAPTURE_JOIN_TIMEOUT_MS)
+        termsAcceptance: TermsAcceptancePreferences,
+    ) : this(
+        context,
+        voiceInputPreferences,
+        hardwareProfileDetector,
+        CAPTURE_JOIN_TIMEOUT_MS,
+        { termsAcceptance.record.first().isAccepted() },
+    )
 
     private val _events = voiceEventFlow()
     override val events: Flow<VoiceInputEvent> = _events.asSharedFlow()
@@ -162,8 +172,9 @@ class Asr4allVoiceInputController internal constructor(
     /** Runs on the caller just before a cancelled stop joins its reader; lets a test observe the reader still parked. */
     internal var beforeCancelledStopJoinForTest: (() -> Unit)? = null
 
-    suspend fun isAvailable(): Boolean = availableForTest?.invoke()
-        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) }
+    /** Missing weights and a refused Terms acceptance both read as unavailable, so callers fall back the same way. */
+    suspend fun isAvailable(): Boolean = termsAccepted() && (availableForTest?.invoke()
+        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) })
 
     /** The size to load now: the user's choice, subject to the tier policy. */
     private suspend fun selectedSize(): Asr4AllSize = Asr4AllInstall.effectiveSize(
@@ -434,6 +445,12 @@ class Asr4allVoiceInputController internal constructor(
      * and withEngineReleased ends it before closing. Callers hold [startLock].
      */
     private suspend fun ensureEngine(): Asr4AllEngine? {
+        // No weights are loaded without the Terms acceptance (#1998). An open engine is closed the same way.
+        if (!termsAccepted()) {
+            engine?.close()
+            engine = null
+            return null
+        }
         val tier = hardwareProfileDetector.profile.tier
         val size = Asr4AllInstall.effectiveSize(voiceInputPreferences.asr4allSize.first(), tier)
         val key = EngineKey(size, Asr4AllInstall.threadsFor(tier))
@@ -443,6 +460,7 @@ class Asr4allVoiceInputController internal constructor(
         return openOrNull(key)?.also {
             engine = it
             engineKey = key
+            Log.i(TAG, "asr4all engine loaded size=${key.size} threads=${key.threads}")
         }
     }
 
@@ -616,6 +634,7 @@ class Asr4allVoiceInputController internal constructor(
             supersedeCapture()
             if (!awaitCaptureEnded()) return@withLock null
             withContext(Dispatchers.IO) {
+                if (engine != null) Log.i(TAG, "asr4all engine released")
                 engine?.close()
                 engine = null
             }

@@ -36,6 +36,7 @@ import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
 import com.kernel.ai.core.inference.download.localFile
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
  import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -112,6 +113,7 @@ class VoiceViewModelTest {
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
+    private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
     }
@@ -162,6 +164,7 @@ class VoiceViewModelTest {
         sherpaVoiceOutputController,
         piperVoiceSetup,
         asr4allSizeSwitcher,
+        termsAcceptancePreferences,
     )
 
     @BeforeEach
@@ -318,6 +321,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -351,6 +355,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -384,6 +389,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -494,6 +500,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -528,6 +535,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -554,6 +562,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -914,6 +923,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -964,6 +974,7 @@ class VoiceViewModelTest {
             sherpaVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
+            termsAcceptancePreferences,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

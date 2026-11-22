@@ -41,8 +41,12 @@ import com.kernel.ai.core.ui.InfoTagStyle
 import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.StatusChip
 import com.kernel.ai.core.ui.SwitchSubSetting
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.ui.theme.KernelAITheme
+import com.kernel.ai.core.ui.terms.TermsAcceptRow
+import com.kernel.ai.core.ui.terms.TermsSheet
+import com.kernel.ai.core.ui.terms.rememberBundledTerms
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.SherpaSttModelSpec
@@ -68,9 +72,11 @@ internal fun SpeechRecognitionSection(
     onCancel: (VoiceInputEngine) -> Unit,
     onDelete: (VoiceInputEngine) -> Unit,
     onAsr4allSize: (Asr4AllSize) -> Unit,
+    onTermsAcceptedChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
+    var termsSheetOpen by rememberSaveable { mutableStateOf(false) }
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
 
@@ -87,6 +93,7 @@ internal fun SpeechRecognitionSection(
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
                 val isReady = !engine.hasDownloadableModel || sttState?.isDownloaded == true
+                val termsGate = engine != VoiceInputEngine.Asr4all || uiState.termsAccepted
                 val nativeWarning = if (engine == VoiceInputEngine.AndroidNative && selected) {
                     androidNativeSettingsWarning(
                         blockingMessage = uiState.androidNativeAvailabilityMessage,
@@ -146,6 +153,14 @@ internal fun SpeechRecognitionSection(
                         }
                         if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
+                                TermsAcceptRow(
+                                    accepted = uiState.termsAccepted,
+                                    onAcceptedChange = onTermsAcceptedChanged,
+                                    onOpenTerms = { termsSheetOpen = true },
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                )
+                            }
+                            if (engine == VoiceInputEngine.Asr4all) {
                                 Asr4AllSizeRow(
                                     selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,
                                     sizes = uiState.asr4allSizes,
@@ -159,6 +174,9 @@ internal fun SpeechRecognitionSection(
                                 state = sttState.toModelAvailability(),
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
+                            if (engine != VoiceInputEngine.Asr4all) {
+                                TermsOfUseLinkWithSheet()
+                            }
                             if (engine == VoiceInputEngine.Asr4all) {
                                 uiState.asr4allSwitchFailure?.let { message ->
                                     Text(
@@ -192,6 +210,7 @@ internal fun SpeechRecognitionSection(
                                     OutlinedButton(
                                         modifier = Modifier.padding(vertical = 2.dp),
                                         colors = accentOutlinedColors,
+                                        enabled = termsGate,
                                         onClick = { onDownload(engine) },
                                     ) {
                                         Text("Retry")
@@ -201,6 +220,7 @@ internal fun SpeechRecognitionSection(
                                     OutlinedButton(
                                         modifier = Modifier.padding(vertical = 2.dp),
                                         colors = accentOutlinedColors,
+                                        enabled = termsGate,
                                         onClick = { onDownload(engine) },
                                     ) {
                                         Icon(imageVector = Icons.Outlined.Download, contentDescription = null)
@@ -231,6 +251,9 @@ internal fun SpeechRecognitionSection(
                     subContent = subContent,
                 )
             }
+        }
+        if (termsSheetOpen) {
+            TermsSheet(termsText = rememberBundledTerms(), onDismiss = { termsSheetOpen = false })
         }
     }
     if (onlineSheetOpen) {
@@ -264,7 +287,7 @@ private fun Asr4AllSizeRow(
 
 /** One-line card descriptions from the Voice settings mockup (05-settings-voice.html), keeping each meaning. */
 private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
-    VoiceInputEngine.Auto -> "Picks the best recognizer on this phone. Works offline."
+    VoiceInputEngine.Auto -> VoiceInputEngine.AUTOMATIC_SUMMARY
     VoiceInputEngine.AndroidNative -> "Your phone's own recognizer. Can suit some accents better."
     VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."
     VoiceInputEngine.SherpaWhisper -> "Offline, English only."

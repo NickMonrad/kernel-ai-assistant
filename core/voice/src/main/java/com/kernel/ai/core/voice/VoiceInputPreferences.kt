@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -23,11 +25,14 @@ private const val TAG = "VoiceInputPrefs"
 private val Context.voiceInputPrefsDataStore by preferencesDataStore(name = "voice_input_preferences")
 
 @Singleton
-class VoiceInputPreferences @Inject constructor(
-    @ApplicationContext private val context: Context,
+class VoiceInputPreferences internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    private val isReleaseBuild: Boolean,
 ) {
-    private val isReleaseBuild: Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
+    @Inject constructor(@ApplicationContext context: Context) : this(
+        context.voiceInputPrefsDataStore,
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0,
+    )
 
     /** v0.1 release excludes the custom Sherpa/Piper/eSpeak runtime; debug retains it. */
     internal fun allowsSherpaRuntime(): Boolean = !isReleaseBuild
@@ -39,8 +44,9 @@ class VoiceInputPreferences @Inject constructor(
         booleanPreferencesKey("allow_online_speech_fallback")
     private val asr4allSizeKey = stringPreferencesKey("asr4all_model_size")
     private val asr4allPendingSizeKey = stringPreferencesKey("asr4all_pending_model_size")
+    private val autoDefaultAppliedKey = booleanPreferencesKey("auto_default_applied_v1")
 
-    val selectedEngine: Flow<VoiceInputEngine> = context.voiceInputPrefsDataStore.data
+    val selectedEngine: Flow<VoiceInputEngine> = dataStore.data
         .catch { e ->
             if (e is IOException) {
                 Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
@@ -53,9 +59,9 @@ class VoiceInputPreferences @Inject constructor(
 
     /** True once an input engine has been stored, by the user or an earlier build (#1855 part 2). */
     suspend fun hasStoredEngine(): Boolean =
-        context.voiceInputPrefsDataStore.data.first()[selectedEngineKey] != null
+        dataStore.data.first()[selectedEngineKey] != null
 
-    val autoStartAlertVoiceCommandsEnabled: Flow<Boolean> = context.voiceInputPrefsDataStore.data
+    val autoStartAlertVoiceCommandsEnabled: Flow<Boolean> = dataStore.data
         .catch { e ->
             if (e is IOException) {
                 Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
@@ -70,7 +76,7 @@ class VoiceInputPreferences @Inject constructor(
      * Whether Android native recognition may fall back to the platform (Google) recognition
      * service, which can send audio off the device. Off by default so voice input stays local.
      */
-    val allowOnlineSpeechFallback: Flow<Boolean> = context.voiceInputPrefsDataStore.data
+    val allowOnlineSpeechFallback: Flow<Boolean> = dataStore.data
         .catch { e ->
             if (e is IOException) {
                 Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
@@ -82,13 +88,13 @@ class VoiceInputPreferences @Inject constructor(
         .map { prefs -> prefs[allowOnlineSpeechFallbackKey] ?: false }
 
     suspend fun setAllowOnlineSpeechFallback(allowed: Boolean) {
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[allowOnlineSpeechFallbackKey] = allowed
         }
     }
 
     /** The asr4all size the user chose; [Asr4AllInstall.effectiveSize] applies the tier policy. */
-    val asr4allSize: Flow<Asr4AllSize> = context.voiceInputPrefsDataStore.data
+    val asr4allSize: Flow<Asr4AllSize> = dataStore.data
         .catch { e ->
             if (e is IOException) {
                 Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
@@ -103,13 +109,13 @@ class VoiceInputPreferences @Inject constructor(
         }
 
     suspend fun setAsr4allSize(size: Asr4AllSize) {
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[asr4allSizeKey] = size.name
         }
     }
 
     /** A size whose download is pending a switch; null when none. Survives a process restart. */
-    val asr4allPendingSize: Flow<Asr4AllSize?> = context.voiceInputPrefsDataStore.data
+    val asr4allPendingSize: Flow<Asr4AllSize?> = dataStore.data
         .catch { e ->
             if (e is IOException) {
                 Log.e(TAG, "Failed reading voice input preferences; using defaults", e)
@@ -123,20 +129,38 @@ class VoiceInputPreferences @Inject constructor(
         }
 
     suspend fun setAsr4allPendingSize(size: Asr4AllSize?) {
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             if (size == null) prefs.remove(asr4allPendingSizeKey) else prefs[asr4allPendingSizeKey] = size.name
         }
     }
 
     suspend fun setSelectedEngine(engine: VoiceInputEngine) {
         val effective = VoiceInputEngine.resolveForBuild(engine.name, isReleaseBuild)
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[selectedEngineKey] = effective.name
+            // A saved choice sets the flag too, so the one-time Automatic move never overrides it (#1980).
+            prefs[autoDefaultAppliedKey] = true
+        }
+    }
+
+    /**
+     * One-time move to Automatic for release installs (#1980; owner decision, no real users). The first release
+     * launch replaces a stored engine, the old default Android native or asr4all, with [VoiceInputEngine.Auto].
+     * A choice saved afterwards, including one saved before this runs, sets the same flag, so it is kept.
+     * A missing value stays missing, so [hasStoredEngine] still reports false for the setup wizard.
+     * Debug builds never change the stored value.
+     */
+    suspend fun applyAutoDefaultOnce() {
+        if (!isReleaseBuild) return
+        dataStore.edit { prefs ->
+            if (prefs[autoDefaultAppliedKey] == true) return@edit
+            if (prefs[selectedEngineKey] != null) prefs[selectedEngineKey] = VoiceInputEngine.Auto.name
+            prefs[autoDefaultAppliedKey] = true
         }
     }
 
     suspend fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[autoStartAlertVoiceCommandsEnabledKey] = enabled
         }
     }
@@ -148,7 +172,7 @@ class VoiceInputPreferences @Inject constructor(
      */
     suspend fun recordMicUseStarted(): Int {
         var count = 0
-        context.voiceInputPrefsDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             val stored = prefs[micUseCountKey] ?: 0
             count = MicHintPolicy.nextUseCount(stored)
             if (count != stored) prefs[micUseCountKey] = count

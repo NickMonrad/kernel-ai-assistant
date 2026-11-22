@@ -58,6 +58,7 @@ import com.kernel.ai.core.model.availability.StatusSectionView
 import com.kernel.ai.core.model.availability.StillNeededCard
 import com.kernel.ai.core.model.availability.toAvailability
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
+import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import kotlinx.coroutines.launch
 
 /**
@@ -165,11 +166,14 @@ fun ModelManagementScreen(
 
             // ── Still needed ──────────────────────────────────────────────────
             item(key = "still_needed") {
-                StillNeededCard(
-                    items = uiState.stillNeeded,
-                    onDownload = { model -> startModelDownload(model.name) },
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    StillNeededCard(
+                        items = uiState.stillNeeded,
+                        onDownload = { model -> startModelDownload(model.name) },
+                    )
+                    // The speech model's download needs the Terms of Use accepted first (#1998); this opens them.
+                    TermsOfUseLinkWithSheet(modifier = Modifier.padding(top = 4.dp))
+                }
             }
 
             // ── Role sections ─────────────────────────────────────────────────
@@ -369,15 +373,6 @@ private fun StorageSummaryCard(
                 )
             }
         }
-    }
-}
-
-private fun formatBytes(bytes: Long): String {
-    return when {
-        bytes >= 1_000_000_000L -> "${"%.1f".format(bytes / 1_000_000_000.0)} GB"
-        bytes >= 1_000_000L -> "${"%.0f".format(bytes / 1_000_000.0)} MB"
-        bytes >= 1_000L -> "${"%.0f".format(bytes / 1_000.0)} KB"
-        else -> "$bytes B"
     }
 }
 
