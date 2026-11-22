@@ -389,6 +389,10 @@ class ChatViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
         advanceUntilIdle()
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
+        // A superseded session's final result cannot submit or change the replacement's state.
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stale", 1L))
+        advanceUntilIdle()
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
     }
 
     @Test
