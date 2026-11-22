@@ -223,7 +223,9 @@ class Asr4allVoiceInputControllerTest {
         val c = controller(termsAccepted = false)
         assertFalse(c.isAvailable())
         val refusal = c.startListening(VoiceCaptureMode.Command)
-        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, (refusal as VoiceInputStartResult.Unavailable).message)
+        val unavailable = refusal as VoiceInputStartResult.Unavailable
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, unavailable.message)
+        assertEquals(VoiceRecovery.ACCEPT_TERMS, unavailable.recovery)
         assertTrue(openLog.isEmpty())
         assertEquals(0, micOpens.get())
     }

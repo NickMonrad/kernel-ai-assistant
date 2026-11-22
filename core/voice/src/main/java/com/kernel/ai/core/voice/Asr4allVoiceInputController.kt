@@ -206,7 +206,7 @@ class Asr4allVoiceInputController internal constructor(
                 return@withLock VoiceInputStartResult.Unavailable("The previous microphone session is still closing. Try again.")
             }
             if (!termsAccepted()) {
-                return@withLock VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE)
+                return@withLock VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS)
             }
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(

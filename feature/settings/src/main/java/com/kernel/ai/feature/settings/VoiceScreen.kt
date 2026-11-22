@@ -14,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -104,6 +107,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 @Composable
 fun VoiceScreen(
     onBack: () -> Unit,
+    /** Scrolls to the speech model's section, where its Terms row is (#2049). */
+    scrollToTerms: Boolean = false,
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -285,6 +290,7 @@ fun VoiceScreen(
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
+        scrollToTerms = scrollToTerms,
         onRequestAssistantRole = {
             // Show default-assistant role setup prompt (separate from microphone permission).
             showDefaultAssistantPrompt = true
@@ -512,6 +518,7 @@ fun VoiceScreen(
 private fun VoiceScreenContent(
     uiState: VoiceUiState,
     onBack: () -> Unit,
+    scrollToTerms: Boolean = false,
     onRequestAssistantRole: () -> Unit,
     onHeyJandalEnabledChanged: (Boolean) -> Unit,
     onWakeWordThresholdChanged: (Float) -> Unit,
@@ -559,6 +566,10 @@ private fun VoiceScreenContent(
             )
         },
     ) { innerPadding ->
+        val speechSectionRequester = remember { BringIntoViewRequester() }
+        LaunchedEffect(scrollToTerms) {
+            if (scrollToTerms) speechSectionRequester.bringIntoView()
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -664,16 +675,18 @@ private fun VoiceScreenContent(
                 }
             }
             HorizontalDivider()
-            SpeechRecognitionSection(
-                uiState = uiState,
-                onSelect = onVoiceInputEngineSelected,
-                onAllowOnline = onAllowOnlineSpeechFallbackChanged,
-                onDownload = onDownloadSherpaStt,
-                onCancel = onCancelSherpaStt,
-                onDelete = onDeleteSherpaStt,
-                onAsr4allSize = onAsr4allSizeSelected,
-                onTermsAcceptedChanged = onTermsAcceptedChanged,
-            )
+            Box(modifier = Modifier.bringIntoViewRequester(speechSectionRequester)) {
+                SpeechRecognitionSection(
+                    uiState = uiState,
+                    onSelect = onVoiceInputEngineSelected,
+                    onAllowOnline = onAllowOnlineSpeechFallbackChanged,
+                    onDownload = onDownloadSherpaStt,
+                    onCancel = onCancelSherpaStt,
+                    onDelete = onDeleteSherpaStt,
+                    onAsr4allSize = onAsr4allSizeSelected,
+                    onTermsAcceptedChanged = onTermsAcceptedChanged,
+                )
+            }
 
 
             HorizontalDivider()

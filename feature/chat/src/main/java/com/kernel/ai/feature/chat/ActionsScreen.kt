@@ -107,6 +107,7 @@ import com.kernel.ai.core.permissions.VoicePermissionEntryPoint
 import com.kernel.ai.core.permissions.VoicePermissionPromptFactory
 import com.kernel.ai.core.permissions.VoicePermissionPromptState
 import com.kernel.ai.core.ui.permissions.VoicePermissionPrompt
+import com.kernel.ai.core.ui.voice.VoiceErrorAction
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
@@ -142,6 +143,8 @@ fun ActionsScreen(
     externalSlotReplyDraft: String? = null,
     externalSlotReplyDraftSerial: Int = 0,
     onDraftQueryConsumed: () -> Unit = {},
+    /** Opens Settings › Voice from a voice refusal's action (#2049). */
+    onOpenVoiceSettings: () -> Unit = {},
     onAutoOpenSheetConsumed: () -> Unit = {},
     onAutoStartVoiceConsumed: () -> Unit = {},
     onInitialQueryConsumed: () -> Unit = {},
@@ -157,6 +160,7 @@ fun ActionsScreen(
     val speakingActionId by viewModel.speakingActionId.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val errorRecovery by viewModel.errorRecovery.collectAsStateWithLifecycle()
     val pendingSlot by viewModel.pendingSlot.collectAsStateWithLifecycle()
     val voiceCaptureState by viewModel.voiceCaptureState.collectAsStateWithLifecycle()
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
@@ -656,6 +660,9 @@ fun ActionsScreen(
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.weight(1f),
                         )
+                        if (errorRecovery != null) {
+                            VoiceErrorAction(onClick = onOpenVoiceSettings)
+                        }
                         IconButton(onClick = { viewModel.clearError() }) {
                             Icon(
                                 Icons.Default.Clear,
