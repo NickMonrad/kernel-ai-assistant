@@ -74,7 +74,6 @@ class VoiceDefaultsProvisioner @Inject constructor(
         }
     }
 
-
     internal suspend fun queueSpeechInputModel() {
         val engine = voiceInputPreferences.selectedEngine.first()
         // asr4all waits for the Terms of Use (#1998): nothing is queued, and the marker stays unset, until they are accepted.

@@ -1,8 +1,11 @@
 package com.kernel.ai.feature.widget
 
+import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputEvent
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class VoiceCommandPhaseTest {
@@ -54,6 +57,23 @@ class VoiceCommandPhaseTest {
     fun `listening shows the label alone until the first partial`() {
         assertEquals("Listening…" to null, voiceOverlayLabels(VoiceCommandPhase.Listening, "", failed = false))
         assertEquals("hi" to "Listening…", voiceOverlayLabels(VoiceCommandPhase.Listening, "hi", failed = false))
+    }
+
+    @Test
+    fun `silent overlay capture is not restarted`() {
+        val silent = VoiceInputEvent.Error(
+            mode = VoiceCaptureMode.AlertCommand,
+            message = "No speech heard. Try again.",
+            category = NO_SPEECH_WINDOW_EXHAUSTED,
+        )
+        assertFalse(restartsAfterError(silent, mayRetry = true))
+    }
+
+    @Test
+    fun `recognizer failure restarts once and not after the retry is spent`() {
+        val failure = VoiceInputEvent.Error(VoiceCaptureMode.AlertCommand, "Microphone stopped. Try again.")
+        assertTrue(restartsAfterError(failure, mayRetry = true))
+        assertFalse(restartsAfterError(failure, mayRetry = false))
     }
 
     @Test

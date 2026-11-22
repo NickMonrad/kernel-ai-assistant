@@ -9,17 +9,22 @@ class AutomaticOfflineModelNoteTest {
     fun `automatic card points to the asr4all row once its model is deleted`() {
         assertEquals(
             "The offline speech model isn't downloaded yet. Download it in asr4all streaming below.",
-            automaticOfflineModelNote(asr4allDownloaded = false),
+            automaticOfflineModelNote(SherpaSttDownloadState(isDownloaded = false)),
         )
     }
 
     @Test
     fun `automatic card has no note while the offline model is downloaded`() {
-        assertNull(automaticOfflineModelNote(asr4allDownloaded = true))
+        assertNull(automaticOfflineModelNote(SherpaSttDownloadState(isDownloaded = true)))
+    }
+
+    @Test
+    fun `automatic card has no note while the offline model is downloading`() {
+        assertNull(automaticOfflineModelNote(SherpaSttDownloadState(isDownloading = true)))
     }
 
     @Test
     fun `automatic card has no note before the download state is known`() {
-        assertNull(automaticOfflineModelNote(asr4allDownloaded = null))
+        assertNull(automaticOfflineModelNote(null))
     }
 }

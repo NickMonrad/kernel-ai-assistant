@@ -143,6 +143,10 @@ private data class NativeTeardownSettle(
     val settleUntilElapsedMs: Long,
     val settled: CompletableDeferred<Unit>,
 )
+
+/** Native on-device check outcome for the Auto route record. Enum names pass the JandalEvents allowlist; free text does not. */
+private enum class NativeCheckState { READY, NOT_READY, SKIPPED }
+
 private data class PendingAsr4allStart(val generation: Long, val job: Job)
 
 /**
@@ -767,9 +771,14 @@ class SelectableVoiceInputController @Inject constructor(
                 "asr4allReady=$asr4allReady " +
                 "allowOnlineFallback=$allowOnlineFallback",
         )
+        val nativeState = when (nativeCheck) {
+            null -> NativeCheckState.SKIPPED
+            true -> NativeCheckState.READY
+            false -> NativeCheckState.NOT_READY
+        }
         JandalEvents.record(
             "voice", "stt_route", "route" to route,
-            "native_ready" to nativeLog, "asr4all_ready" to asr4allReady,
+            "native_ready" to nativeState, "asr4all_ready" to asr4allReady,
             "online_fallback" to allowOnlineFallback,
         )
         // Auto keeps a loaded asr4all engine for its next start. Every other route releases it first.

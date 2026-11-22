@@ -543,16 +543,30 @@ class Asr4allVoiceInputController internal constructor(
             JandalEvents.record("voice", "stt_result", "chars" to text.length)
             _events.tryEmit(VoiceInputEvent.Transcript(mode, text, sessionId))
         } else if (!stop.get()) {
-            JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
-            // Silence is not a recognizer failure: the category stops the Command/wake retry (#2051).
-            _events.tryEmit(
-                VoiceInputEvent.Error(
-                    mode = mode,
-                    message = "No speech heard. Try again.",
-                    captureSessionId = sessionId,
-                    category = NO_SPEECH_WINDOW_EXHAUSTED,
-                ),
-            )
+            // Only the window's own timer exhausts the no-speech window. An empty final with an
+            // early end means the mic reader stopped: that gets the normal single retry (#2051).
+            val timedOut = !textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS
+            if (timedOut) {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
+                // Silence is not a recognizer failure: the category stops the Command/wake retry (#2051).
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        message = "No speech heard. Try again.",
+                        captureSessionId = sessionId,
+                        category = NO_SPEECH_WINDOW_EXHAUSTED,
+                    ),
+                )
+            } else {
+                JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
+                _events.tryEmit(
+                    VoiceInputEvent.Error(
+                        mode = mode,
+                        message = "Microphone stopped. Try again.",
+                        captureSessionId = sessionId,
+                    ),
+                )
+            }
         }
     }
 

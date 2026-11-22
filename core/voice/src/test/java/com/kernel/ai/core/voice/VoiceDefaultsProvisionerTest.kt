@@ -122,6 +122,7 @@ class VoiceDefaultsProvisionerTest {
         val harness = ProvisionerHarness(MutableStateFlow(TermsAcceptanceRecord()))
         val queue = launch { harness.provisioner.queueSpeechInputModel() }
         yield()
+        assertTrue(queue.isActive)
         harness.engine.value = VoiceInputEngine.AndroidNative
         harness.terms.value = TermsAcceptanceRecord(acceptedVersion = TERMS_VERSION, acceptedAtMillis = 1L)
         queue.join()

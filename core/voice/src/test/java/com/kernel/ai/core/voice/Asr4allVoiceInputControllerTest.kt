@@ -32,6 +32,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -59,6 +60,8 @@ class Asr4allVoiceInputControllerTest {
     /** Amplitude by 1-based read count, for tests where the reader runs ahead of the engine. Overrides [amplitude]. */
     @Volatile private var amplitudeForRead: ((Int) -> Int)? = null
     private val readCount = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Test-only: reads after this count return -1, as AudioRecord does when the mic reader stops mid-capture. */
+    @Volatile private var readFailsAfter: Int? = null
     /** Test-only: the reader stays at most this many chunks ahead of the engine. Pre-roll drops its oldest chunks before attach, so an unbounded reader could drop the lead-in. */
     @Volatile private var readAhead: Int? = null
     /** Set once the engine finishes: the consumer is done, so the reader must not wait on it any longer. */
@@ -145,6 +148,7 @@ class Asr4allVoiceInputControllerTest {
             every { read(any<ShortArray>(), any(), any()) } answers {
                 val buf = firstArg<ShortArray>()
                 val read = readCount.incrementAndGet()
+                if (readFailsAfter?.let { read > it } == true) return@answers -1
                 readAhead?.let { ahead -> while (read - acceptCalls.get() > ahead && !finished) Thread.sleep(1) }
                 buf.fill(amplitudeForRead?.invoke(read)?.toShort() ?: amplitude)
                 firstFrame.countDown()
@@ -654,6 +658,29 @@ class Asr4allVoiceInputControllerTest {
             val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
             assertEquals(NO_SPEECH_WINDOW_EXHAUSTED, error.category)
             assertEquals("No speech heard. Try again.", error.message)
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `mic reader stopping mid-capture is retryable and not reported as no speech`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            partialForCall = { "" }
+            finalText = ""
+            readFailsAfter = 3
+            firstFrame = CountDownLatch(1)
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            assertEquals(emptyList<String>(), collected.transcripts())
+            val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+            assertNull(error.category)
+            assertEquals("Microphone stopped. Try again.", error.message)
         } finally {
             collected.job.cancel()
             scope.cancel()

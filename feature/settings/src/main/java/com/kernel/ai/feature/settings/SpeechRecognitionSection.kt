@@ -60,11 +60,11 @@ import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 internal fun speechEngineTestTag(engine: VoiceInputEngine): String = "speech_engine_${engine.name}"
 
 /**
- * Automatic's card note while the offline asr4all model is not on disk: Automatic cannot use it until it is
- * downloaded from the asr4all row. Null when it is downloaded or its state is unknown (#2051).
+ * Automatic's card note while the offline asr4all model is not on disk and not downloading: Automatic cannot use
+ * it until it is downloaded from the asr4all row. Null when it is downloaded, downloading, or its state is unknown (#2051).
  */
-internal fun automaticOfflineModelNote(asr4allDownloaded: Boolean?): String? =
-    if (asr4allDownloaded == false) {
+internal fun automaticOfflineModelNote(asr4all: SherpaSttDownloadState?): String? =
+    if (asr4all != null && !asr4all.isDownloaded && !asr4all.isDownloading) {
         "The offline speech model isn't downloaded yet. Download it in asr4all streaming below."
     } else {
         null
@@ -117,7 +117,7 @@ internal fun SpeechRecognitionSection(
                 }
                 val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
                 val automaticNote = if (engine == VoiceInputEngine.Auto) {
-                    automaticOfflineModelNote(uiState.sherpaSttStates[VoiceInputEngine.Asr4all]?.isDownloaded)
+                    automaticOfflineModelNote(uiState.sherpaSttStates[VoiceInputEngine.Asr4all])
                 } else {
                     null
                 }

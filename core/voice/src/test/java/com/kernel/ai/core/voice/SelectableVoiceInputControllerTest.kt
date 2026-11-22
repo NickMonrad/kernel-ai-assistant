@@ -1051,6 +1051,22 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `auto with the offline model winning logs native_ready as skipped`() = runTest(dispatcher) {
+        JandalEvents.install(Files.createTempFile("jandal-auto-skipped", ".log").toFile())
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+
+        controller().startListening(VoiceCaptureMode.Command)
+        JandalEvents.awaitWritesForTest()
+
+        val lines = JandalEvents.exportLines()
+        assertTrue(
+            lines.any { " voice stt_route " in it && "native_ready=SKIPPED" in it },
+            lines.toString(),
+        )
+    }
+
+    @Test
     fun `stop during the selectable suspension keeps the microphone closed and sends no ListeningStarted`() =
         runTest(dispatcher) {
             lateinit var controller: SelectableVoiceInputController
