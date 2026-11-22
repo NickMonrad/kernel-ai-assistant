@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.SherpaKokoroVoice
@@ -88,6 +89,75 @@ class SpeakingSectionTest {
     }
 
     @Test
+    fun tappingFailedPiperCardRetriesDownload() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.AndroidTts,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Error("network")),
+                ),
+            ),
+        )
+
+        tapCard(piperCardTag(SherpaPiperVoice.CoriHigh))
+
+        assertEquals(listOf("engine(SherpaExperimental)", "download(CoriHigh)"), calls)
+    }
+
+    @Test
+    fun tappingSelectedNotDownloadedPiperCardLeavesStartToEngineSwitch() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.AndroidTts,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh)),
+            ),
+        )
+
+        tapCard(piperCardTag(SherpaPiperVoice.CoriHigh))
+
+        // The engine switch starts the selected voice (PiperVoiceSetup.onEngineChosen); the tap must not repeat it.
+        assertEquals(listOf("engine(SherpaExperimental)"), calls)
+    }
+
+    @Test
+    fun tappingSelectedFailedPiperCardLeavesStartToEngineSwitch() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.AndroidTts,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(
+                    SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.Error("network")),
+                ),
+            ),
+        )
+
+        tapCard(piperCardTag(SherpaPiperVoice.CoriHigh))
+
+        assertEquals(listOf("engine(SherpaExperimental)"), calls)
+    }
+
+    @Test
+    fun tappingSelectedNotDownloadedPiperCardWhilePiperSelectedStartsDownload() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                selectedSherpaVoice = SherpaPiperVoice.CoriHigh,
+                sherpaVoices = listOf(SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh)),
+            ),
+        )
+
+        tapCard(piperCardTag(SherpaPiperVoice.CoriHigh))
+
+        // No engine switch here, so nothing else starts the download and the tap must.
+        assertEquals(listOf("engine(SherpaExperimental)", "download(CoriHigh)"), calls)
+    }
+
+    @Test
     fun tappingNotReadyInflectMicroCardSelectsEngineAndStartsDownload() {
         setSection(
             VoiceUiState(
@@ -132,6 +202,22 @@ class SpeakingSectionTest {
         tapCard(inflectCardTag)
 
         assertEquals(listOf("engine(InflectMicroExperimental)"), calls)
+    }
+
+    @Test
+    fun tappingFailedInflectMicroCardRetriesDownload() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = listOf(SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh)),
+                inflectMicroAvailability = ModelAvailabilityState.ActionRequired(ActionReason.DownloadFailed("network")),
+            ),
+        )
+
+        tapCard(inflectCardTag)
+
+        assertEquals(listOf("engine(InflectMicroExperimental)", "downloadInflect"), calls)
     }
 
     @Test
@@ -316,6 +402,24 @@ class SpeakingSectionTest {
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+            ),
+        )
+
+        tapCard(kokoroCardTag)
+
+        assertEquals(listOf("engine(KokoroExperimental)", "downloadKokoro(KokoroMultiLangInt8)"), calls)
+    }
+
+    @Test
+    fun tappingFailedKokoroCardRetriesDownload() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                kokoroVoices = listOf(
+                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Error("network")),
+                ),
             ),
         )
 

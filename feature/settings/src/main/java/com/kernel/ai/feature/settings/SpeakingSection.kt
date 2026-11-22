@@ -166,8 +166,13 @@ internal fun SpeakingSection(
                             onSelect = {
                                 if (downloaded) onSherpaVoiceSelected(voice)
                                 onOutputEngineSelected(VoiceOutputEngine.SherpaExperimental)
-                                // Tapping a card that isn't downloaded starts its download, as its Download button does.
-                                if (downloadState.needsDownloadOnTap()) onDownloadSherpaVoice(voice)
+                                // A tap starts a missing or failed download, as the in-card Download button does.
+                                // Switching to Piper already starts the selected voice (PiperVoiceSetup.onEngineChosen),
+                                // so the tap skips its own call for that voice.
+                                val engineSwitchStartsVoice = !sherpaSelected && isSelectedVoice
+                                if (downloadState.needsDownloadOnTap() && !engineSwitchStartsVoice) {
+                                    onDownloadSherpaVoice(voice)
+                                }
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
