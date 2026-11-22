@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.content.Context
 import android.media.AudioManager
 import android.media.AudioRecord
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
@@ -686,6 +687,128 @@ class Asr4allVoiceInputControllerTest {
             scope.cancel()
         }
     }
+
+    /** Records a mark in the diagnostics export; [exportedAfter] returns the lines written after it. */
+    private fun exportMark(): Long {
+        JandalEvents.install(java.io.File.createTempFile("jandal-asr4all", ".log"))
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
+        return mark
+    }
+
+    private fun exportedAfter(mark: Long): List<String> {
+        JandalEvents.awaitWritesForTest()
+        val exported = JandalEvents.exportLines()
+        return exported.drop(exported.indexOfLast { " test mark " in it && "id=$mark" in it } + 1)
+    }
+
+    @Test
+    fun `a mic end after text was heard is a microphone failure and exports MIC_UNAVAILABLE`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            partialForCall = { "heard" }
+            finalText = ""
+            readFailsAfter = 3
+            firstFrame = CountDownLatch(1)
+            val mark = exportMark()
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            assertEquals(emptyList<String>(), collected.transcripts())
+            val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+            assertNull(error.category)
+            assertEquals("Microphone stopped. Try again.", error.message)
+            assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `an utterance that endpoints after text was heard and finalises empty is not a microphone failure`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                partialForCall = { "heard" }
+                finalText = ""
+                firstFrame = CountDownLatch(1)
+                val mark = exportMark()
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+
+                assertEquals(emptyList<String>(), collected.transcripts())
+                assertEquals(1, log.count { it == "finish#1" })
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertNull(error.category)
+                assertEquals("No speech recognised. Try again.", error.message)
+                assertFalse(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a capture at the 60 s cap with text heard and an empty final is not a microphone failure`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                partialForCall = { "heard" }
+                finalText = ""
+                // Speech on every other chunk keeps the endpoint from firing, so only the cap can end the capture.
+                amplitudeForRead = { if (it % 2 == 1) 8000 else 200 }
+                readAhead = 4
+                firstFrame = CountDownLatch(1)
+                val mark = exportMark()
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+
+                // 60 s of 100 ms chunks.
+                assertEquals(600, acceptCalls.get())
+                assertEquals(1, log.count { it == "finish#1" })
+                assertEquals(emptyList<String>(), collected.transcripts())
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertNull(error.category)
+                assertEquals("No speech recognised. Try again.", error.message)
+                assertFalse(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a final result decided before a supersede is emitted after it, tagged with the superseded session`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller()
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                // The supersede lands between the job's discard check and its emit. Consumers drop it by sessionId (#2039).
+                c.beforeFinalEmitForTest = { c.supersedeCapture() }
+                firstFrame = CountDownLatch(1)
+                val first = startedId(c.startListening(VoiceCaptureMode.Command))
+                assertTrue(firstFrame.await(5, TimeUnit.SECONDS))
+
+                c.stopListening()
+                collected.awaitStops(1)
+
+                val transcript = collected.events.filterIsInstance<VoiceInputEvent.Transcript>().single()
+                assertEquals("Final text.", transcript.text)
+                assertEquals(first, transcript.captureSessionId)
+            } finally {
+                c.beforeFinalEmitForTest = null
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
 
     @Test
     fun `a stop before the mic opens never opens the mic, plays the cue or emits ListeningStarted`() = runBlocking(Dispatchers.IO) {
