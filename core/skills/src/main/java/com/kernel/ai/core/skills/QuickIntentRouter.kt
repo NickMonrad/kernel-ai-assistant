@@ -1889,7 +1889,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1906,7 +1906,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1938,7 +1938,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -5007,7 +5007,7 @@ class QuickIntentRouter(
     )
 
     private val weatherTemporalTail = Regex(
-        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning))$""",
+        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning)|(?:^|\s+)(?:for|over)\s+the|(?:^|\s+)(?:and|or))$""",
     )
 
     private val weatherLocationPrefix = Regex(

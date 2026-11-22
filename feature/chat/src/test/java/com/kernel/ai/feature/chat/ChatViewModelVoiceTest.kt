@@ -102,6 +102,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -1034,7 +1035,7 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `raw tool-call reply ends voice mode instead of stalling`() = runTest(dispatcher) {
+    fun `raw tool-call reply on a weather query speaks the guard line and ends voice mode after playback`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Weather in Apia") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
         every { inferenceEngine.generate(any()) } returns flowOf(
@@ -1047,6 +1048,42 @@ class ChatViewModelVoiceTest {
 
         viewModel.startVoiceInput()
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        // Weather wording is tool-shaped (#2058), so the raw-call retry fails and the guard line is spoken.
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("<|tool_call>") || chunk.contains("<tool_call|>") },
+            "raw tool-call text was spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("wasn't able to complete") },
+            "guard line was not spoken: $streamedChunks",
+        )
+        // Voice mode stays armed until that playback finishes.
+        assertNotNull(viewModel.voiceMode.value, "voice mode ended before the guard line finished playing")
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(streamedChunks.joinToString(" ") { it.first }))
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.voiceMode.value, "voice mode stayed armed after the guard line finished")
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `raw tool-call reply on a non-tool query speaks nothing and ends voice mode instead of stalling`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about Apia")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("<|tool_call>call:get_weather{location:<|\"|>Apia<|\"|>}<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
