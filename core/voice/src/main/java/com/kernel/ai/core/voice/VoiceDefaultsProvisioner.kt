@@ -9,6 +9,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -28,7 +29,8 @@ private const val LEGACY_VOSK_DIR = "voice"
  * Prepares the default voice stack on app start, alongside the required model downloads:
  *
  * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer (debug builds
- *   only), and asr4all for Auto and asr4all streaming (the size the tier policy picks);
+ *   only), and asr4all for Auto and asr4all streaming (the size the tier policy picks, once the Terms of Use are
+ *   accepted, #1998);
  * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
  *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
  *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
@@ -47,6 +49,7 @@ class VoiceDefaultsProvisioner @Inject constructor(
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
     private val hardwareProfileDetector: HardwareProfileDetector,
+    private val termsAcceptance: TermsAcceptancePreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
@@ -59,23 +62,29 @@ class VoiceDefaultsProvisioner @Inject constructor(
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
             // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
             downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
-            runCatching { queueSpeechInputModel() }
-                .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
+            // Own coroutine: asr4all waits for the Terms of Use (#1998) and must not hold up the output voice below.
+            scope.launch {
+                runCatching { queueSpeechInputModel() }
+                    .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
+            }
             runCatching { queueSpeechOutputVoice(isExistingInstall) }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
     }
 
 
-    private suspend fun queueSpeechInputModel() {
+    internal suspend fun queueSpeechInputModel() {
         val engine = voiceInputPreferences.selectedEngine.first()
         if (!prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) {
             queueZipformer(engine)
             prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
         }
-        // Marked only once queued, so a launch while the Terms gate (#1998) is closed retries later.
-        if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && queueAsr4all(engine)) {
-            prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
+        // asr4all waits for the Terms of Use (#1998): nothing is queued, and the marker stays unset, until they are accepted.
+        if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && needsAsr4all(engine)) {
+            termsAcceptance.record.first { it.isAccepted() }
+            if (queueAsr4all(engine)) {
+                prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
+            }
         }
     }
 
@@ -100,10 +109,11 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     /**
      * Queues the asr4all files of the size the user's choice resolves to on this tier. Returns true when the engine
-     * needs asr4all and it is queued or already on disk; false when it does not need it or the Terms hook is closed.
+     * needs asr4all and it is queued or already on disk; false when it does not need it or the Terms of Use are not
+     * accepted (#1998).
      */
     private suspend fun queueAsr4all(engine: VoiceInputEngine): Boolean {
-        if (!needsAsr4all(engine) || !Asr4AllInstall.termsAcceptanceGranted()) return false
+        if (!needsAsr4all(engine) || !termsAcceptance.record.first().isAccepted()) return false
         val size = Asr4AllInstall.effectiveSize(
             voiceInputPreferences.asr4allSize.first(),
             hardwareProfileDetector.profile.tier,
