@@ -39,6 +39,8 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
@@ -72,6 +74,7 @@ import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -99,6 +102,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -1031,7 +1035,7 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `raw tool-call reply ends voice mode instead of stalling`() = runTest(dispatcher) {
+    fun `raw tool-call reply on a weather query speaks the guard line and ends voice mode after playback`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Weather in Apia") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Weather in Apia")
         every { inferenceEngine.generate(any()) } returns flowOf(
@@ -1044,6 +1048,42 @@ class ChatViewModelVoiceTest {
 
         viewModel.startVoiceInput()
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
+        advanceUntilIdle()
+
+        // Weather wording is tool-shaped (#2058), so the raw-call retry fails and the guard line is spoken.
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("<|tool_call>") || chunk.contains("<tool_call|>") },
+            "raw tool-call text was spoken: $streamedChunks",
+        )
+        assertTrue(
+            streamedChunks.any { (chunk, _) -> chunk.contains("wasn't able to complete") },
+            "guard line was not spoken: $streamedChunks",
+        )
+        // Voice mode stays armed until that playback finishes.
+        assertNotNull(viewModel.voiceMode.value, "voice mode ended before the guard line finished playing")
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(streamedChunks.joinToString(" ") { it.first }))
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertNull(viewModel.voiceMode.value, "voice mode stayed armed after the guard line finished")
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `raw tool-call reply on a non-tool query speaks nothing and ends voice mode instead of stalling`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Tell me about Apia") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Tell me about Apia")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("<|tool_call>call:get_weather{location:<|\"|>Apia<|\"|>}<tool_call|>"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
@@ -1949,18 +1989,39 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `silent chat capture is not retried and shows no speech heard`() = runTest(dispatcher) {
+    fun `silent chat capture is retried once then shows no speech heard`() = runTest(dispatcher) {
+        // No slot is pending: the real SlotFillerManager returns null, so the generic re-prompt is spoken.
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
         advanceUntilIdle()
+
+        // First silence re-opens the mic once (#790), like any command capture.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        }
 
         val errorState = async {
             viewModel.uiState.first { state ->
                 state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
             }
         }
-        // asr4all silence is not a recognizer failure: the category stops the silent retry (#2051).
+        // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
                 mode = VoiceCaptureMode.Command,
@@ -1972,8 +2033,102 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
         errorState.await()
 
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `silence while a slot is pending re-asks the slot question twice then ends`() = runTest(dispatcher) {
+        every { slotFillerManager.pendingRequestFor("conv-existing") } returns PendingSlotRequest(
+            intentName = "set_timer",
+            existingParams = emptyMap(),
+            missingSlot = SlotSpec(name = "duration", promptTemplate = "For how long?"),
+        )
+        val reask = "Sorry, I didn't catch that. For how long?"
+        val silence = VoiceInputEvent.Error(
+            mode = VoiceCaptureMode.Command,
+            message = "No speech heard. Try again.",
+            captureSessionId = 1L,
+            category = NO_SPEECH_WINDOW_EXHAUSTED,
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+
+        // First silence: the pending slot question is re-asked, then the mic reopens.
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == reask })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Second silence: the slot budget allows a second re-ask (#2070, same as Actions).
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceOutputController.speak(match { it.text == reask }) }
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
+            }
+        }
+        // Third silence: the budget is spent, so the error surfaces and the mic stays closed.
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        errorState.await()
+
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceOutputController.speak(match { it.text == reask }) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `a completed back-and-forth turn resets the silence retry budget`() = runTest(dispatcher) {
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
+        every { quickIntentRouter.route("Hello loop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+        // Turn 1: silence spends the one retry.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        // Turn 1 completes: the user speaks, the reply plays, playback stops and the mic re-arms.
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop", captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Turn 2: silence gets its own retry instead of ending with the error.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        coVerify(exactly = 4) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
     }
 
     @Test

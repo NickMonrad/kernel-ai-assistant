@@ -1186,7 +1186,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_calendar_event",
             regex = Regex(
-                """^(?:a\s+|an\s+)?(?:calendar\s+)?(?:appointment|meeting|event|session|booking)\b(?=.*\b(?:today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))\b).*$""",
+                """^(?:a\s+|an\s+)?(?:calendar\s+)?(?:appointment|meeting|event|session|booking)\b(?=.*\b(?:today|tomorrow|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|monday|tuesday|wednesday|thursday|friday|saturday|sunday|noon|midnight|\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.?m\.?|p\.?m\.?))\b).*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, raw -> extractCalendarHints(raw) },
@@ -1889,7 +1889,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+forecast\s+(?:for|over)\s+([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1906,7 +1906,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(\d+)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(\d+)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -1938,7 +1938,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
+                """what(?:'s| is)\s+the\s+weather\s+(?:for|over)\s+(?!the\s+next|a\s+next|an\s+next)([\w\s,]+?)(?:\s+(?:for|over)\s+the)?\s+next\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+days""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -5007,7 +5007,7 @@ class QuickIntentRouter(
     )
 
     private val weatherTemporalTail = Regex(
-        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning))$""",
+        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning)|(?:^|\s+)(?:for|over)\s+the|(?:^|\s+)(?:and|or))$""",
     )
 
     private val weatherLocationPrefix = Regex(
@@ -5259,7 +5259,7 @@ class QuickIntentRouter(
                 .trim()
 
             // Try patterns: "10pm", "10:30pm", "22:00", "9:05 am", "7"
-            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
+            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?""")
             val match = timeRegex.find(cleaned) ?: return params
 
             val rawHours = match.groupValues[1].toIntOrNull() ?: return params
@@ -5341,7 +5341,7 @@ class QuickIntentRouter(
         private fun normalizeCompactAlarmText(raw: String): String {
             var normalized = raw
             normalized = Regex(
-                """\b(\d{1,2}):(\d):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)(?=\s|$)""",
+                """\b(\d{1,2}):(\d):(\d{2})\s*(am|pm|a\.?m\.?|p\.?m\.?)(?=\s|$)""",
                 RegexOption.IGNORE_CASE,
             ).replace(normalized) { match ->
                 val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
@@ -5366,7 +5366,7 @@ class QuickIntentRouter(
                 RegexOption.IGNORE_CASE,
             ).replace(normalized, "2:30")
             normalized = Regex(
-                """\b(\d{1,2})\s+(\d{2})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                """\b(\d{1,2})\s+(\d{2})\s*(am|pm|a\.?m\.?|p\.?m\.?)\b""",
                 RegexOption.IGNORE_CASE,
             ).replace(normalized) { match ->
                 val hour = match.groupValues[1].toIntOrNull() ?: return@replace match.value
@@ -5376,7 +5376,7 @@ class QuickIntentRouter(
                 "$hour:${minute.toString().padStart(2, '0')} $meridiem"
             }
             normalized = Regex(
-                """\b(\d{3,4})\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                """\b(\d{3,4})\s*(am|pm|a\.?m\.?|p\.?m\.?)\b""",
                 RegexOption.IGNORE_CASE,
             ).replace(normalized) { match ->
                 val digits = match.groupValues[1]
@@ -5390,7 +5390,7 @@ class QuickIntentRouter(
                 "$hour:${minute.toString().padStart(2, '0')} $meridiem"
             }
             normalized = Regex(
-                """\b(3[1-9]|4[0-2])\s*(am|pm|a\.m\.|p\.m\.)\b""",
+                """(?<![:\w])(3[1-9]|4[0-2])\s*(am|pm|a\.?m\.?|p\.?m\.?)\b""",
                 RegexOption.IGNORE_CASE,
             ).replace(normalized) { match ->
                 val flattened = match.groupValues[1].toIntOrNull() ?: return@replace match.value
@@ -5504,7 +5504,7 @@ class QuickIntentRouter(
             val cleaned = input.lowercase().trim()
                 .replace(Regex("""\s*(o'clock|oclock)\s*"""), "")
                 .trim()
-            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?""")
+            val timeRegex = Regex("""(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.?m\.?|p\.?m\.?)?""")
             val match = timeRegex.find(cleaned) ?: return null
             var hours = match.groupValues[1].toIntOrNull() ?: return null
             val minutes = match.groupValues[2].toIntOrNull() ?: 0

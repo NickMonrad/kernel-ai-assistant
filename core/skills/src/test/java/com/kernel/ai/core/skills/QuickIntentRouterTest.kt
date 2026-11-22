@@ -326,6 +326,28 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should parse dotted meridiem alarm times without the final dot`() {
+            val result = regexOnlyRouter.route("set an alarm for 7 p.m")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 7 p.m")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("19", intent.params["hours"])
+            assertEquals("0", intent.params["minutes"])
+            assertEquals("19:00", intent.params["time"])
+        }
+
+        @Test
+        fun `should recover split minute alarm times without the final dot`() {
+            val result = regexOnlyRouter.route("set an alarm for 8:6:30 p.m")
+            assertRegexMatch(result, "set_alarm", "set an alarm for 8:6:30 p.m")
+
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("20", intent.params["hours"])
+            assertEquals("36", intent.params["minutes"])
+            assertEquals("20:36", intent.params["time"])
+        }
+
+        @Test
         fun `should match alarm phrases with day before preposition`() {
             val result = regexOnlyRouter.route("set an alarm tomorrow for 7:30 a.m. called rugby")
             assertRegexMatch(result, "set_alarm", "set an alarm tomorrow for 7:30 a.m. called rugby")
@@ -2398,6 +2420,10 @@ class QuickIntentRouterTest {
                 "What's the weather like this week in Auckland",
                 "What's the weather in Sydney this week",
                 "What's the forecast for Sydney over the next 5 days",
+                "What's the weather forecast for Auckland for the next 3 days",
+                "What's the weather for Auckland for the next seven days",
+                "What's the weather in Apia today and tomorrow",
+                "What's the weather in Apia tomorrow and today",
             )
             for (input in inputs) {
                 val result = regexOnlyRouter.route(input)
@@ -4232,6 +4258,17 @@ class QuickIntentRouterTest {
             Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),
             Arguments.of("When is sunset in Sydney?", "Sydney", null, null),
             Arguments.of("Will it rain in Sydney today?", "Sydney", null, null),
+            // #2057 — trailing "for the"/"over the"/"today"/"tomorrow"/"and" never leak into the place
+            Arguments.of("What's the weather forecast for Auckland for the next 3 days", "Auckland", "3", null),
+            Arguments.of("What is the weather forecast for Auckland over the next 3 days", "Auckland", "3", null),
+            Arguments.of("What's the weather for Auckland for the next seven days", "Auckland", "7", null),
+            Arguments.of("Forecast for Auckland for the next 3 days", "Auckland", "3", null),
+            Arguments.of("What's the weather in Apia today and tomorrow", "Apia", null, "tomorrow"),
+            Arguments.of("What's the weather in Apia tomorrow and today", "Apia", null, "tomorrow"),
+            Arguments.of("weather in Apia today and tomorrow", "Apia", null, "tomorrow"),
+            Arguments.of("Will it rain in Apia today and tomorrow?", "Apia", null, "tomorrow"),
+            Arguments.of("What's the weather in Apia today or tomorrow", "Apia", null, "tomorrow"),
+            Arguments.of("What's the weather for Auckland over the next seven days", "Auckland", "7", null),
         )
 
         // ── Save Memory ──────────────────────────────────────────────────────────

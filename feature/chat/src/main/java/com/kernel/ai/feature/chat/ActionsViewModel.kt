@@ -28,7 +28,6 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
-import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceRecovery
 import com.kernel.ai.core.voice.VoiceRefusal
@@ -70,8 +69,6 @@ private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
-private const val SLOT_REPLY_MAX_VOICE_RETRIES = 2
-private const val COMMAND_MAX_VOICE_RETRIES = 1
 private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */
@@ -547,10 +544,7 @@ class ActionsViewModel @Inject constructor(
                                 }
                             }
                             VoiceCaptureMode.Command -> {
-                                // #2051: silence (no-speech window exhausted) is not retried; the user sees "No speech heard".
-                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff &&
-                                    event.category != NO_SPEECH_WINDOW_EXHAUSTED
-                                ) {
+                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff) {
                                     commandVoiceRetryCount++
                                     Log.d(
                                         TAG,

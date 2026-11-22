@@ -150,10 +150,11 @@ object TranscriptNormaliser {
      * - Returns [text] unchanged if blank.
      * - Idempotent: `normalise(normalise(x)) == normalise(x)`.
      * - Does not collapse whitespace — downstream consumers handle spacing.
+     * - Drops trailing sentence punctuation and whitespace before the rules run.
      */
     fun normalise(text: String): String {
         if (text.isBlank()) return text
-        var out = text
+        var out = stripTrailingSentencePunctuation(text)
         for ((re, replacement) in WEATHER_MISHEAR_REPLACEMENTS) {
             out = re.replace(out, replacement)
         }
@@ -176,5 +177,19 @@ object TranscriptNormaliser {
             Log.w(TAG, "MISHEARD_ADD applied to \"$before\" → \"$out\"")
         }
         return out
+    }
+
+    private val DOTTED_MERIDIEMS = setOf("a.m.", "p.m.")
+
+    /**
+     * Drops the sentence punctuation and whitespace a recogniser appends ("Set a timer."). Only the tail
+     * is touched, so interior decimals and clock times ("3.5", "5.30") survive. A dotted meridiem keeps
+     * its final dot ("set an alarm for 7 p.m."); the alarm parser accepts it with or without the dot.
+     * Char predicate, not regex: Android ICU regex differs from the JVM (#1968).
+     */
+    fun stripTrailingSentencePunctuation(text: String): String {
+        val keepingDot = text.trimEnd { it == '!' || it == '?' || it.isWhitespace() }
+        if (keepingDot.takeLast(4).lowercase() in DOTTED_MERIDIEMS) return keepingDot
+        return text.trimEnd { it == '.' || it == '!' || it == '?' || it.isWhitespace() }
     }
 }

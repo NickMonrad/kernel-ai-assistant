@@ -1,17 +1,9 @@
 package com.kernel.ai.feature.widget
 
-import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputEvent
 
 /** Visible phase of the voice overlay (#1850). Starting shows until the recognizer reports Listening. */
 internal enum class VoiceCommandPhase { Starting, Listening, Processing }
-
-/**
- * Whether an overlay Error restarts the capture. A silent window is not retried, matching chat and
- * Actions (#2051). Other errors get the single retry that [mayRetry] allows.
- */
-internal fun restartsAfterError(event: VoiceInputEvent.Error, mayRetry: Boolean): Boolean =
-    mayRetry && event.category != NO_SPEECH_WINDOW_EXHAUSTED
 
 /**
  * Phase after [event]. Listening and speech end move the overlay forward. Error resets it to
