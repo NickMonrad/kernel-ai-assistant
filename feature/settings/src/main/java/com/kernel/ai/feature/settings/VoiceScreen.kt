@@ -14,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -564,10 +563,6 @@ private fun VoiceScreenContent(
             )
         },
     ) { innerPadding ->
-        val termsRowRequester = remember { BringIntoViewRequester() }
-        LaunchedEffect(scrollToTerms) {
-            if (scrollToTerms) termsRowRequester.bringIntoView()
-        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -682,7 +677,7 @@ private fun VoiceScreenContent(
                 onDelete = onDeleteSherpaStt,
                 onAsr4allSize = onAsr4allSizeSelected,
                 onTermsAcceptedChanged = onTermsAcceptedChanged,
-                termsRowRequester = termsRowRequester,
+                scrollToTermsRow = scrollToTerms,
             )
 
 

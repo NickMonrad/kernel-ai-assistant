@@ -24,8 +24,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -76,8 +78,8 @@ internal fun SpeechRecognitionSection(
     onDelete: (VoiceInputEngine) -> Unit,
     onAsr4allSize: (Asr4AllSize) -> Unit,
     onTermsAcceptedChanged: (Boolean) -> Unit = {},
-    /** Scrolls the asr4all Terms row into view when Settings › Voice opens from a refusal (#2049). */
-    termsRowRequester: BringIntoViewRequester? = null,
+    /** Scrolls the asr4all Terms row into view once it is shown, when Settings › Voice opens from a refusal (#2049). */
+    scrollToTermsRow: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -158,13 +160,17 @@ internal fun SpeechRecognitionSection(
                         }
                         if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
+                                val termsRowRequester = remember { BringIntoViewRequester() }
+                                LaunchedEffect(Unit) {
+                                    if (scrollToTermsRow) termsRowRequester.bringIntoView()
+                                }
                                 TermsAcceptRow(
                                     accepted = uiState.termsAccepted,
                                     onAcceptedChange = onTermsAcceptedChanged,
                                     onOpenTerms = { termsSheetOpen = true },
                                     modifier = Modifier
                                         .padding(vertical = 4.dp)
-                                        .then(termsRowRequester?.let { Modifier.bringIntoViewRequester(it) } ?: Modifier),
+                                        .bringIntoViewRequester(termsRowRequester),
                                 )
                             }
                             if (engine == VoiceInputEngine.Asr4all) {
