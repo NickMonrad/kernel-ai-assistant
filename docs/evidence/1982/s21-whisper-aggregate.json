@@ -1,0 +1,49 @@
+{
+  "device": "S21 SM-G991B (R5CR605B71K)",
+  "verifier": "Whisper tiny.en via production verifyWakeWindow (WakeVerifierProbeReceiver), 2 runs per ring",
+  "rings": 1118,
+  "verdicts": 2236,
+  "classes": {
+    "background_speech": {
+      "rings": 290,
+      "run1_accept_rate": 0.0069,
+      "run2_accept_rate": 0.0069,
+      "runs_agree_rate": 1.0,
+      "accept_both_rate": 0.0069,
+      "run_agreement_with_1045_s21_baseline": 1.0
+    },
+    "genuine": {
+      "rings": 375,
+      "run1_accept_rate": 0.456,
+      "run2_accept_rate": 0.456,
+      "runs_agree_rate": 1.0,
+      "accept_both_rate": 0.456,
+      "run_agreement_with_1045_s21_baseline": 1.0
+    },
+    "near_miss": {
+      "rings": 420,
+      "run1_accept_rate": 0.0071,
+      "run2_accept_rate": 0.0071,
+      "runs_agree_rate": 1.0,
+      "accept_both_rate": 0.0071,
+      "run_agreement_with_1045_s21_baseline": 1.0
+    },
+    "non_speech": {
+      "rings": 33,
+      "run1_accept_rate": 0.0,
+      "run2_accept_rate": 0.0,
+      "runs_agree_rate": 1.0,
+      "accept_both_rate": 0.0,
+      "run_agreement_with_1045_s21_baseline": 1.0
+    }
+  },
+  "owner_natural_run1_accept": "1/3",
+  "warm_verify_ms": {
+    "n": 1118,
+    "p50": 492.0,
+    "p95": 708.0,
+    "max": 1028.0,
+    "mean": 510.0
+  },
+  "run_agreement_with_1045_s21_baseline": "2236/2236"
+}

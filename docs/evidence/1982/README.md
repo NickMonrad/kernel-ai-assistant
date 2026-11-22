@@ -1,30 +1,32 @@
-# #1982 on-device evidence: remove Zipformer (PR #2047)
+# #1982 S21 Whisper low-band verification
 
-- Build SHA: `a332d331` (PR #2047 head, branch `feat/1982-remove-zipformer-1`)
-- APK: `app/build/outputs/apk/debug/app-debug.apk`, sha256 `fc87204774b9490828ce6948dccbb0b26278c1efef573835188acbe654881e9f`, package `ai.jandal.assistant.debug`
-- Device: S21 (`R5CR605B71K`) only. S23U and Honor not touched.
-- Upgrade baseline APK: `origin/feat/1980-asr4all-auto-default` (`26bfa440`), built from `git archive` into `/tmp`, no repo state change. Room v60 on both, so the DB was not downgraded.
+Device check for AC2: the Whisper tiny.en verifier still works after the Zipformer removal. Aggregates only;
+per-ring verdicts, transcripts and the ring set stay in a private directory outside Git.
+
+- Device: S21, SM-G991B, serial `R5CR605B71K`, Android 15 (`o1s:15`, build `AP3A.240905.015.A2`). The S23U and Honor were not touched.
+- Build: debug APK from the tree of `feat/1982-remove-zipformer` at `6864d26d` (`app/build/outputs/apk/debug/app-debug.apk`, SHA-256 `ded17683…`). Installed for the run only.
+- Path: production `verifyWakeWindow` → `transcribeBlocking` → Whisper tiny.en → `containsWakePhrase`, driven by the debug `WakeVerifierProbeReceiver` (`harness/device_run.sh s21 … whisper`). Two runs per ring; run 2 minus run 1 is the warm verification time.
+- Rings: 1,118 low-band candidate rings from the #1045 spike set (genuine 375, near-miss 420, background speech 290, non-speech 33; the 3 s window the detector hands over at the first frame ≥ 0.50). Ring set `rings.tar` SHA-256 prefix `8faf448f`.
+- Lock: `/tmp/jandal-s21.lock` held by `omp-1982` for the run and released afterwards. No other device was used.
 
 ## Results
 
-| # | Check | Result | Evidence |
-|---|---|---|---|
-| 1 | Upgrade: stored `SherpaZipformer` maps to Auto, no crash | PASS | Stored value written to `voice_input_preferences.preferences_pb` with the app stopped (run-as cp of an edited prefs file; stored value was `Asr4all` before). PR build launched with no E/FATAL lines for its pid. Voice settings show "Automatic · Recommended". The raw stored string stays `SherpaZipformer` on disk because the app maps on read and did not rewrite it. |
-| 2 | Hey Jandal: Whisper verification, no Zipformer requested | PARTIAL | Hey Jandal enabled (toggle on). Whisper tiny.en files present in `files/models`. Stimulus: `natural_wake` fixture played on the S21 itself through the debug `AcousticStimulusReceiver` (S23U locked). Wake fired at high confidence 0.835 (`WakeWordDetector: detected (high confidence=...)`), so the low-band verifier was not entered (`lowVerifyEntered=false`). **Whisper verification was not exercised.** No Zipformer model request or queue observed in logcat. |
-| 3 | Auto routing to asr4all; Settings › Voice has no Zipformer rows | PASS | `Auto STT route=Asr4all` for wake alert-command sessions and for a push-to-talk (mic FAB, Command mode), both with `asr4allReady=true`. Voice settings engine list: Android native, Sherpa SenseVoice, Sherpa Whisper tiny.en, Sherpa Paraformer, asr4all streaming (Downloaded). No Zipformer engine or download row. Caveat: PTT was no-speech only ("No speech heard"), no spoken capture. |
-| 4 | No Zipformer files downloaded or queued on a fresh model list | PARTIAL | Model Management list has no Zipformer row. `download_network_prefs`, `model_preferences` and the other datastore files contain no zipformer/sherpa-stt/queue strings. **Not a fresh list:** a fresh list needs app-data clear, which was not done. **Stale files remain** on the device from before this change: `files/models/sherpa-stt-{encoder,decoder,joiner}.int8.onnx` and `sherpa-stt-tokens.txt` (dated 2026-11-16). The PR build does not reference them. They were not deleted. |
+Full aggregate: [`s21-whisper-aggregate.json`](s21-whisper-aggregate.json).
 
-## Files
+| Class | Rings | Accepted (run 1) | Accepted (run 2) | Both runs agree | Warm verify |
+|---|---|---|---|---|---|
+| Genuine "Hey Jandal" | 375 | 45.6% (171) | 45.6% (171) | 100% | |
+| Near-miss | 420 | 0.7% (3) | 0.7% (3) | 100% | |
+| Background speech | 290 | 0.7% (2) | 0.7% (2) | 100% | |
+| Non-speech | 33 | 0% (0) | 0% (0) | 100% | |
+| Owner natural (subset of genuine) | 3 | 1/3 | | | |
 
-- `s21-logcat-excerpt.txt`: verbatim logcat lines for the checks above, plus the error scan.
-- `s21-voice-speech-recognition-auto.png`: Voice settings, Hey Jandal on, Speech recognition = Automatic.
-- `s21-voice-engine-list-no-zipformer.png`: Voice settings engine list, no Zipformer row.
+Warm verification latency over 1,118 rings (run 2 minus run 1, from logcat): p50 492 ms, p95 708 ms, max 1,028 ms, mean 510 ms. Cold first-verify latency was not re-measured in this run.
 
-No personal data: screenshots are cropped to Settings › Voice. Chat content, transcripts, and the private `natural_wake.wav` are not included. The fixture copy in the app's private `files/acoustic-fixtures/` was removed after the trial.
+Regression check: the verdicts were compared with the #1045 S21 Whisper run on the same rings, from the main-based build before this PR. All 2,236 run verdicts are identical (2236/2236). The genuine, near-miss, background and owner figures match the published #1045 S21 Whisper row, and the warm p50/p95/max (507/713/1006 ms) are within run-to-run noise.
 
-## Not done / open
+## Run incidents and cleanup
 
-- Check 2 needs a trigger that enters the low-band verifier to exercise Whisper verification.
-- Check 4 needs a fresh install or data clear to confirm a fresh model list. The stale `sherpa-stt-*` files should be removed from the S21 by the owner if the removal is to be considered clean on this device.
-
-Lock `/tmp/jandal-s21.lock` acquired for this run and released afterwards.
+- The harness's EXIT cleanup did not run after the Whisper phase finished (no `cleanup done` line in `run.log`). Cleanup was done by hand, in the harness's order: the 1,118 `wv_*.wav` fixtures removed from the app's `files/acoustic-fixtures`, `/data/local/tmp/wake-verifier` removed, the original debug APK reinstalled with `install -r -d` (pre-run pull, SHA-256 `1dbd856a…`), and the lock removed.
+- `stay_on_while_plugged_in` was set to `usb` by the harness and has been set back to `0`. The pre-run value was not recorded by the harness, so `0` (the Android default) is an assumption, not a verified original.
+- The Whisper model files were already on the device (`pushed=no`) and were left in place.
