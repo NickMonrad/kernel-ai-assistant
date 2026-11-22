@@ -104,6 +104,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 @Composable
 fun VoiceScreen(
     onBack: () -> Unit,
+    /** Scrolls to the speech model's section, where its Terms row is (#2049). */
+    scrollToTerms: Boolean = false,
     viewModel: VoiceViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -285,6 +287,7 @@ fun VoiceScreen(
     VoiceScreenContent(
         uiState = uiState,
         onBack = onBack,
+        scrollToTerms = scrollToTerms,
         onRequestAssistantRole = {
             // Show default-assistant role setup prompt (separate from microphone permission).
             showDefaultAssistantPrompt = true
@@ -512,6 +515,7 @@ fun VoiceScreen(
 private fun VoiceScreenContent(
     uiState: VoiceUiState,
     onBack: () -> Unit,
+    scrollToTerms: Boolean = false,
     onRequestAssistantRole: () -> Unit,
     onHeyJandalEnabledChanged: (Boolean) -> Unit,
     onWakeWordThresholdChanged: (Float) -> Unit,
@@ -673,6 +677,7 @@ private fun VoiceScreenContent(
                 onDelete = onDeleteSherpaStt,
                 onAsr4allSize = onAsr4allSizeSelected,
                 onTermsAcceptedChanged = onTermsAcceptedChanged,
+                scrollToTermsRow = scrollToTerms,
             )
 
 

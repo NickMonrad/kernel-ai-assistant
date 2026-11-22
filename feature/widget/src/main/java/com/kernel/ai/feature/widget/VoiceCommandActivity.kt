@@ -2,6 +2,8 @@ package com.kernel.ai.feature.widget
 
 import android.Manifest
 import android.content.Intent
+import android.app.Activity
+import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
@@ -60,6 +62,7 @@ import com.kernel.ai.core.permissions.recordPermissionResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import androidx.core.app.ActivityCompat
 import com.kernel.ai.core.ui.theme.KernelAITheme
+import com.kernel.ai.core.ui.voice.VoiceErrorAction
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.memory.prefs.USE_SYSTEM_COLORS_DEFAULT
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -71,6 +74,9 @@ import com.kernel.ai.core.voice.cancelListening
 import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
+import com.kernel.ai.core.voice.VoiceRecovery
+import com.kernel.ai.core.voice.VoiceRefusal
+import com.kernel.ai.core.voice.recoveryFor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -412,6 +418,7 @@ class VoiceCommandActivity : ComponentActivity() {
         var phase by mutableStateOf(VoiceCommandPhase.Starting)
         var hintVisible by mutableStateOf(false)
         var failed by mutableStateOf(false)
+        var refusal by mutableStateOf<VoiceRefusal?>(null)
 
         setContent {
             val useSystemColors = chatPreferences.useSystemColors
@@ -434,6 +441,8 @@ class VoiceCommandActivity : ComponentActivity() {
                     inputLevel = inputLevel,
                     dismissEnabled = dismissEnabled,
                     onDismiss = { finish() },
+                    voiceRecovery = recoveryFor(partialText, refusal),
+                    onOpenVoiceSettings = { openVoiceSettingsTerms() },
                 )
             }
         }
@@ -447,11 +456,16 @@ class VoiceCommandActivity : ComponentActivity() {
         ownedCaptureSessionId = null
         var noticeJob: Job? = null
         lifecycleScope.launch {
-            suspend fun showUnavailableAndFinish(message: String) {
+            suspend fun showUnavailableAndFinish(message: String, recovery: VoiceRecovery? = null) {
                 val errorText = message.ifBlank { "Voice commands are unavailable right now." }
                 Log.w(TAG, "VoiceCommandActivity: voice unavailable — $errorText")
                 failed = true
                 partialText = errorText
+                // A refusal with a fix stays up so the user can open Settings › Voice (#2049).
+                if (recovery != null) {
+                    refusal = VoiceRefusal(errorText, recovery)
+                    return
+                }
                 delay(2_000)
                 if (!isFinishing) finish()
             }
@@ -500,7 +514,7 @@ class VoiceCommandActivity : ComponentActivity() {
                                 }) {
                                     is VoiceInputStartResult.Started -> Unit
                                     is VoiceInputStartResult.Unavailable -> if (retryAttempt == voiceStartAttemptId) {
-                                        showUnavailableAndFinish(result.message)
+                                        showUnavailableAndFinish(result.message, result.recovery)
                                     }
                                     is VoiceInputStartResult.Cancelled -> if (retryAttempt == voiceStartAttemptId) {
                                         cancelledVoiceStart = true
@@ -539,7 +553,7 @@ class VoiceCommandActivity : ComponentActivity() {
                                 }) {
                                     is VoiceInputStartResult.Started -> Unit
                                     is VoiceInputStartResult.Unavailable -> if (retryAttempt == voiceStartAttemptId) {
-                                        showUnavailableAndFinish(result.message)
+                                        showUnavailableAndFinish(result.message, result.recovery)
                                     }
                                     is VoiceInputStartResult.Cancelled -> if (retryAttempt == voiceStartAttemptId) {
                                         cancelledVoiceStart = true
@@ -565,7 +579,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 is VoiceInputStartResult.Unavailable -> {
                     if (initialAttempt == voiceStartAttemptId) {
                         eventCollectorJob.cancel()
-                        showUnavailableAndFinish(startResult.message)
+                        showUnavailableAndFinish(startResult.message, startResult.recovery)
                     }
                 }
                 is VoiceInputStartResult.Cancelled -> if (initialAttempt == voiceStartAttemptId) {
@@ -594,6 +608,18 @@ class VoiceCommandActivity : ComponentActivity() {
     }
 }
 
+/** Route the refusal's action opens. Must equal KernelNavHost's ROUTE_VOICE_TERMS (pinned by ExternalNavigationRouteTest). */
+const val VOICE_SETTINGS_TERMS_ROUTE = "settings/voice?scrollTo=true"
+
+/** Opens MainActivity at Settings › Voice Terms and closes the overlay (#2049). */
+private fun Activity.openVoiceSettingsTerms() {
+    startActivity(Intent().apply {
+        component = ComponentName(packageName, "com.kernel.ai.MainActivity")
+        putExtra("navigation_route", VOICE_SETTINGS_TERMS_ROUTE)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    })
+    finish()
+}
 /**
  * Live voice overlay card shared by the widget mic, the assistant session and the Hey Jandal wake
  * overlay (#1930). The backdrop dismisses once [dismissEnabled]; the card's X always dismisses.
@@ -607,6 +633,8 @@ private fun VoiceCommandOverlay(
     inputLevel: State<Float>,
     dismissEnabled: Boolean,
     onDismiss: () -> Unit,
+    voiceRecovery: VoiceRecovery? = null,
+    onOpenVoiceSettings: () -> Unit = {},
 ) {
     Box(
         modifier = Modifier
@@ -692,6 +720,9 @@ private fun VoiceCommandOverlay(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                if (voiceRecovery != null) {
+                    VoiceErrorAction(onClick = onOpenVoiceSettings)
                 }
                 if (hintVisible && phase == VoiceCommandPhase.Listening) {
                     Text(

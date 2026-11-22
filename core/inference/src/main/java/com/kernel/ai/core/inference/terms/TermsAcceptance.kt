@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
@@ -29,6 +30,12 @@ const val TERMS_VERSION = "2026-11-22"
 
 /** Refusal shown on a model download that needs the Terms of Use accepted first (#1998). */
 const val TERMS_NOT_ACCEPTED_MESSAGE = "Accept the Terms of Use to download this speech model."
+
+/** Refusal shown when a voice capture starts without the Terms accepted. The voice UI adds an "Open Voice settings" action (#2049). */
+const val TERMS_NOT_ACCEPTED_VOICE_MESSAGE = "Accept the Terms of Use to use this speech model."
+
+/** True when this is the Terms refusal a download gate leaves behind (#2049), so other states must not replace it. */
+fun DownloadState?.isTermsRefusal(): Boolean = this is DownloadState.Error && message == TERMS_NOT_ACCEPTED_MESSAGE
 
 /** What is stored on this device about the Terms of Use. */
 data class TermsAcceptanceRecord(

@@ -214,6 +214,7 @@ import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import com.kernel.ai.core.ui.theme.PauaDeep
 import com.kernel.ai.core.ui.theme.PauaPurple
 import com.kernel.ai.core.ui.theme.PauaTeal
+import com.kernel.ai.core.ui.voice.VoiceErrorAction
 
 internal fun shouldKeepChatScreenAwake(
     uiState: ChatUiState,
@@ -268,6 +269,7 @@ fun ChatScreen(
     onNewConversation: () -> Unit = {},
     onNavigateToList: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
+    onOpenVoiceSettings: () -> Unit = {},
     onNavigateToModelManagement: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
@@ -632,6 +634,7 @@ fun ChatScreen(
                     }
                 },
                 onNavigateToSettings = onNavigateToSettings,
+                onOpenVoiceSettings = onOpenVoiceSettings,
                 showModelSettings = showModelSettings,
                 onShowModelSettingsChange = { showModelSettings = it },
             )
@@ -906,6 +909,7 @@ private fun ChatContent(
     onDiscardExternalDraft: () -> Unit,
     onCopyMessage: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onOpenVoiceSettings: () -> Unit,
     onCopyAll: () -> Unit,
     showModelSettings: Boolean,
     activeModelName: String,
@@ -1172,6 +1176,9 @@ private fun ChatContent(
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        if (state.errorRecovery != null) {
+                            VoiceErrorAction(onClick = onOpenVoiceSettings)
+                        }
                         Text(
                             text = errorQuip,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

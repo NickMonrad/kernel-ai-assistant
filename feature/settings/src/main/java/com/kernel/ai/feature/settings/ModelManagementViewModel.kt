@@ -16,6 +16,8 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -28,6 +30,7 @@ import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.model.availability.ModelRoleCopy
 import com.kernel.ai.core.model.availability.ModelRoleSection
 import com.kernel.ai.core.model.availability.ModelRoles
 import com.kernel.ai.core.model.availability.StillNeededItem
@@ -76,6 +79,8 @@ data class ModelManagementUiState(
     val deviceTier: HardwareTier? = null,
     /** Selected speech-input engine status, read-only on the Models screen. */
     val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
+    /** The asr4all size under the speech row (e.g. "asr4all M · 60 MB"), for the engines that use it (#2048). */
+    val speechRecognitionDetail: String? = null,
     /** Jandal's voice (Cori) status, read-only on the Models screen. */
     val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
     /** The Downloads section switch: true only when mobile data is allowed for model downloads (#1855). */
@@ -85,16 +90,19 @@ data class ModelManagementUiState(
 )
 
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
-enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
+enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE, TERMS_NEEDED }
 
 /**
  * The speech row follows the selected input engine (#1982): Android native is built in, Auto and asr4all
  * need the asr4all files of the effective size, and each Sherpa engine needs the files of its own spec.
+ * Auto and asr4all also need the Terms of Use accepted (#2049): with the files present and the Terms not
+ * accepted, the row reads [VoiceSectionStatus.TERMS_NEEDED] rather than Ready.
  */
 internal fun speechStatusOf(
     engine: VoiceInputEngine,
     states: Map<KernelModel, DownloadState>,
     asr4allSize: Asr4AllSize,
+    termsAccepted: Boolean,
 ): VoiceSectionStatus {
     val files = when (engine) {
         VoiceInputEngine.AndroidNative -> return VoiceSectionStatus.BUILT_IN
@@ -103,10 +111,20 @@ internal fun speechStatusOf(
     }
     val downloads = files.map { states[it] ?: DownloadState.NotDownloaded }
     return when {
-        downloads.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
+        downloads.all { it is DownloadState.Downloaded } -> {
+            val needsTerms = engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
+            if (needsTerms && !termsAccepted) VoiceSectionStatus.TERMS_NEEDED else VoiceSectionStatus.READY
+        }
         downloads.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
         else -> VoiceSectionStatus.NOT_DOWNLOADED
     }
+}
+
+/** The asr4all size under the speech row, for the engines that use it (#2048). Null for the other engines. */
+internal fun speechDetailOf(engine: VoiceInputEngine, asr4allSize: Asr4AllSize): String? = when (engine) {
+    VoiceInputEngine.Auto, VoiceInputEngine.Asr4all ->
+        "asr4all ${asr4allSize.name} · ${ModelRoleCopy.sizeLabel(Asr4AllInstall.models(asr4allSize).sumOf { it.approxSizeBytes })}"
+    else -> null
 }
 
 /** The voice-output row follows the selected engine. Only the Sherpa engine uses the Cori pack. */
@@ -137,6 +155,7 @@ class ModelManagementViewModel @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val voiceInputPreferences: VoiceInputPreferences,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -189,6 +208,7 @@ class ModelManagementViewModel @Inject constructor(
         downloadNetworkPreferences.choice,
         voiceInputPreferences.selectedEngine,
         voiceInputPreferences.asr4allSize,
+        termsAcceptancePreferences.record,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -210,6 +230,7 @@ class ModelManagementViewModel @Inject constructor(
         val mobileDataAllowed = array[11] as DownloadNetworkChoice? == DownloadNetworkChoice.MOBILE_DATA_ALLOWED
         val inputEngine = array[12] as VoiceInputEngine
         val asr4allStored = array[13] as Asr4AllSize
+        val termsAccepted = (array[14] as TermsAcceptanceRecord).isAccepted()
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -230,6 +251,7 @@ class ModelManagementViewModel @Inject constructor(
             gatedStatuses = gatedStatuses,
         )
         val tier = modelDownloadManager.deviceTier
+        val asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier)
         ModelManagementUiState(
             models = models,
             totalStorageUsedBytes = storage.used,
@@ -245,8 +267,10 @@ class ModelManagementViewModel @Inject constructor(
             speechRecognitionStatus = speechStatusOf(
                 engine = inputEngine,
                 states = downloadStates,
-                asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier),
+                asr4allSize = asr4allSize,
+                termsAccepted = termsAccepted,
             ),
+            speechRecognitionDetail = speechDetailOf(inputEngine, asr4allSize),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
             mobileDataAllowed = mobileDataAllowed,
             waitingForWifi = waitingForWifi,

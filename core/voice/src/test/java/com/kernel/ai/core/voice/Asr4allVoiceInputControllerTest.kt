@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import io.mockk.every
@@ -225,9 +226,31 @@ class Asr4allVoiceInputControllerTest {
     fun `without accepted terms the downloaded weights read as missing and nothing opens`() = runBlocking(Dispatchers.IO) {
         val c = controller(termsAccepted = false)
         assertFalse(c.isAvailable())
-        assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Unavailable)
+        val refusal = c.startListening(VoiceCaptureMode.Command)
+        val unavailable = refusal as VoiceInputStartResult.Unavailable
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, unavailable.message)
+        assertEquals(VoiceRecovery.ACCEPT_TERMS, unavailable.recovery)
         assertTrue(openLog.isEmpty())
         assertEquals(0, micOpens.get())
+    }
+
+    @Test
+    fun `the Terms block holds whether or not the weights are on disk`() = runBlocking(Dispatchers.IO) {
+        assertTrue(controller(termsAccepted = false).apply { availableForTest = { true } }.isBlockedByTerms())
+        assertTrue(controller(termsAccepted = false).apply { availableForTest = { false } }.isBlockedByTerms())
+        assertFalse(controller(termsAccepted = true).apply { availableForTest = { true } }.isBlockedByTerms())
+        assertFalse(controller(termsAccepted = true).apply { availableForTest = { false } }.isBlockedByTerms())
+    }
+
+    @Test
+    fun `no weights and unaccepted terms refuse the start with the Terms message and nothing opens`() = runBlocking(Dispatchers.IO) {
+        val c = controller(termsAccepted = false).apply { availableForTest = { false } }
+        assertTrue(c.isBlockedByTerms())
+        val unavailable = c.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Unavailable
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, unavailable.message)
+        assertEquals(VoiceRecovery.ACCEPT_TERMS, unavailable.recovery)
+        assertEquals(0, micOpens.get())
+        assertTrue(openLog.isEmpty())
     }
 
     @Test

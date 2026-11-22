@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
@@ -70,6 +71,7 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.supersedeCapture() } just runs
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
         coEvery { asr4allVoiceInputController.isAvailable() } returns false
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns false
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
@@ -276,6 +278,62 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
         coVerify(exactly = 0) { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto reports the Terms refusal when native is unavailable and the Terms block asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a failed native start reports the Terms refusal when the Terms block asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(true)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { nativeAndroidVoiceInputController.startListening(any(), any(), any(), any()) } returns
+            VoiceInputStartResult.Unavailable("Android speech is busy.")
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+    }
+
+    @Test
+    fun `auto reports the Terms refusal in release builds too`() = runTest(dispatcher) {
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto reports the Terms refusal on a fresh install with no weights on disk`() = runTest(dispatcher) {
+        // With no weights, Asr4all isAvailable() is false, and isBlockedByTerms() is true because the Terms gate the download.
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
     }
 
     @Test

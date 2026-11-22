@@ -116,6 +116,7 @@ object ModelRoleCopy {
     const val VOICE_READY = "Ready"
     const val VOICE_DOWNLOADING = "Downloading"
     const val VOICE_NOT_DOWNLOADED = "Not downloaded"
+    const val VOICE_TERMS_NEEDED = "Accept the Terms of Use in Voice settings"
     const val VOICE_BUILT_IN = "Using Android's built-in voice"
     const val VOICE_OTHER_ENGINE = "Another voice is selected in Voice settings"
     const val NOT_ON_THIS_PHONE = "Not available on this phone"
