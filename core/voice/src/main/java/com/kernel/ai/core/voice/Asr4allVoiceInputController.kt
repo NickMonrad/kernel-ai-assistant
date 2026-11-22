@@ -579,14 +579,18 @@ class Asr4allVoiceInputController internal constructor(
                     )
                 }
                 // Text was heard, the utterance endpointed or hit the cap, and the final decode is empty. This is a
-                // failed recognition, not a microphone failure. No category, so the normal single retry applies.
-                else -> _events.tryEmit(
-                    VoiceInputEvent.Error(
-                        mode = mode,
-                        message = "No speech recognised. Try again.",
-                        captureSessionId = sessionId,
-                    ),
-                )
+                // failed recognition, not a microphone failure. The export records EMPTY_FINAL; the Error carries no
+                // category, so the normal single retry applies.
+                else -> {
+                    JandalEvents.record("voice", "stt_error", "category" to SttFailure.EMPTY_FINAL)
+                    _events.tryEmit(
+                        VoiceInputEvent.Error(
+                            mode = mode,
+                            message = "Didn't catch that. Try again.",
+                            captureSessionId = sessionId,
+                        ),
+                    )
+                }
             }
         }
     }

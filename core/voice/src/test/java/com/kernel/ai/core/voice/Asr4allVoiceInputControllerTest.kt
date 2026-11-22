@@ -745,7 +745,8 @@ class Asr4allVoiceInputControllerTest {
                 assertEquals(1, log.count { it == "finish#1" })
                 val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
                 assertNull(error.category)
-                assertEquals("No speech recognised. Try again.", error.message)
+                assertEquals("Didn't catch that. Try again.", error.message)
+                assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=EMPTY_FINAL" in it })
                 assertFalse(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
             } finally {
                 collected.job.cancel()
@@ -776,7 +777,8 @@ class Asr4allVoiceInputControllerTest {
                 assertEquals(emptyList<String>(), collected.transcripts())
                 val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
                 assertNull(error.category)
-                assertEquals("No speech recognised. Try again.", error.message)
+                assertEquals("Didn't catch that. Try again.", error.message)
+                assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=EMPTY_FINAL" in it })
                 assertFalse(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
             } finally {
                 collected.job.cancel()
