@@ -1,42 +1,42 @@
 # #1993 device check: S23U (RFCW11265XH), Cori TTS, `mahi` -> `ma-hee`
 
-Status: INCONCLUSIVE. The S23U renders ran, but the debug path does not exercise the lexicon or the app's speech settings, and the durations do not match the host references. Nothing here proves the spoken text is `ma-hee`.
+Status: LEXICON VERIFIED ON DEVICE. The prepared text shows `ma-hee` for the `mahi` input. Durations are close to the host renders. Listening was not done, so the audio quality of `ma-hee` is not verified.
 
-## What ran (2026-11-22, AEST)
+## Path exercised (2026-11-22, AEST)
 
-- Keyguard: `isKeyguardShowing=false` at start. `stay_on_while_plugged_in` set to 2 and left at 2.
-- Lock: `/tmp/jandal-s23u.lock` taken, released after the run.
-- Branch: `fix/1993-cori-mahi` merged with `origin/main` (PR #2032 merged; main is Room v60).
-- Build: `./gradlew :app:assembleDebug` succeeded. Install: `adb install -r` returned `Success`.
-- DB: `databases/kernel_db` user_version 59 before the install, 60 after (forward migration; no data cleared).
-- Render: `SampleClipReceiver` broadcast with `--es text` (Cori voice, `files/sample_corihigh.wav`, 22050 Hz mono 16-bit).
+The debug `SampleClipReceiver` now calls the same steps as `SherpaOnnxVoiceOutputController.speak`:
+`PronunciationLexicon.ensureLoaded`, `SherpaSpeechText.prepare(text)`, `generate(prepared, sid=0, speed)` with the stored speed (0.85), then the stored gain (1.5) applied as in playback (`multiply, clamp to [-1, 1]`). Speed, gain and voice are read from `VoiceOutputPreferences`. The lexicon object and `SherpaSpeechText` are `internal` to `:core:voice`, so the receiver calls them reflectively. No production code changed.
 
-## Durations (captured clips)
+- Keyguard `isKeyguardShowing=false`. `stay_on_while_plugged_in` = 2, left at 2. Lock `/tmp/jandal-s23u.lock` taken and released.
+- Branch merged with `origin/main` (Room v60). App DB user_version 59 -> 60 by forward migration on install. No data cleared.
+- Build `:app:assembleDebug` and `:app:testDebugUnitTest` (`SampleWavTest`, 2 tests, pass).
 
-| Input text | Samples | Duration |
-|---|---|---|
-| `Ka pai tō mahi.` | 13568 | 0.615 s |
-| `Ka pai tō ma-hee.` | 10752 | 0.488 s |
+## Why the earlier clips were short
 
-Host references (sherpa 1.13.0, speed 0.85, gain 1.5): `Ka pai tō mahi.` ~1.35 s; `Ka pai tō ma-hee.` ~1.40 s.
+The receiver had received only `input="Ka"`. The host's `adb shell am broadcast ... --es text "Ka pai tō mahi."` was split on spaces by the device shell, so only the first word arrived. The receiver was not truncating. The logged `input=` field, now added, shows the full text.
 
-## Why this does not verify the fix
+## Results
 
-- `SampleClipReceiver` calls `generate(text, 0, 1.0f)` directly. Speed is 1.0, not the app's 0.85, and it skips `SherpaSpeechText.prepare`, so the lexicon mapping is not applied to the input. The respelled render just says the text it was given.
-- The durations are about half the host references, and the respelled clip is shorter than the raw one. The expected direction was the reverse.
-- The clips were not listened to, and the receiver logs only sample counts.
-- The live speech path does not log the prepared text; only the character count appears under verbose logging.
+| Input (`--es text`) | Prepared text (logcat) | Samples | Duration |
+|---|---|---|---|
+| `Ka pai tō mahi.` | `Ka pai tō ma-hee.` | 35285 | 1.600 s |
+| `Ka pai tō ma-hee.` | `Ka pai tō ma-hee.` | 34560 | 1.567 s |
+| `mahi.` | `ma-hee.` | 14632 | 0.664 s |
 
-The lexicon mapping itself is covered by `PronunciationLexiconTest` on the host (`SherpaSpeechText.prepare("Ka pai tō mahi.") == "Ka pai tō ma-hee."`).
+Host references (sherpa 1.13.0, speed 0.85, gain 1.5): `Ka pai tō mahi.` ~1.35 s; `Ka pai tō ma-hee.` ~1.40 s. The device sentence renders are about 15% longer than the host.
+
+No long pause at the hyphen: the longest internal quiet run (10 ms RMS windows, edges excluded) is 0.08 s for `mahi` and 0.09 s for `ma-hee`. The WAV files and sample counts match the logged durations. Peaks: 11508 (mahi), 13943 (ma-hee).
+
+WAVs are kept on the host at `/tmp/1993-device/` (not in git): `raw_mahi.wav`, `raw_mahee.wav`, `word_mahi.wav`.
 
 ## Device state
 
-- Debug app data: not cleared. Onboarding was skipped during the run. Skipping started a background model download (about 3.7 GB, Wi-Fi only, labelled "Getting Jandal ready") that was not requested for this check. It may still be running.
-- A notification-permission prompt was answered "Not now".
-- A One UI 9.0 "Install now" update prompt appeared once; I backed out with Back and did not install it.
-- Cori voice pack was already downloaded and selected on the device.
+- Debug app data: not cleared. Onboarding was skipped in an earlier run. That started a background ~3.7 GB Wi-Fi model download ("Getting Jandal ready"), not requested for this check. It may still be running.
+- Cori voice pack already downloaded and selected.
 - Screen was not turned off. No PIN entered, no power key pressed.
 
-## Next step needed
+## Not verified
 
-A correct on-device check needs the live speech path (speech with the lexicon applied at speed 0.85), or a debug receiver that calls `SherpaSpeechText.prepare` first, plus listening to the clips or measuring against those references.
+- Listening to `ma-hee`: the clips were not played back, so audio quality is not confirmed.
+- The live speech path (`speak`, AudioTrack playback) was not run. The receiver mirrors its steps; it does not play audio.
+- Host-vs-device duration gap (~15%) is not explained yet.
