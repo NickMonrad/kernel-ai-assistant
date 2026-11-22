@@ -7,7 +7,9 @@ import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.isDownloaded
+import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -26,8 +28,9 @@ private const val LEGACY_VOSK_DIR = "voice"
 /**
  * Prepares the default voice stack on app start, alongside the required model downloads:
  *
- * - queues the offline Zipformer STT model when the selected input engine needs it
- *   ([VoiceInputEngine.Auto] uses it as the offline fallback and for alert commands);
+ * - queues the speech input files the selected engine needs: Zipformer for Auto and Sherpa Zipformer (debug builds
+ *   only), and asr4all for Auto and asr4all streaming (the size the tier policy picks, once the Terms of Use are
+ *   accepted, #1998);
  * - queues the selected Sherpa voice (Cori by default) when the effective engine is Sherpa Piper.
  *   That is the tier default on fresh installs, so it starts after the wizard's network choice.
  *   A stored Android TTS choice never queues it. Choosing Piper later goes through [PiperVoiceSetup];
@@ -45,43 +48,85 @@ class VoiceDefaultsProvisioner @Inject constructor(
     private val modelDownloadManager: ModelDownloadManager,
     private val voicePackDownloadManager: SherpaVoicePackDownloadManager,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
+    private val hardwareProfileDetector: HardwareProfileDetector,
+    private val termsAcceptance: TermsAcceptancePreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     fun start() {
         scope.launch {
+            // One-time move to Automatic (#1980) first, so the engine planned below is the migrated value.
+            runCatching { voiceInputPreferences.applyAutoDefaultOnce() }
+                .onFailure { Log.w(TAG, "Failed to apply the one-time Automatic default", it) }
             // Read before the consent wait: the wizard does not change whether this is an existing install (#1868).
             val isExistingInstall = modelDownloadManager.isExistingInstall()
             runCatching { deleteLegacyVoskModel() }
                 .onFailure { Log.w(TAG, "Failed to delete legacy Vosk model", it) }
             // Nothing downloads before the user has chosen a download network in the setup wizard (#1855).
             downloadNetworkPreferences.choice.first { DownloadConsent.voiceDefaultsAllowed(it) }
-            runCatching { queueSpeechInputModel() }
-                .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
+            // Own coroutine: asr4all waits for the Terms of Use (#1998) and must not hold up the output voice below.
+            scope.launch {
+                runCatching { queueSpeechInputModel() }
+                    .onFailure { Log.w(TAG, "Failed to queue speech input model", it) }
+            }
             runCatching { queueSpeechOutputVoice(isExistingInstall) }
                 .onFailure { Log.w(TAG, "Failed to queue speech output voice", it) }
         }
     }
 
 
-    private suspend fun queueSpeechInputModel() {
-        if (prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) return
-        queueSpeechInput(voiceInputPreferences.selectedEngine.first())
-        prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
+    internal suspend fun queueSpeechInputModel() {
+        val engine = voiceInputPreferences.selectedEngine.first()
+        if (!prefs.getBoolean(KEY_ZIPFORMER_QUEUED, false)) {
+            queueZipformer(engine)
+            prefs.edit().putBoolean(KEY_ZIPFORMER_QUEUED, true).apply()
+        }
+        // asr4all waits for the Terms of Use (#1998): nothing is queued, and the marker stays unset, until they are accepted.
+        if (!prefs.getBoolean(KEY_ASR4ALL_QUEUED, false) && needsAsr4all(engine)) {
+            termsAcceptance.record.first { it.isAccepted() }
+            if (queueAsr4all(engine)) {
+                prefs.edit().putBoolean(KEY_ASR4ALL_QUEUED, true).apply()
+            }
+        }
     }
 
     /**
-     * Queues the Zipformer files [engine] needs that are not on disk yet. Used at launch and by the setup
-     * wizard's Finish, so the size line and the queue agree, including a stored Automatic whose files were deleted.
+     * Queues the speech input files [engine] needs that are not on disk yet: Zipformer for Auto and Sherpa Zipformer
+     * (debug builds only), asr4all for Auto and asr4all streaming. Used at launch and by the setup wizard's Finish, so
+     * the size line and the queue agree, including a stored Automatic whose files were deleted.
      */
     suspend fun queueSpeechInput(engine: VoiceInputEngine) {
-        if (!needsZipformer(engine)) return
+        queueZipformer(engine)
+        queueAsr4all(engine)
+    }
+
+    private suspend fun queueZipformer(engine: VoiceInputEngine) {
+        if (!needsZipformer(engine, voiceInputPreferences.allowsSherpaRuntime())) return
         val missing = zipformerModels().filterNot { it.isDownloaded(context) }
         if (missing.isNotEmpty()) {
             Log.i(TAG, "Queuing Zipformer STT model for engine=$engine: ${missing.map { it.name }}")
             missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
         }
+    }
+
+    /**
+     * Queues the asr4all files of the size the user's choice resolves to on this tier. Returns true when the engine
+     * needs asr4all and it is queued or already on disk; false when it does not need it or the Terms of Use are not
+     * accepted (#1998).
+     */
+    private suspend fun queueAsr4all(engine: VoiceInputEngine): Boolean {
+        if (!needsAsr4all(engine) || !termsAcceptance.record.first().isAccepted()) return false
+        val size = Asr4AllInstall.effectiveSize(
+            voiceInputPreferences.asr4allSize.first(),
+            hardwareProfileDetector.profile.tier,
+        )
+        val missing = Asr4AllInstall.models(size).filterNot { it.isDownloaded(context) }
+        if (missing.isNotEmpty()) {
+            Log.i(TAG, "Queuing asr4all ${size.name} model for engine=$engine: ${missing.map { it.name }}")
+            missing.forEach { modelDownloadManager.startDownload(it, source = DownloadSource.AUTO_QUEUED) }
+        }
+        return true
     }
 
     private suspend fun queueSpeechOutputVoice(isExistingInstall: Boolean) {
@@ -140,14 +185,23 @@ class VoiceDefaultsProvisioner @Inject constructor(
         private const val PREFS_NAME = "voice_defaults_provisioner"
         private const val KEY_ZIPFORMER_QUEUED = "zipformer_queued_v1"
         private const val KEY_VOICE_QUEUED = "piper_voice_queued_v1"
+        private const val KEY_ASR4ALL_QUEUED = "asr4all_queued_v1"
 
         /** `<root>/voice` folders that still hold the unpacked Vosk model; nothing else. */
         internal fun legacyVoskDirsToDelete(roots: List<File>): List<File> =
             roots.map { File(it, LEGACY_VOSK_DIR) }
                 .filter { it.isDirectory && File(it, "vosk-model").exists() }
 
-        fun needsZipformer(engine: VoiceInputEngine): Boolean =
-            engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer
+        /** Zipformer is a debug-build engine: release never plans or queues it, whatever the stored choice. */
+        fun needsZipformer(engine: VoiceInputEngine, allowsSherpaRuntime: Boolean): Boolean =
+            allowsSherpaRuntime && (engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.SherpaZipformer)
+
+        /** Auto and asr4all streaming use the asr4all model; Sherpa Zipformer does not. */
+        fun needsAsr4all(engine: VoiceInputEngine): Boolean =
+            engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
+
+        /** Every asr4all file of every shipped size: membership for the setup plan and its rows. The plan itself counts one size. */
+        fun asr4allFilesOfAnySize(): List<KernelModel> = Asr4AllInstall.shippedSizes.flatMap(Asr4AllInstall::models)
 
         fun zipformerModels(): List<KernelModel> =
             SherpaSttModelSpec.ZIPFORMER.requiredFileNames.mapNotNull { name ->

@@ -69,6 +69,7 @@ class SelectableVoiceInputControllerTest {
         every { asr4allVoiceInputController.stopListening() } just runs
         every { asr4allVoiceInputController.supersedeCapture() } just runs
         coEvery { asr4allVoiceInputController.releaseEngine() } just runs
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
         every { nativeAndroidVoiceInputController.stopListeningForSession(any()) } just runs
         every { nativeAndroidVoiceInputController.cancelListeningForSession(any()) } just runs
         every { sherpaOnnxVoiceInputController.stopListeningForSession(any()) } just runs
@@ -121,10 +122,28 @@ class SelectableVoiceInputControllerTest {
     // ── Auto routing (pure) ─────────────────────────────────────────────────
 
     @Test
-    fun `auto prefers zipformer when the online fallback is off`() {
+    fun `auto prefers asr4all over zipformer when the online fallback is off`() {
         assertEquals(
-            AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = false),
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = true,
+                allowOnlineFallback = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto uses asr4all alone while zipformer is not downloaded`() {
+        assertEquals(
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = false,
+                allowOnlineFallback = false,
+            ),
         )
     }
 
@@ -132,32 +151,97 @@ class SelectableVoiceInputControllerTest {
     fun `auto uses android native when the online fallback is allowed`() {
         assertEquals(
             AutoSttRoute.Native,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = true, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = true,
+                zipformerReady = true,
+                allowOnlineFallback = true,
+            ),
         )
     }
 
     @Test
-    fun `auto uses on-device native while zipformer downloads`() {
+    fun `auto uses on-device native while no offline model is downloaded`() {
         assertEquals(
             AutoSttRoute.Native,
-            resolveAutoSttRoute(nativeOnDeviceReady = true, zipformerReady = false, allowOnlineFallback = false),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = false,
+                zipformerReady = false,
+                allowOnlineFallback = false,
+            ),
         )
     }
 
     @Test
-    fun `auto uses zipformer when native is unavailable even with online fallback allowed`() {
+    fun `auto uses zipformer when asr4all is still downloading and native is unavailable`() {
         assertEquals(
             AutoSttRoute.Zipformer,
-            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = true, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = false,
+                zipformerReady = true,
+                allowOnlineFallback = true,
+            ),
         )
     }
 
     @Test
-    fun `auto reports unavailable when neither recognizer is ready`() {
+    fun `auto uses zipformer while asr4all is still downloading and the online fallback is off`() {
+        assertEquals(
+            AutoSttRoute.Zipformer,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = true,
+                asr4allReady = false,
+                zipformerReady = true,
+                allowOnlineFallback = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto uses asr4all when native is unavailable even with online fallback allowed`() {
+        assertEquals(
+            AutoSttRoute.Asr4all,
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = true,
+                zipformerReady = false,
+                allowOnlineFallback = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `auto reports unavailable when no recognizer is ready`() {
         assertEquals(
             AutoSttRoute.Unavailable,
-            resolveAutoSttRoute(nativeOnDeviceReady = false, zipformerReady = false, allowOnlineFallback = true),
+            resolveAutoSttRoute(
+                nativeOnDeviceReady = false,
+                asr4allReady = false,
+                zipformerReady = false,
+                allowOnlineFallback = true,
+            ),
         )
+    }
+
+    @Test
+    fun `release auto route follows online native, asr4all, on-device native, then unavailable`() {
+        fun route(native: Boolean, asr4all: Boolean, online: Boolean) = resolveAutoSttRoute(
+            nativeOnDeviceReady = native,
+            asr4allReady = asr4all,
+            zipformerReady = false,
+            allowOnlineFallback = online,
+        )
+
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = true))
+        assertEquals(AutoSttRoute.Asr4all, route(native = true, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Native, route(native = true, asr4all = false, online = false))
+        assertEquals(AutoSttRoute.Asr4all, route(native = false, asr4all = true, online = false))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = true))
+        assertEquals(AutoSttRoute.Unavailable, route(native = false, asr4all = false, online = false))
     }
 
     // ── Controller wiring ───────────────────────────────────────────────────
@@ -203,6 +287,19 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `release auto never starts zipformer even when its files are on disk`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns true
+
+        assertEquals(VoiceInputStartResult.Started(1L), controller().startListening(VoiceCaptureMode.Command))
+
+        coVerify(exactly = 0) { sherpaOnnxVoiceInputController.startListening(any(), any(), any()) }
+        coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
+    }
+
+    @Test
     fun `auto passes the online fallback setting to native`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns MutableStateFlow(true)
@@ -239,6 +336,30 @@ class SelectableVoiceInputControllerTest {
 
         coVerify(exactly = 1) { recognitionSupport.getAvailability() }
         coVerify(exactly = 1) { nativeAndroidVoiceInputController.startListening(VoiceCaptureMode.Command, false, any(), any()) }
+    }
+
+    @Test
+    fun `auto keeps a loaded asr4all engine when its route is asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns true
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.startListening(VoiceCaptureMode.Command, any(), any()) }
+        coVerify(exactly = 0) { asr4allVoiceInputController.releaseEngine() }
+    }
+
+    @Test
+    fun `auto releases a loaded asr4all engine when its route is not asr4all`() = runTest(dispatcher) {
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = true)
+        coEvery { sherpaOnnxVoiceInputController.isSpecAvailable(SherpaSttModelSpec.ZIPFORMER) } returns false
+
+        controller().startListening(VoiceCaptureMode.Command)
+
+        coVerify(exactly = 1) { asr4allVoiceInputController.releaseEngine() }
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
     }
 
 

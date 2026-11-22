@@ -13,6 +13,7 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -160,7 +161,7 @@ class SetupWizardViewModel @Inject constructor(
             val nativeReady = setupVoiceDevice.androidNativeInputReady()
             val isRelease = setupVoiceDevice.isReleaseBuild()
             releaseBuild = isRelease
-            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady, isRelease)
+            val inputOptions = SetupSpeechOptions.inputOptions(nativeReady)
             val tier = setupVoiceDevice.hardwareTier()
             val outputOptions = SetupSpeechOptions.outputOptions(
                 hasSystemTts = setupVoiceDevice.hasSystemTtsEngine(),
@@ -189,7 +190,7 @@ class SetupWizardViewModel @Inject constructor(
             // choice that is not offered shows nothing selected, and is never overwritten (see inputToSave).
             val inputEngine = when {
                 savedInput != null -> SetupSpeechOptions.offered(savedInput, inputOptions)
-                    ?: if (isRelease) VoiceInputEngine.AndroidNative else null
+                    ?: if (isRelease) VoiceInputEngine.Auto else null
                 currentInput == null -> inputOptions.first()
                 else -> SetupSpeechOptions.offered(currentInput, inputOptions)
             }
@@ -203,7 +204,10 @@ class SetupWizardViewModel @Inject constructor(
 
             val wakeStored = wakeWordPreferences.heyJandalEnabled.first()
             voiceStates = voicePackDownloadManager.downloadStates.value
-            allPlannedModels = downloadManager.plannedFirstRunModels()
+            // The stored size when this tier offers it: the plan counts the same files the provisioner queues.
+            val asr4allSize = Asr4AllInstall.effectiveSize(voiceInputPreferences.asr4allSize.first(), tier)
+            allPlannedModels = downloadManager.plannedFirstRunModels() +
+                Asr4AllInstall.models(asr4allSize).filterNot { isModelDownloaded(it) }
             val input = effectiveInput(inputEngine)
             val output = effectiveOutput(outputEngine)
             val plannedModels = plannedModelsFor(input, output)
@@ -256,14 +260,17 @@ class SetupWizardViewModel @Inject constructor(
     private fun effectiveOutput(engine: VoiceOutputEngine?): VoiceOutputEngine? = engine ?: storedOutput
 
     /**
-     * Zipformer files are needed only when the effective input uses them (Auto or Sherpa Zipformer). Inflect Micro's
+     * Zipformer and asr4all files are needed only when the effective input uses them (see the provisioner's
+     * needsZipformer and needsAsr4all). Inflect Micro's
      * graph files join the plan when Inflect is the output, so the step-3 rows and totals include them (#1931).
      */
     private fun plannedModelsFor(input: VoiceInputEngine, output: VoiceOutputEngine?): List<KernelModel> {
-        val speech = if (VoiceDefaultsProvisioner.needsZipformer(input)) {
-            allPlannedModels
-        } else {
-            allPlannedModels.filterNot { it in VoiceDefaultsProvisioner.zipformerModels() }
+        val asr4all = VoiceDefaultsProvisioner.asr4allFilesOfAnySize()
+        val speech = allPlannedModels.filter { model ->
+            val isZipformer = model in VoiceDefaultsProvisioner.zipformerModels()
+            val isAsr4all = model in asr4all
+            (!isZipformer || VoiceDefaultsProvisioner.needsZipformer(input, allowsSherpaRuntime = !releaseBuild)) &&
+                (!isAsr4all || VoiceDefaultsProvisioner.needsAsr4all(input))
         }
         val inflect = if (output == VoiceOutputEngine.InflectMicroExperimental) {
             InflectMicroSetup.kernelModels().filterNot { isModelDownloaded(it) }

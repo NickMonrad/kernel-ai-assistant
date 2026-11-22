@@ -10,6 +10,8 @@ import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
+import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.inference.terms.TERMS_VERSION
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
@@ -76,6 +78,7 @@ class SetupWizardViewModelTest {
         every { wakeWordPreferences.heyJandalEnabled } returns flowOf(false)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { voiceInputPreferences.allowOnlineSpeechFallback } returns flowOf(false)
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.M)
         every { downloadManager.downloadStates } returns MutableStateFlow(emptyMap())
         every { setupVoiceDevice.inflectEligible() } returns false
         // Most of this suite exercises the full debug speech stack. Release-only gating has focused tests below.
@@ -378,19 +381,20 @@ class SetupWizardViewModelTest {
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `release offers only platform speech input and never Sherpa STT, with Piper and Android TTS output`() {
+    fun `release offers Automatic and platform speech input, never Sherpa STT, with Piper and Android TTS output`() {
         every { setupVoiceDevice.isReleaseBuild() } returns true
         coEvery { downloadManager.plannedFirstRunModels() } returns VoiceDefaultsProvisioner.zipformerModels()
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
-        assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.inputEngine)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(VoiceInputEngine.Auto, vm.uiState.value.inputEngine)
         assertTrue(VoiceOutputEngine.SherpaExperimental in vm.uiState.value.outputOptions)
         assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
         assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
+        assertTrue(vm.uiState.value.plannedModels.none { it in VoiceDefaultsProvisioner.zipformerModels() })
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
         val inflectBytes = InflectMicroSetup.kernelModels().sumOf { it.approxSizeBytes } + coriBytes
@@ -402,7 +406,7 @@ class SetupWizardViewModelTest {
         vm.onContinue {}
         dispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { voiceDefaultsProvisioner.queueSpeechInput(match { it != VoiceInputEngine.AndroidNative }) }
+        coVerify(exactly = 1) { voiceDefaultsProvisioner.queueSpeechInput(VoiceInputEngine.Auto) }
         verify(exactly = 0) { downloadManager.startDownload(any(), any(), any(), any()) }
     }
 
@@ -575,7 +579,10 @@ class SetupWizardViewModelTest {
 
         vm.onOutputSelected(VoiceOutputEngine.InflectMicroExperimental)
 
-        assertEquals(InflectMicroSetup.kernelModels(), vm.uiState.value.plannedModels)
+        assertEquals(
+            Asr4AllInstall.models(Asr4AllSize.M) + InflectMicroSetup.kernelModels(),
+            vm.uiState.value.plannedModels,
+        )
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
     }
 
@@ -627,13 +634,14 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.isRerun)
-        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes, vm.uiState.value.welcomeTotalBytes)
+        assertEquals(KernelModel.GEMMA_4_E4B.approxSizeBytes + asr4allBytes, vm.uiState.value.welcomeTotalBytes)
     }
 
     // ── Hey Jandal download size (#1931) ─────────────────────────────────────────
 
     private val verifierBytes = wakeVerifierKernelModels().sumOf { it.approxSizeBytes }
     private val zipformerBytes = VoiceDefaultsProvisioner.zipformerModels().sumOf { it.approxSizeBytes }
+    private val asr4allBytes = Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes }
 
     @Test
     fun `Hey Jandal with Android's own listener and nothing downloaded adds the verifier and Zipformer`() {
@@ -653,7 +661,10 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(VoiceDefaultsProvisioner.zipformerModels(), vm.uiState.value.plannedModels)
+        assertEquals(
+            VoiceDefaultsProvisioner.zipformerModels() + Asr4AllInstall.models(Asr4AllSize.M),
+            vm.uiState.value.plannedModels,
+        )
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         assertEquals(0L, vm.uiState.value.heyJandalZipformerBytes)
     }
@@ -681,9 +692,22 @@ class SetupWizardViewModelTest {
 
         assertFalse(vm.uiState.value.isRerun)
         assertEquals(
-            KernelModel.GEMMA_4_E4B.approxSizeBytes + SherpaPiperVoice.CoriHigh.approxDownloadBytes,
+            KernelModel.GEMMA_4_E4B.approxSizeBytes + SherpaPiperVoice.CoriHigh.approxDownloadBytes + asr4allBytes,
             vm.uiState.value.welcomeTotalBytes,
         )
+    }
+
+    @Test
+    fun `the plan counts the stored asr4all size only where the tier offers it`() {
+        every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.L)
+        val flagship = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.L), flagship.uiState.value.plannedModels)
+
+        device(nativeReady = true, hasTts = true, tier = HardwareTier.LOW_POWER)
+        val lowPower = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M), lowPower.uiState.value.plannedModels)
     }
 
     // ── Zipformer files follow the speech input (#1855 part 2 review S1) ─────────
@@ -695,7 +719,7 @@ class SetupWizardViewModelTest {
         coEvery { downloadManager.plannedFirstRunModels() } returns zipformer + other
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
-        assertEquals(zipformer + other, vm.uiState.value.plannedModels)
+        assertEquals(zipformer + other + Asr4AllInstall.models(Asr4AllSize.M), vm.uiState.value.plannedModels)
 
         vm.onInputSelected(VoiceInputEngine.AndroidNative)
 

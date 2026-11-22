@@ -460,6 +460,7 @@ class Asr4allVoiceInputController internal constructor(
         return openOrNull(key)?.also {
             engine = it
             engineKey = key
+            Log.i(TAG, "asr4all engine loaded size=${key.size} threads=${key.threads}")
         }
     }
 
@@ -633,6 +634,7 @@ class Asr4allVoiceInputController internal constructor(
             supersedeCapture()
             if (!awaitCaptureEnded()) return@withLock null
             withContext(Dispatchers.IO) {
+                if (engine != null) Log.i(TAG, "asr4all engine released")
                 engine?.close()
                 engine = null
             }

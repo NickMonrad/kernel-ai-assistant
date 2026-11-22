@@ -76,34 +76,42 @@ internal enum class AutoSttRoute {
     /** Android native, starting on-device. Platform fallback follows the user's setting. */
     Native,
 
+    /** Offline asr4all streaming model, once it is downloaded. */
+    Asr4all,
+
     /** Offline Sherpa-ONNX Zipformer. */
     Zipformer,
 
-    /** No usable recognizer yet (Zipformer still downloading, no on-device support). */
+    /** No usable recognizer yet (no offline model downloaded, no on-device support). */
     Unavailable,
 }
 
 /**
  * Picks the recognizer for [VoiceInputEngine.Auto].
  *
- * Without the online fallback, the offline Zipformer model is preferred: on the S23 Ultra,
- * Android's on-device recognizer returned empty results for clearly audible speech that
- * Zipformer transcribed (#1008). On-device Android recognition is only used while Zipformer
- * is still downloading.
+ * Without the online fallback, an offline model wins: asr4all once it is downloaded, then
+ * Zipformer. Android's on-device recognizer is not preferred there: on the S23 Ultra it returned
+ * empty results for clearly audible speech that Zipformer transcribed (#1008). On-device Android
+ * recognition is used only while no offline model is downloaded.
  *
  * With the online fallback allowed, Android native is preferred: it starts on-device and its
  * existing fallback retries empty or failed on-device results on the platform service.
  */
 internal fun resolveAutoSttRoute(
     nativeOnDeviceReady: Boolean,
+    asr4allReady: Boolean,
     zipformerReady: Boolean,
     allowOnlineFallback: Boolean,
 ): AutoSttRoute = when {
     allowOnlineFallback && nativeOnDeviceReady -> AutoSttRoute.Native
+    asr4allReady -> AutoSttRoute.Asr4all
     zipformerReady -> AutoSttRoute.Zipformer
     nativeOnDeviceReady -> AutoSttRoute.Native
     else -> AutoSttRoute.Unavailable
 }
+
+/** Auto and asr4all share one loaded engine, so an Auto start keeps it when its route is asr4all. */
+private fun VoiceInputEngine.usesAsr4all(): Boolean = this == VoiceInputEngine.Asr4all || this == VoiceInputEngine.Auto
 
 /**
  * Whether a terminal Android native error may be handed to Zipformer for the same capture.
@@ -232,14 +240,14 @@ class SelectableVoiceInputController @Inject constructor(
                 .distinctUntilChanged()
                 .catch { Log.w(TAG, "asr4all selection observer stopped", it) }
                 .collect { engine ->
-                    val leftAsr4all = previous == VoiceInputEngine.Asr4all && engine != VoiceInputEngine.Asr4all
+                    val leftAsr4all = previous?.usesAsr4all() == true && !engine.usesAsr4all()
                     previous = engine
                     if (!leftAsr4all) return@collect
                     // Supersede before waiting behind a start's lock, so a cold mic closes at once.
                     retireAsr4allForDeselect()
                     // Re-read under startMutex: a reselect that ran first keeps the loaded engine.
                     startMutex.withLock {
-                        if (voiceInputPreferences.selectedEngine.first() != VoiceInputEngine.Asr4all) {
+                        if (!voiceInputPreferences.selectedEngine.first().usesAsr4all()) {
                             asr4allVoiceInputController.releaseEngine()
                         }
                     }
@@ -307,8 +315,8 @@ class SelectableVoiceInputController @Inject constructor(
 
     /**
      * #1850: warms the recognizer the next start will use, so the first tap does not wait for the
-     * model load. Auto warms Zipformer only when [resolveAutoSttRoute] would pick it from the
-     * cached native availability; it never runs the live check. Android native has no model, but
+     * model load. Auto warms the offline model [resolveAutoSttRoute] picks from the cached
+     * native availability; it never runs the live check. Android native has no model, but
      * with online recognition on its start reuses the live language check's answer (#1973), so
      * that check runs here instead of on the first tap, and again once a not-Ready answer is stale.
      */
@@ -321,11 +329,18 @@ class SelectableVoiceInputController @Inject constructor(
                     cached.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
                 val route = resolveAutoSttRoute(
                     nativeOnDeviceReady = nativeOnDeviceReady,
+                    asr4allReady = asr4allVoiceInputController.isAvailable(),
                     zipformerReady = zipformerDownloaded(),
                     allowOnlineFallback = allowOnlineFallback,
                 )
-                if (route == AutoSttRoute.Zipformer) {
-                    sherpaOnnxVoiceInputController.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+                when (route) {
+                    AutoSttRoute.Asr4all -> startMutex.withLock {
+                        asr4allVoiceInputController.prewarmIfCurrent {
+                            voiceInputPreferences.selectedEngine.first() == VoiceInputEngine.Auto
+                        }
+                    }
+                    AutoSttRoute.Zipformer -> sherpaOnnxVoiceInputController.prewarmSpec(SherpaSttModelSpec.ZIPFORMER)
+                    AutoSttRoute.Native, AutoSttRoute.Unavailable -> Unit
                 }
             }
             VoiceInputEngine.AndroidNative -> {
@@ -614,7 +629,7 @@ class SelectableVoiceInputController @Inject constructor(
     /**
      * Retires a superseded capture whose backend never settled. Keyed by owner because a hand-off
      * re-keys the admission to a new backend id. A wedged native records a settle window, which the
-     * next start awaits only when its engine is Sherpa-family or asr4all (settleNativeToLocal). Consumers
+     * next start awaits only when its engine is Sherpa-family, asr4all or Auto (settleNativeToLocal). Consumers
      * get one synthetic cancelled stop, only if this call removed the admission; a backend terminal that
      * arrives later is dropped with its admission.
      */
@@ -655,7 +670,7 @@ class SelectableVoiceInputController @Inject constructor(
                     if (gen != generation.get()) return@withLock VoiceInputStartResult.Cancelled()
                     val selectedBeforeTeardown = voiceInputPreferences.selectedEngine.first()
                     val settleNativeToLocal =
-                        selectedBeforeTeardown.isSherpaFamily || selectedBeforeTeardown == VoiceInputEngine.Asr4all
+                        selectedBeforeTeardown.isSherpaFamily || selectedBeforeTeardown.usesAsr4all()
                     if (!stopAndAwaitPreviousBackends(gen, settleNativeToLocal)) {
                         return@withLock VoiceInputStartResult.Cancelled()
                     }
@@ -673,7 +688,7 @@ class SelectableVoiceInputController @Inject constructor(
                     if (engine != VoiceInputEngine.Auto) {
                         JandalEvents.record("voice", "stt_route", "route" to engine, "online_fallback" to allowOnlineFallback)
                     }
-                    if (engine != VoiceInputEngine.Asr4all) {
+                    if (!engine.usesAsr4all()) {
                         asr4allVoiceInputController.releaseEngine()
                     }
                     if (gen != generation.get() || voiceInputPreferences.selectedEngine.first() != engine) {
@@ -726,43 +741,51 @@ class SelectableVoiceInputController @Inject constructor(
         gen: Long,
         onSessionAdmitted: (Long) -> Unit,
     ): VoiceInputStartResult {
+        val asr4allReady = asr4allVoiceInputController.isAvailable()
         val zipformerReady = zipformerDownloaded()
-        if (zipformerReady && !allowOnlineFallback) {
-            // Zipformer wins regardless of native support; skip the native availability check.
-            Log.i(TAG, "Auto STT route=${AutoSttRoute.Zipformer} mode=$mode allowOnlineFallback=false")
-            JandalEvents.record("voice", "stt_route", "route" to AutoSttRoute.Zipformer, "online_fallback" to false)
-            return startSherpa(mode, gen, onSessionAdmitted)
-        }
+        // An offline model wins without the online fallback, so the native availability check is skipped then.
+        val offlineModelWins = !allowOnlineFallback && (asr4allReady || zipformerReady)
         // Use the cached locale check when there is one; only run the slower live check for
         // interactive captures that have no cached answer yet.
         var ranLiveCheck = false
-        val cached = androidNativeRecognitionSupport.getCaptureAvailability()
-        val availability = if (
-            cached.localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown &&
-            !shouldUseCachedCaptureAvailability(mode)
-        ) {
-            ranLiveCheck = true
-            androidNativeRecognitionSupport.getAvailability()
+        val nativeOnDeviceReady = if (offlineModelWins) {
+            false
         } else {
-            cached
+            val cached = androidNativeRecognitionSupport.getCaptureAvailability()
+            val availability = if (
+                cached.localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown &&
+                !shouldUseCachedCaptureAvailability(mode)
+            ) {
+                ranLiveCheck = true
+                androidNativeRecognitionSupport.getAvailability()
+            } else {
+                cached
+            }
+            availability.blockingReason == null &&
+                availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
         }
-        val nativeOnDeviceReady = availability.blockingReason == null &&
-            availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready
         val route = resolveAutoSttRoute(
             nativeOnDeviceReady = nativeOnDeviceReady,
+            asr4allReady = asr4allReady,
             zipformerReady = zipformerReady,
             allowOnlineFallback = allowOnlineFallback,
         )
         Log.i(
             TAG,
             "Auto STT route=$route mode=$mode nativeOnDeviceReady=$nativeOnDeviceReady " +
-                "zipformerReady=$zipformerReady allowOnlineFallback=$allowOnlineFallback",
+                "asr4allReady=$asr4allReady zipformerReady=$zipformerReady " +
+                "allowOnlineFallback=$allowOnlineFallback",
         )
         JandalEvents.record(
             "voice", "stt_route", "route" to route,
-            "native_ready" to nativeOnDeviceReady, "zipformer_ready" to zipformerReady,
-            "online_fallback" to allowOnlineFallback,
+            "native_ready" to nativeOnDeviceReady, "asr4all_ready" to asr4allReady,
+            "zipformer_ready" to zipformerReady, "online_fallback" to allowOnlineFallback,
         )
+        // Auto keeps a loaded asr4all engine for its next start. Every other route releases it first.
+        if (route != AutoSttRoute.Asr4all) {
+            asr4allVoiceInputController.releaseEngine()
+            if (gen != generation.get()) return VoiceInputStartResult.Cancelled()
+        }
         return when (route) {
             AutoSttRoute.Native -> {
                 // The live check's throwaway recognizer is torn down asynchronously; starting
@@ -771,6 +794,7 @@ class SelectableVoiceInputController @Inject constructor(
                 if (ranLiveCheck) delay(LIVE_CHECK_SETTLE_MS)
                 startNative(mode, allowOnlineFallback, gen, onSessionAdmitted)
             }
+            AutoSttRoute.Asr4all -> startAsr4all(mode, gen, onSessionAdmitted)
             AutoSttRoute.Zipformer -> startSherpa(mode, gen, onSessionAdmitted)
             AutoSttRoute.Unavailable -> VoiceInputStartResult.Unavailable(AUTO_STT_UNAVAILABLE_MESSAGE)
         }

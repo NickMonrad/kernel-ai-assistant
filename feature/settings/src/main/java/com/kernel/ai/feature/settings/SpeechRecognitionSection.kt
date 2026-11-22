@@ -292,7 +292,7 @@ private fun Asr4AllSizeRow(
 
 /** One-line card descriptions from the Voice settings mockup (05-settings-voice.html), keeping each meaning. */
 private fun shortDescription(engine: VoiceInputEngine): String = when (engine) {
-    VoiceInputEngine.Auto -> "Picks the best recognizer on this phone. Works offline."
+    VoiceInputEngine.Auto -> VoiceInputEngine.AUTOMATIC_SUMMARY
     VoiceInputEngine.AndroidNative -> "Your phone's own recognizer. Can suit some accents better."
     VoiceInputEngine.SherpaZipformer -> "Fully offline, shows words as you speak."
     VoiceInputEngine.SherpaSenseVoice -> "Offline, English. Final result only."

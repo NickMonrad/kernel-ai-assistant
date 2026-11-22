@@ -32,11 +32,26 @@ class VoiceInputEngineTest {
     }
 
     @Test
-    fun `provisioner downloads Zipformer only for engines that use it`() {
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.Auto))
-        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaZipformer))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.AndroidNative))
-        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaWhisper))
+    fun `provisioner downloads Zipformer only for engines that use it in debug builds`() {
+        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.Auto, allowsSherpaRuntime = true))
+        assertTrue(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaZipformer, allowsSherpaRuntime = true))
+        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.AndroidNative, allowsSherpaRuntime = true))
+        assertFalse(VoiceDefaultsProvisioner.needsZipformer(VoiceInputEngine.SherpaWhisper, allowsSherpaRuntime = true))
+    }
+
+    @Test
+    fun `release never downloads or plans Zipformer for any stored engine`() {
+        VoiceInputEngine.entries.forEach { engine ->
+            assertFalse(VoiceDefaultsProvisioner.needsZipformer(engine, allowsSherpaRuntime = false))
+        }
+    }
+
+    @Test
+    fun `provisioner downloads asr4all only for engines that use it`() {
+        assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Auto))
+        assertTrue(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.Asr4all))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.SherpaZipformer))
+        assertFalse(VoiceDefaultsProvisioner.needsAsr4all(VoiceInputEngine.AndroidNative))
     }
 
     @Test
@@ -59,20 +74,32 @@ class VoiceInputEngineTest {
         )
     }
     @Test
-    fun `release catalogue contains Android native and asr4all input`() {
+    fun `release catalogue contains Automatic, Android native and asr4all input`() {
         assertEquals(
-            listOf(VoiceInputEngine.AndroidNative, VoiceInputEngine.Asr4all),
+            listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative, VoiceInputEngine.Asr4all),
             VoiceInputEngine.entriesForBuild(isRelease = true),
         )
     }
 
     @Test
-    fun `release resolves stored Sherpa and Automatic choices to Android native`() {
-        assertEquals(VoiceInputEngine.AndroidNative, VoiceInputEngine.resolveForBuild("Auto", isRelease = true))
-        assertEquals(
-            VoiceInputEngine.AndroidNative,
-            VoiceInputEngine.resolveForBuild("SherpaZipformer", isRelease = true),
-        )
+    fun `release resolves missing, unknown, legacy and debug-only choices to Automatic`() {
+        listOf(null, "not-an-engine", "Vosk", "SherpaOnnx", "SherpaZipformer", "SherpaWhisper").forEach { stored ->
+            assertEquals(VoiceInputEngine.Auto, VoiceInputEngine.resolveForBuild(stored, isRelease = true), "stored=$stored")
+        }
+    }
+
+    @Test
+    fun `release keeps stored Automatic, Android native and asr4all choices`() {
+        listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative, VoiceInputEngine.Asr4all).forEach { engine ->
+            assertEquals(engine, VoiceInputEngine.resolveForBuild(engine.name, isRelease = true))
+        }
+    }
+
+    @Test
+    fun `debug keeps every stored engine`() {
+        VoiceInputEngine.entries.forEach { engine ->
+            assertEquals(engine, VoiceInputEngine.resolveForBuild(engine.name, isRelease = false))
+        }
     }
 
     @Test

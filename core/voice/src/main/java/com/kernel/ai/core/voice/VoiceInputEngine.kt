@@ -9,8 +9,7 @@ enum class VoiceInputEngine(
 ) {
     Auto(
         displayName = "Automatic (recommended)",
-        description = "Uses the offline Sherpa-ONNX Zipformer model. If you allow online speech recognition, uses Android speech recognition instead.",
-        debugOnly = true,
+        description = "Uses the offline asr4all model once it is downloaded. Until then, uses Android's speech recognition on this phone. If you allow online speech recognition, Android's speech recognition is used first.",
     ),
     AndroidNative(
         displayName = "Android native",
@@ -19,7 +18,7 @@ enum class VoiceInputEngine(
     ),
     SherpaZipformer(
         displayName = "Sherpa-ONNX Zipformer",
-        description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model. Highest accuracy for NZ English with no network dependency.",
+        description = "Fully offline streaming speech recognition using the Sherpa-ONNX Zipformer model with no network dependency.",
         isSherpaFamily = true,
         debugOnly = true,
     ),
@@ -46,7 +45,7 @@ enum class VoiceInputEngine(
     Asr4all(
         displayName = "asr4all streaming",
         description = "Offline streaming speech recognition with the asr4all model (ExecuTorch). M is about 60 MB; L, for capable phones, is about 101 MB. Streaming partial results.",
-        warning = "Experimental. Accuracy has not yet been compared with Sherpa-ONNX Zipformer; compare on your own speech before relying on it.",
+        warning = "Experimental. Compare on your own speech before relying on it.",
     ),
     ;
 
@@ -67,10 +66,17 @@ enum class VoiceInputEngine(
         fun entriesForBuild(isRelease: Boolean): List<VoiceInputEngine> =
             entries.filter { engine -> !isRelease || !engine.debugOnly }
 
-        /** Stored debug/Sherpa choices resolve safely to Android native in release builds. */
+        /** Automatic's one-line summary, shared by the setup wizard and the Settings card (#1980). */
+        const val AUTOMATIC_SUMMARY =
+            "Uses the offline speech model once it has downloaded, and your phone's own speech recognition until then."
+
+        /**
+         * Release drops the debug and Sherpa engines: a stored choice of one of them, or a missing or unknown value,
+         * resolves to [Auto]. Stored Android native and asr4all choices stay, since release Settings still offers them.
+         */
         fun resolveForBuild(value: String?, isRelease: Boolean): VoiceInputEngine {
             val engine = fromStorage(value)
-            return engine.takeIf { it in entriesForBuild(isRelease) } ?: AndroidNative
+            return engine.takeIf { it in entriesForBuild(isRelease) } ?: Auto
         }
     }
 }
