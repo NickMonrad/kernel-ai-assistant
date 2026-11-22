@@ -1,34 +1,42 @@
-# #1993 device check: S23U (RFCW11265XH), Cori TTS, `mahi` -> `ma-hee` (PENDING)
+# #1993 device check: S23U (RFCW11265XH), Cori TTS, `mahi` -> `ma-hee`
 
-Status: PENDING. Not run on device. The S23U is PIN-locked (`isKeyguardShowing=true`, `mDreamingLockscreen=true`). The owner must unlock it in person. An earlier attempt on this device crashed the debug app (see below). This evidence is incomplete until the device check is redone.
+Status: INCONCLUSIVE. The S23U renders ran, but the debug path does not exercise the lexicon or the app's speech settings, and the durations do not match the host references. Nothing here proves the spoken text is `ma-hee`.
 
-## What ran
+## What ran (2026-11-22, AEST)
 
-- Host unit tests: `./gradlew :core:voice:testDebugUnitTest` for `PronunciationLexiconTest` (21 tests) and `SherpaSpeechTextTest` (61 tests) passed. Includes the new `mahi` cases.
-- Debug build: `./gradlew :app:assembleDebug` succeeded on this branch (Room v59, `KernelDatabase` `version = 59`).
-- `settings global stay_on_while_plugged_in`: set to 15, then restored to 0 (previous value). The restore to 0 is the setting that left the device locked. For any future use, set it to 2 and leave it at 2 afterwards.
-- `SampleClipReceiver` broadcasts (text `Ka pai tō mahi.`, then `Ka pai tō ma-hee.`) started the process, and the app crashed both times:
+- Keyguard: `isKeyguardShowing=false` at start. `stay_on_while_plugged_in` set to 2 and left at 2.
+- Lock: `/tmp/jandal-s23u.lock` taken, released after the run.
+- Branch: `fix/1993-cori-mahi` merged with `origin/main` (PR #2032 merged; main is Room v60).
+- Build: `./gradlew :app:assembleDebug` succeeded. Install: `adb install -r` returned `Success`.
+- DB: `databases/kernel_db` user_version 59 before the install, 60 after (forward migration; no data cleared).
+- Render: `SampleClipReceiver` broadcast with `--es text` (Cori voice, `files/sample_corihigh.wav`, 22050 Hz mono 16-bit).
 
-```
-IllegalStateException: A migration from 60 to 59 was required but not found.
-  at androidx.room.RoomConnectionManager$SupportOpenHelperCallback.onDowngrade(...)
-```
+## Durations (captured clips)
 
-## Why
+| Input text | Samples | Duration |
+|---|---|---|
+| `Ka pai tō mahi.` | 13568 | 0.615 s |
+| `Ka pai tō ma-hee.` | 10752 | 0.488 s |
 
-- The S23U debug database `databases/kernel_db` already had `user_version = 60` before this install. The header was read with `run-as` and `head -c 100` (read-only).
-- This branch is Room v59, so the v59 build cannot open a v60 database. The brief said the S23U is v59, which the device did not match.
-- Recovery needs either a v60 build (excluded by the brief) or clearing the debug app data (destructive). Neither was done.
+Host references (sherpa 1.13.0, speed 0.85, gain 1.5): `Ka pai tō mahi.` ~1.35 s; `Ka pai tō ma-hee.` ~1.40 s.
 
-## Device state after this run
+## Why this does not verify the fix
 
-- `settings global stay_on_while_plugged_in`: set to 15 for the test, restored to 0 (previous value).
-- S23U lock `/tmp/jandal-s23u.lock`: released.
-- Debug app `ai.jandal.assistant.debug`: crash-loops on launch with this build. Needs the owner's decision (reinstall the v60 build that was there, or clear app data).
-- Screen was not turned off, no power or lock key pressed, no PIN entered.
+- `SampleClipReceiver` calls `generate(text, 0, 1.0f)` directly. Speed is 1.0, not the app's 0.85, and it skips `SherpaSpeechText.prepare`, so the lexicon mapping is not applied to the input. The respelled render just says the text it was given.
+- The durations are about half the host references, and the respelled clip is shorter than the raw one. The expected direction was the reverse.
+- The clips were not listened to, and the receiver logs only sample counts.
+- The live speech path does not log the prepared text; only the character count appears under verbose logging.
 
-## Not measured
+The lexicon mapping itself is covered by `PronunciationLexiconTest` on the host (`SherpaSpeechText.prepare("Ka pai tō mahi.") == "Ka pai tō ma-hee."`).
 
-- Clip durations for the raw `mahi` and respelled `ma-hee` renders on the S23U. Host reference (from `/tmp/1993-options/manifest.json`, option opt0 and opt6): sentence `Ka pai tō mahi.` ~1.35 s; `Ka pai tō ma-hee.` ~1.40 and ~1.47 s.
-- Whether `ma-hee` has an audible pause at the hyphen on device.
-- The live speech path does not log the prepared text (only its length, and only with verbose logging). `SampleClipReceiver` also bypasses the lexicon, so on-device confirmation of the spoken text is not possible with current logging. The lexicon-to-spoken mapping is covered by `PronunciationLexiconTest` (`SherpaSpeechText.prepare("Ka pai tō mahi.") == "Ka pai tō ma-hee."`).
+## Device state
+
+- Debug app data: not cleared. Onboarding was skipped during the run. Skipping started a background model download (about 3.7 GB, Wi-Fi only, labelled "Getting Jandal ready") that was not requested for this check. It may still be running.
+- A notification-permission prompt was answered "Not now".
+- A One UI 9.0 "Install now" update prompt appeared once; I backed out with Back and did not install it.
+- Cori voice pack was already downloaded and selected on the device.
+- Screen was not turned off. No PIN entered, no power key pressed.
+
+## Next step needed
+
+A correct on-device check needs the live speech path (speech with the lexicon applied at speed 0.85), or a debug receiver that calls `SherpaSpeechText.prepare` first, plus listening to the clips or measuring against those references.
