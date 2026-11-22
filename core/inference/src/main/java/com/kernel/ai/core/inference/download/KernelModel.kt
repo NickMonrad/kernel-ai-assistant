@@ -417,6 +417,11 @@ enum class KernelModel(
      * Never derive keys from [name] at call sites — always use this property.
      */
     val modelId: String get() = name.lowercase()
+
+    /**
+     * True for the asr4all speech model files. Their download needs the Terms of Use accepted first (#1998).
+     */
+    val requiresTermsAcceptance: Boolean get() = name.startsWith("ASR4ALL_")
 }
 
 /** Absolute path to this model's file on external app storage (survives reinstall). */

@@ -323,6 +323,7 @@ fun VoiceScreen(
         onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
         onAsr4allSizeSelected = viewModel::setAsr4allSize,
+        onTermsAcceptedChanged = viewModel::onTermsAcceptedChanged,
         onDownloadSherpaVoice = viewModel::downloadSherpaVoice,
         onCancelSherpaVoice = viewModel::cancelSherpaVoiceDownload,
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
@@ -532,6 +533,7 @@ private fun VoiceScreenContent(
     onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onAsr4allSizeSelected: (com.kernel.ai.core.voice.asr4all.Asr4AllSize) -> Unit = { _ -> },
+    onTermsAcceptedChanged: (Boolean) -> Unit = {},
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
@@ -670,6 +672,7 @@ private fun VoiceScreenContent(
                 onCancel = onCancelSherpaStt,
                 onDelete = onDeleteSherpaStt,
                 onAsr4allSize = onAsr4allSizeSelected,
+                onTermsAcceptedChanged = onTermsAcceptedChanged,
             )
 
 
@@ -803,7 +806,6 @@ private fun VoiceScreenContent(
                 onCancelInflectMicro = onCancelInflectMicro,
                 onDeleteInflectMicro = onDeleteInflectMicro,
             )
-
         }
     }
 

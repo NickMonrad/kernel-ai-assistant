@@ -14,7 +14,11 @@ import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.termsAllowDownload
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -72,6 +76,13 @@ class ModelDownloadWorker(
             ?: return@withContext Result.failure(errorData("Missing download URL"))
         val fileName = inputData.getString(KEY_FILE_NAME)
             ?: return@withContext Result.failure(errorData("Missing file name"))
+        // asr4all weights are refused until the Terms are accepted (#1998). Checked here as well as when a download
+        // is queued, so a job queued before the acceptance cannot fetch the model.
+        val termsRecord = TermsAcceptancePreferences(applicationContext).record.first()
+        val termsModel = KernelModel.entries.firstOrNull { it.fileName == fileName }
+        if (termsModel != null && !termsAllowDownload(termsModel, termsRecord)) {
+            return@withContext Result.failure(errorData(TERMS_NOT_ACCEPTED_MESSAGE))
+        }
         val displayName = inputData.getString(KEY_MODEL_DISPLAY_NAME) ?: fileName
         val totalBytes = inputData.getLong(KEY_TOTAL_BYTES, 0L)
         val hfAccessToken = inputData.getString(KEY_HF_ACCESS_TOKEN)

@@ -1,0 +1,42 @@
+I/ModelDownloadManager( 8934): Enqueuing download for asr4all L config
+I/ModelDownloadManager( 8934): Enqueuing download for asr4all L release geometry
+I/KernelAI( 8934): ModelPreferences: unsuppressed optional model asr4all L config
+I/ModelDownloadManager( 8934): Enqueuing download for asr4all L preprocessor
+I/KernelAI( 8934): ModelPreferences: unsuppressed optional model asr4all L release geometry
+I/KernelAI( 8934): ModelPreferences: unsuppressed optional model asr4all L preprocessor
+I/ModelDownloadManager( 8934): Enqueuing download for asr4all L ExecuTorch metadata
+I/ModelDownloadManager( 8934): Enqueuing asr4all L config with policy=REPLACE (existingStates=[])
+I/ModelDownloadManager( 8934): Enqueuing asr4all L release geometry with policy=REPLACE (existingStates=[])
+I/ModelDownloadManager( 8934): Enqueuing download for asr4all L encoder
+I/ModelDownloadManager( 8934): Enqueuing asr4all L preprocessor with policy=REPLACE (existingStates=[])
+I/KernelAI( 8934): ModelPreferences: unsuppressed optional model asr4all L ExecuTorch metadata
+I/KernelAI( 8934): ModelPreferences: unsuppressed optional model asr4all L encoder
+I/ModelDownloadManager( 8934): Enqueuing asr4all L encoder with policy=REPLACE (existingStates=[])
+I/ModelDownloadManager( 8934): Enqueuing asr4all L ExecuTorch metadata with policy=REPLACE (existingStates=[])
+D/WM-WorkerWrapper( 8934): Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+D/WM-WorkerWrapper( 8934): Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+D/WM-WorkerWrapper( 8934): Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+D/WM-WorkerWrapper( 8934): Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+D/WM-WorkerWrapper( 8934): Starting work for com.kernel.ai.core.inference.download.ModelDownloadWorker
+I/ModelDownloadWorker( 8934): Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/release_geom.json
+I/ModelDownloadWorker( 8934): Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/config.json
+I/ModelDownloadWorker( 8934): Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/preprocessor_config.json
+I/ModelDownloadWorker( 8934): Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/metadata.json
+I/WM-WorkerWrapper( 8934): Worker result SUCCESS for Work [ id=775e1e75-9b79-4959-814e-fd94a5ddb681, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_release_geom } ]
+I/WM-WorkerWrapper( 8934): Worker result SUCCESS for Work [ id=341da0bb-240c-49b3-afb0-47ce71abbc9d, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_config } ]
+I/WM-WorkerWrapper( 8934): Worker result SUCCESS for Work [ id=5f8cebbb-e0bc-440c-9adc-3f81770761cf, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_preprocessor } ]
+I/WM-WorkerWrapper( 8934): Worker result SUCCESS for Work [ id=2d87dc1f-99b0-4882-bd6f-130125163036, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_metadata } ]
+I/ModelDownloadManager( 8934): Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/config.json
+I/ModelDownloadManager( 8934): Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/preprocessor_config.json
+I/ModelDownloadManager( 8934): Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/executorch/xnnpack_int8/metadata.json
+I/ModelDownloadManager( 8934): Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l/release_geom.json
+I/adbd    (25999): adbd service requested 'shell,v2,TERM=dumb,raw:find /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l -type f -exec ls -l {} \;'
+I/ModelDownloadManager( 8934): Cancelled download for asr4all L encoder
+I/ModelDownloadManager( 8934): Refreshed state for asr4all L config: NotDownloaded
+I/ModelDownloadManager( 8934): Refreshed state for asr4all L release geometry: NotDownloaded
+I/ModelDownloadManager( 8934): Refreshed state for asr4all L preprocessor: NotDownloaded
+I/ModelDownloadManager( 8934): Refreshed state for asr4all L ExecuTorch metadata: NotDownloaded
+I/ModelDownloadManager( 8934): Refreshed state for asr4all L encoder: NotDownloaded
+I/ModelDownloadManager( 8934): Download cancelled for asr4all L encoder
+I/WM-WorkerWrapper( 8934): Work [ id=32ed8740-a73c-453a-b4cb-f2482e50dabe, tags={ com.kernel.ai.core.inference.download.ModelDownloadWorker,download_asr4all_l_encoder } ] was cancelled
+I/adbd    (25999): adbd service requested 'shell,v2,TERM=dumb,raw:find /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/l -type f -exec ls -l {} \;'

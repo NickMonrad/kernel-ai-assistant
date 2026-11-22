@@ -19,6 +19,9 @@ import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.WorkerPhase
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.termsAllowDownload
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +64,7 @@ class ModelDownloadManager @Inject constructor(
     private val modelPreferences: com.kernel.ai.core.inference.prefs.ModelPreferences,
     private val authRepository: HuggingFaceAuthRepository,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
 ) {
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -283,6 +287,13 @@ class ModelDownloadManager @Inject constructor(
         // updateState moved inside coroutine — don't reset progress to 0 if KEEP is chosen
 
         scope.launch {
+            // Models that need the Terms of Use (asr4all, #1998) never download before the user accepts them. A job
+            // queued earlier is cancelled here, so a revoked or outdated acceptance cannot keep it fetching.
+            if (!termsAllowDownload(model, termsAcceptancePreferences.record.first())) {
+                withContext(Dispatchers.IO) { workManager.cancelUniqueWork(model.workerTag) }
+                updateState(model, DownloadState.Error(TERMS_NOT_ACCEPTED_MESSAGE))
+                return@launch
+            }
             withContext(Dispatchers.IO) {
                 val existingInfos = workManager.getWorkInfosForUniqueWork(model.workerTag).get()
                 val policy = when {

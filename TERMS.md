@@ -1,6 +1,6 @@
 # Jandal AI Terms of Use
 
-These terms apply when you use the Jandal AI app ("Jandal"). By using Jandal you agree to them. If you don't agree, don't use the app.
+These terms apply when you use the Jandal AI app ("Jandal"). You accept them by ticking "I agree to the Terms of Use" before you set Jandal up, and again when Jandal asks after a change to these terms (see section 8). If you don't agree, don't use the app.
 
 ## 1. Provided as is
 
@@ -24,7 +24,7 @@ Jandal can act on your device when you ask it to — for example, setting alarms
 
 Don't use Jandal to break the law, to harm, harass, or deceive others, or to interfere with other people's devices, accounts, or services. Follow the terms of any model you download, including the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and its prohibited-use policy.
 
-Where Jandal's offline speech recognition uses the asr4all model, that model is provided under the [FUTO Model Weights License (Restricted Use) 1.0](https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE) (the asr4all-m model, pinned revision `7d6e9145`; the asr4all-l model uses the same licence text at [revision `79d1c23b`](https://huggingface.co/futo-org/asr4all-l/blob/79d1c23bc8f1174cee576b40bbaa0118bd95abed/LICENSE)). The asr4all-l-plus model has a different licence and is not covered by this clause. The licence text is also available in the app under Settings › About › Legal & privacy › Open-source licences. You agree not to use Jandal's speech recognition, or the text it produces, for any of the purposes that licence prohibits: bulk or untargeted monitoring, interception, recording, transcription or analysis of people's speech; voiceprint tracking; inferring protected characteristics such as race, religion, political opinion, sexual orientation, disability or health from a person's voice; intelligence gathering; monitoring people in custody; targeting journalists, activists, whistleblowers, protesters or similar groups; or routing any of this through another person or service to get around these limits.
+Where Jandal's offline speech recognition uses the asr4all model, that model is provided under the FUTO Model Weights License (Restricted Use) 1.0, whose text is at [the asr4all-m licence, revision `7d6e9145`](https://huggingface.co/futo-org/asr4all-m/blob/7d6e9145109a5bece4f05831d046e93d27e38a99/LICENSE) (the asr4all-m model; the asr4all-l model uses the same licence text at [revision `79d1c23b`](https://huggingface.co/futo-org/asr4all-l/blob/79d1c23bc8f1174cee576b40bbaa0118bd95abed/LICENSE)). The asr4all-l-plus model has a different licence and is not covered by this clause. The licence text is also available in the app under Settings › About › Legal & privacy › Open-source licences. You agree not to use Jandal's speech recognition, or the text it produces, for any of the purposes that licence prohibits: bulk or untargeted monitoring, interception, recording, transcription or analysis of people's speech; voiceprint tracking; inferring protected characteristics such as race, religion, political opinion, sexual orientation, disability or health from a person's voice; intelligence gathering; monitoring people in custody; targeting journalists, activists, whistleblowers, protesters or similar groups; or routing any of this through another person or service to get around these limits.
 
 You agree to comply with the Limitations section of that licence, which forms part of these terms; the summary above is for convenience and the licence text controls.
 
@@ -45,12 +45,14 @@ Those services are governed by their own terms and privacy policies. Jandal isn'
 
 Jandal's source code is licensed under the [Apache License 2.0](LICENSE). These terms don't limit any rights that licence gives you. Third-party components and models are covered by their own licences, listed in the [NOTICE](NOTICE) file.
 
-## 8. Changes
+## 8. Acceptance and changes
 
-These terms may be updated. The current version is published at this page with its effective date. Significant changes will be noted in the app's release notes.
+You accept these terms by ticking "I agree to the Terms of Use" in Jandal's setup, in the prompt Jandal shows after an update, or in Settings › Voice before the asr4all speech model downloads. Jandal records the accepted version and the date on your device. It does not ask you again unless the version of these terms changes. Jandal does not download the asr4all speech model until you accept these terms.
+
+These terms may be updated. Each version carries an effective date, and the current version is published at this page. A new version asks you to accept again. Significant changes will be noted in the app's release notes.
 
 ## 9. Contact
 
 Questions or reports: **[jandal.ai.support@gmail.com](mailto:jandal.ai.support@gmail.com)**
 
-_Effective date: 20 November 2026._
+_Effective date: 22 November 2026._
