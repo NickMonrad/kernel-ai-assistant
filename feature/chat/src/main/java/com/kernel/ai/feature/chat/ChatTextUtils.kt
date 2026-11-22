@@ -528,6 +528,16 @@ internal fun containsExplicitToolActionVerb(query: String): Boolean {
 }
 
 /**
+ * Weather wording that routes to get_weather. Keeps weather questions tool-shaped when the
+ * phrase classifier has not produced a best guess (cold start). Word-bounded so "window",
+ * "train", "rainbow" do not match.
+ */
+private val WEATHER_QUERY_REGEX = Regex(
+    """\b(?:weather|forecast|rain(?:y|ing|fall)?|snow(?:y|ing)?|temperature|hotter|colder|umbrella|humidity|sunny|windy|wind\s+(?:speed|chill|gusts?)|the\s+wind)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
  * Returns true if [query] looks like it involves a device-native tool action
  * (alarm, list, toggle, memory, etc.) rather than a pure LLM question.
  */
@@ -537,6 +547,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
     val hasRememberAction = !isRecallQuestion && REMEMBER_ACTION_REGEX.containsMatchIn(lower)
     val hasCallAction =
         !NEGATED_CALL_REGEX.containsMatchIn(lower) && CALL_ACTION_REGEX.containsMatchIn(lower)
+    val hasWeatherTerm = !isRecallQuestion && WEATHER_QUERY_REGEX.containsMatchIn(lower)
     val toolKeywords = listOf(
         "save", "note that", "don't forget", "store",
         "add to", "put on", "put in", "add .+ to .+ list",
@@ -565,7 +576,7 @@ internal fun looksLikeToolQuery(query: String): Boolean {
         "\\bwant\\s+to\\s+hear\\b",
         "\\bwant\\s+some\\s+music\\b",
     )
-    return hasRememberAction || hasCallAction || toolKeywords.any { keyword ->
+    return hasRememberAction || hasCallAction || hasWeatherTerm || toolKeywords.any { keyword ->
         if (keyword.contains(Regex("[.+*?]"))) {
             Regex(keyword, RegexOption.IGNORE_CASE).containsMatchIn(lower)
         } else {

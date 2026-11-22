@@ -901,6 +901,12 @@ class ChatTextUtilsTest {
                 "Can I listen to Fleetwood Mac",
                 "I want to hear some music",
                 "I would like to listen to something",
+                // Weather wording — tool-shaped even before phrase vectors give a best guess (#2058)
+                "What's the weather in Wellington tomorrow",
+                "forecast for Auckland for the next 3 days",
+                "Will it rain in Apia today and tomorrow",
+                "Is it hotter in Brisbane than Auckland",
+                "Should I take an umbrella today",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
@@ -930,6 +936,12 @@ class ChatTextUtilsTest {
                 "Who produced Rumours",
                 "What year did Rumours come out",
                 "What are the lyrics to Dreams",
+                // Non-weather wording containing weather-like substrings must stay non-tool (#2058)
+                "I need to catch the train at seven",
+                "Rainbows are my favourite colour",
+                "Wind down with a book before bed",
+                "Let's look out the window",
+                "Do you remember the weather we talked about yesterday",
             ],
         )
         fun `returns false for non-tool queries`(query: String) {
