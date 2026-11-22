@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.model.availability.ModelRoleCopy
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -78,7 +79,10 @@ class ModelManagementVoiceStatusTest {
     fun `a stored L size is shown as M on a tier that cannot run L`() {
         val effective = Asr4AllInstall.effectiveSize(Asr4AllSize.L, HardwareTier.LOW_POWER)
         assertEquals(Asr4AllSize.M, effective)
-        assertTrue(speechDetailOf(VoiceInputEngine.Asr4all, effective)!!.startsWith("asr4all M · "))
+        assertEquals(
+            "asr4all M · ${ModelRoleCopy.sizeLabel(Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes })}",
+            speechDetailOf(VoiceInputEngine.Asr4all, effective),
+        )
     }
 
     private fun downloaded(models: List<KernelModel>): Map<KernelModel, DownloadState> =

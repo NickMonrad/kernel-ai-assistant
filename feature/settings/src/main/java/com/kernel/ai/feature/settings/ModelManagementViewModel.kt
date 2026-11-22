@@ -240,6 +240,7 @@ class ModelManagementViewModel @Inject constructor(
             gatedStatuses = gatedStatuses,
         )
         val tier = modelDownloadManager.deviceTier
+        val asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier)
         ModelManagementUiState(
             models = models,
             totalStorageUsedBytes = storage.used,
@@ -255,9 +256,9 @@ class ModelManagementViewModel @Inject constructor(
             speechRecognitionStatus = speechStatusOf(
                 engine = inputEngine,
                 states = downloadStates,
-                asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier),
+                asr4allSize = asr4allSize,
             ),
-            speechRecognitionDetail = speechDetailOf(inputEngine, Asr4AllInstall.effectiveSize(asr4allStored, tier)),
+            speechRecognitionDetail = speechDetailOf(inputEngine, asr4allSize),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
             mobileDataAllowed = mobileDataAllowed,
             waitingForWifi = waitingForWifi,

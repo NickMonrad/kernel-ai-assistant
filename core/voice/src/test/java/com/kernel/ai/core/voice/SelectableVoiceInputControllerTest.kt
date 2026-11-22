@@ -308,6 +308,34 @@ class SelectableVoiceInputControllerTest {
     }
 
     @Test
+    fun `auto reports the Terms refusal in release builds too`() = runTest(dispatcher) {
+        every { voiceInputPreferences.allowsSherpaRuntime() } returns false
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+        coVerify(exactly = 0) { asr4allVoiceInputController.startListening(any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto reports the Terms refusal on a fresh install with no weights on disk`() = runTest(dispatcher) {
+        // With no weights, Asr4all isAvailable() is false, and isBlockedByTerms() is true because the Terms gate the download.
+        selectEngine(VoiceInputEngine.Auto)
+        every { recognitionSupport.getCaptureAvailability() } returns nativeAvailability(onDevice = false)
+        coEvery { asr4allVoiceInputController.isAvailable() } returns false
+        coEvery { asr4allVoiceInputController.isBlockedByTerms() } returns true
+
+        assertEquals(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            controller().startListening(VoiceCaptureMode.Command),
+        )
+    }
+
+    @Test
     fun `auto runs the live locale check when no cached answer exists`() = runTest(dispatcher) {
         selectEngine(VoiceInputEngine.Auto)
         every { recognitionSupport.getCaptureAvailability() } returns

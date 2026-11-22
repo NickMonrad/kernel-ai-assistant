@@ -231,10 +231,22 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `the Terms block is reported only while the downloaded weights are on disk`() = runBlocking(Dispatchers.IO) {
+    fun `the Terms block holds whether or not the weights are on disk`() = runBlocking(Dispatchers.IO) {
         assertTrue(controller(termsAccepted = false).apply { availableForTest = { true } }.isBlockedByTerms())
-        assertFalse(controller(termsAccepted = false).apply { availableForTest = { false } }.isBlockedByTerms())
+        assertTrue(controller(termsAccepted = false).apply { availableForTest = { false } }.isBlockedByTerms())
         assertFalse(controller(termsAccepted = true).apply { availableForTest = { true } }.isBlockedByTerms())
+        assertFalse(controller(termsAccepted = true).apply { availableForTest = { false } }.isBlockedByTerms())
+    }
+
+    @Test
+    fun `no weights and unaccepted terms refuse the start with the Terms message and nothing opens`() = runBlocking(Dispatchers.IO) {
+        val c = controller(termsAccepted = false).apply { availableForTest = { false } }
+        assertTrue(c.isBlockedByTerms())
+        val unavailable = c.startListening(VoiceCaptureMode.Command) as VoiceInputStartResult.Unavailable
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, unavailable.message)
+        assertEquals(VoiceRecovery.ACCEPT_TERMS, unavailable.recovery)
+        assertEquals(0, micOpens.get())
+        assertTrue(openLog.isEmpty())
     }
 
     @Test

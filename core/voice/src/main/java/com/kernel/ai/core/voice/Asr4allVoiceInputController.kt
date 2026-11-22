@@ -180,10 +180,11 @@ class Asr4allVoiceInputController internal constructor(
     suspend fun isAvailable(): Boolean = termsAccepted() && modelDownloaded()
 
     /**
-     * True when the weights are on disk but the Terms refuse them. Auto and the native fallback then surface the
-     * Terms refusal with its Settings action, not another recognizer's message (#2049).
+     * True when the Terms refuse the offline model. Nothing downloads without the Terms, so this does not depend on
+     * the weights being on disk. Auto and the native fallback then surface the Terms refusal with its Settings
+     * action, not another recognizer's message (#2049).
      */
-    suspend fun isBlockedByTerms(): Boolean = !termsAccepted() && modelDownloaded()
+    suspend fun isBlockedByTerms(): Boolean = !termsAccepted()
 
     /** The size to load now: the user's choice, subject to the tier policy. */
     private suspend fun selectedSize(): Asr4AllSize = Asr4AllInstall.effectiveSize(

@@ -789,15 +789,11 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     /**
-     * The Terms refusal when the Terms block the offline model on disk, else null. Gated by
-     * [VoiceInputPreferences.allowsSherpaRuntime] like the asr4all fallback (#2049).
+     * The Terms refusal when the Terms block the offline model, else null. Not build-gated: the Auto route
+     * uses asr4all in release builds too (#2049).
      */
     private suspend fun termsBlockedRefusal(): VoiceInputStartResult.Unavailable? =
-        if (voiceInputPreferences.allowsSherpaRuntime() && asr4allVoiceInputController.isBlockedByTerms()) {
-            termsNotAcceptedStart()
-        } else {
-            null
-        }
+        if (asr4allVoiceInputController.isBlockedByTerms()) termsNotAcceptedStart() else null
 
     /**
      * Starts Android native. If it cannot start at all and the asr4all model is ready, the capture
