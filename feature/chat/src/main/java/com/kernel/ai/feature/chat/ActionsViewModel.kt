@@ -28,7 +28,6 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
-import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceRecovery
 import com.kernel.ai.core.voice.VoiceRefusal
@@ -547,10 +546,7 @@ class ActionsViewModel @Inject constructor(
                                 }
                             }
                             VoiceCaptureMode.Command -> {
-                                // #2051: silence (no-speech window exhausted) is not retried; the user sees "No speech heard".
-                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff &&
-                                    event.category != NO_SPEECH_WINDOW_EXHAUSTED
-                                ) {
+                                if (commandVoiceRetryCount < COMMAND_MAX_VOICE_RETRIES && !handedOff) {
                                     commandVoiceRetryCount++
                                     Log.d(
                                         TAG,

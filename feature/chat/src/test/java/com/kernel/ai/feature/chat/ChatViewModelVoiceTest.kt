@@ -1949,18 +1949,33 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `silent chat capture is not retried and shows no speech heard`() = runTest(dispatcher) {
+    fun `silent chat capture is retried once then shows no speech heard`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
         advanceUntilIdle()
+
+        // First silence re-opens the mic once (#790), like any command capture.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
 
         val errorState = async {
             viewModel.uiState.first { state ->
                 state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
             }
         }
-        // asr4all silence is not a recognizer failure: the category stops the silent retry (#2051).
+        // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
                 mode = VoiceCaptureMode.Command,
@@ -1972,7 +1987,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
         errorState.await()
 
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
