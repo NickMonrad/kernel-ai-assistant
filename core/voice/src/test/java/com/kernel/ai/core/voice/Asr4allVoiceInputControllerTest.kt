@@ -429,6 +429,7 @@ class Asr4allVoiceInputControllerTest {
                 sherpaOnnxVoiceInputController = sherpa,
                 asr4allVoiceInputController = asr,
                 androidNativeRecognitionSupport = mockk(relaxed = true),
+                sttGlossary = SttGlossary.fromJson("""{"entries":[]}"""),
             )
             try {
                 val oldStart = async { selector.startListening(VoiceCaptureMode.Command) }

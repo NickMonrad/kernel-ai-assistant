@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {"correct": "Tauranga", "wrong": ["todang", "todanga", "taranga", "tyanga"]},
+    {"correct": "Pūkekohe", "wrong": ["pkokoi", "puka koi", "poko koe", "pickahoe", "picka hawayay", "puaahway"]},
+    {"correct": "Petone", "wrong": ["petoni", "potoni", "patone", "potone"]},
+    {"correct": "Whanganui", "wrong": ["wganui", "longano", "l ganoi", "wonganue"]},
+    {"correct": "Matamata", "wrong": ["metamata", "metamat", "metet", "mam mata"]},
+    {"correct": "Taupō", "wrong": ["tupo", "tapo"]},
+    {"correct": "Paraparaumu Beach", "wrong": ["paraporamuach", "papram pach"]},
+    {"correct": "Paraparaumu", "wrong": ["parapram", "paraprand", "paraparamu", "parapyamu"]},
+    {"correct": "Porirua", "wrong": ["pidoa", "putida", "pori rua"]},
+    {"correct": "Taihape", "wrong": ["tahei", "tai hae", "tai happi", "taihppi", "t hepe", "tyhe"]},
+    {"correct": "Te Awamutu", "wrong": ["tialmutu", "tl mutu", "tawyuto", "teawamutu"]},
+    {"correct": "Whakatāne", "wrong": ["wacatani", "wackatani", "wakatani", "wakitani", "fakatana", "fakatano"]},
+    {"correct": "Waikato", "wrong": ["wikato", "wayketo"]},
+    {"correct": "Rotorua", "wrong": ["rotarua", "rotua"]},
+    {"correct": "Raglan", "wrong": ["reglin"]},
+    {"correct": "Dunedin", "wrong": ["don eden"]},
+    {"correct": "Kia ora Jandal", "wrong": ["kyotogendo", "kyotgeandal", "kyota jando"]},
+    {"correct": "Jandals", "wrong": ["jandles", "jandales", "jandlales", "chandles"]},
+    {"correct": "Jandal", "wrong": ["gandal", "gendle", "gentlele", "jander", "jandel", "jando", "chando", "jandle"]}
+  ]
+}
