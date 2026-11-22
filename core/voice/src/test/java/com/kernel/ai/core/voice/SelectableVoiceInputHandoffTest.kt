@@ -106,6 +106,7 @@ class SelectableVoiceInputHandoffTest {
         sherpaOnnxVoiceInputController = sherpa,
         asr4allVoiceInputController = asr4all,
         androidNativeRecognitionSupport = recognitionSupport,
+        sttGlossary = SttGlossary.fromJson("""{"entries":[]}"""),
     )
 
     private fun TestScope.eventsOf(c: SelectableVoiceInputController): MutableList<VoiceInputEvent> {

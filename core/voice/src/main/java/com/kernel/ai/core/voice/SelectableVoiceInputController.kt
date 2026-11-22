@@ -196,6 +196,7 @@ class SelectableVoiceInputController @Inject constructor(
     private val sherpaOnnxVoiceInputController: SherpaOnnxVoiceInputController,
     private val asr4allVoiceInputController: Asr4allVoiceInputController,
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
+    private val sttGlossary: SttGlossary,
 ) : VoiceInputController, VoiceCaptureAdmissionController {
 
     private val activeController = MutableStateFlow<VoiceInputController>(sherpaOnnxVoiceInputController)
@@ -1051,10 +1052,34 @@ class SelectableVoiceInputController @Inject constructor(
     }
 
     /**
+     * The one place STT text is corrected before routing and display (#2063), for every engine. Only the
+     * text changes. Each final logs raw and corrected text, as other engine results do. The diagnostics
+     * redactor drops everything from the first quote, so the logged text stays out of exports.
+     *
+     * A glossary failure must never stop voice events: the raw text is delivered instead.
+     */
+    private fun withSttGlossary(event: VoiceInputEvent): VoiceInputEvent = when (event) {
+        is VoiceInputEvent.Transcript -> {
+            val corrected = correctSttText(event.text)
+            Log.i(TAG, "STT glossary raw=\"${event.text}\" corrected=\"$corrected\"")
+            event.copy(text = corrected)
+        }
+        is VoiceInputEvent.PartialTranscript -> event.copy(text = correctSttText(event.text))
+        else -> event
+    }
+
+    private fun correctSttText(text: String): String = runCatching { sttGlossary.apply(text) }
+        .getOrElse { error ->
+            Log.e(TAG, "STT glossary failed; delivering raw text", error)
+            text
+        }
+
+    /**
      * Routes one controller event. Each event is isolated: if routing throws, the original
      * event is still delivered, so a terminal Error or ListeningStopped is never dropped.
      */
-    private suspend fun route(controller: VoiceInputController, event: VoiceInputEvent) {
+    private suspend fun route(controller: VoiceInputController, incoming: VoiceInputEvent) {
+        val event = withSttGlossary(incoming)
         // #2027: mic arbitration sees lifecycle events from every controller, including one replaced by a
         // hand-off, so a replaced native session still gets its ListeningStopped.
         if (event is VoiceInputEvent.ListeningRequested ||
