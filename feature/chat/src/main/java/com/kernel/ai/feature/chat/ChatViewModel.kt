@@ -855,12 +855,15 @@ class ChatViewModel @Inject constructor(
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
                         voicePresynthesis.discard()
-                        // #790: Retry once before surfacing the error to the user. #1853: not after
+                        // #790: Retry before surfacing the error to the user. #1853: not after
                         // an asr4all hand-off; a retry would start the failing native recognizer again.
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
-                        if (chatCommandVoiceRetryCount < 1 && !handedOff) {
+                        // #2070: a pending slot question gets the slot budget (same as Actions); plain command gets one.
+                        val slotPrompt = conversationId?.let { slotFillerManager.pendingRequestFor(it) }?.promptMessage
+                        val retryBudget = if (slotPrompt != null) SLOT_REPLY_MAX_VOICE_RETRIES else COMMAND_MAX_VOICE_RETRIES
+                        if (chatCommandVoiceRetryCount < retryBudget && !handedOff) {
                             chatCommandVoiceRetryCount++
-                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/1")
+                            Log.d(TAG, "ChatViewModel: voice error — silent retry $chatCommandVoiceRetryCount/$retryBudget")
                             val attemptId = beginChatVoiceAttempt()
                             _voiceCaptureState.value = VoiceCaptureState.Preparing
                             launchChatVoiceAttempt(attemptId) {
@@ -868,7 +871,6 @@ class ChatViewModel @Inject constructor(
                                 // #2070: speak the re-prompt, then reopen the mic. Off when spoken responses are off.
                                 // A pending slot re-asks its question so the reply stays on the slot path.
                                 if (spokenResponsesEnabled) {
-                                    val slotPrompt = conversationId?.let { slotFillerManager.pendingRequestFor(it) }?.promptMessage
                                     val retry = slotPrompt?.let { "Sorry, I didn't catch that. $it" }
                                         ?: "Sorry, I didn't catch that. Please try again."
                                     voiceOutputController.speak(VoiceSpeakRequest(retry))

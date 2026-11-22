@@ -69,8 +69,6 @@ private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
-private const val SLOT_REPLY_MAX_VOICE_RETRIES = 2
-private const val COMMAND_MAX_VOICE_RETRIES = 1
 private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
 
 /** Input modality for an action. Carried through slot-fill state for voice-readiness (#350/#588). */

@@ -2038,54 +2038,51 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
-    fun `silence while a slot is pending re-asks the slot question once then ends`() = runTest(dispatcher) {
+    fun `silence while a slot is pending re-asks the slot question twice then ends`() = runTest(dispatcher) {
         every { slotFillerManager.pendingRequestFor("conv-existing") } returns PendingSlotRequest(
             intentName = "set_timer",
             existingParams = emptyMap(),
             missingSlot = SlotSpec(name = "duration", promptTemplate = "For how long?"),
+        )
+        val reask = "Sorry, I didn't catch that. For how long?"
+        val silence = VoiceInputEvent.Error(
+            mode = VoiceCaptureMode.Command,
+            message = "No speech heard. Try again.",
+            captureSessionId = 1L,
+            category = NO_SPEECH_WINDOW_EXHAUSTED,
         )
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
         advanceUntilIdle()
 
-        // First silence: the pending slot question is re-asked, then the mic reopens once.
-        voiceInputEvents.emit(
-            VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
-                message = "No speech heard. Try again.",
-                captureSessionId = 1L,
-                category = NO_SPEECH_WINDOW_EXHAUSTED,
-            ),
-        )
+        // First silence: the pending slot question is re-asked, then the mic reopens.
+        voiceInputEvents.emit(silence)
         advanceUntilIdle()
         coVerifyOrder {
-            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. For how long?" })
+            voiceOutputController.speak(match { it.text == reask })
             voiceInputController.startListening(VoiceCaptureMode.Command)
         }
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Second silence: the slot budget allows a second re-ask (#2070, same as Actions).
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceOutputController.speak(match { it.text == reask }) }
 
         val errorState = async {
             viewModel.uiState.first { state ->
                 state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
             }
         }
-        // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
-        voiceInputEvents.emit(
-            VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
-                message = "No speech heard. Try again.",
-                captureSessionId = 1L,
-                category = NO_SPEECH_WINDOW_EXHAUSTED,
-            ),
-        )
+        // Third silence: the budget is spent, so the error surfaces and the mic stays closed.
+        voiceInputEvents.emit(silence)
         advanceUntilIdle()
         errorState.await()
 
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
-        coVerify(exactly = 1) {
-            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. For how long?" })
-        }
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceOutputController.speak(match { it.text == reask }) }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
