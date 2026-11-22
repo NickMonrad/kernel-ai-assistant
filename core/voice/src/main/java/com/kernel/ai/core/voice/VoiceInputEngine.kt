@@ -66,6 +66,10 @@ enum class VoiceInputEngine(
         fun entriesForBuild(isRelease: Boolean): List<VoiceInputEngine> =
             entries.filter { engine -> !isRelease || !engine.debugOnly }
 
+        /** Automatic's one-line summary, shared by the setup wizard and the Settings card (#1980). */
+        const val AUTOMATIC_SUMMARY =
+            "Uses the offline speech model once it has downloaded, and your phone's own speech recognition until then."
+
         /**
          * Release drops the debug and Sherpa engines: a stored choice of one of them, or a missing or unknown value,
          * resolves to [Auto]. Stored Android native and asr4all choices stay, since release Settings still offers them.

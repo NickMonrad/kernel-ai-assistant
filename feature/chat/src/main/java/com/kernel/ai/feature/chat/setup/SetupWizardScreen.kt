@@ -686,7 +686,7 @@ private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
 
 private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
-    else -> "Works offline on this phone."
+    else -> VoiceInputEngine.AUTOMATIC_SUMMARY
 }
 
 @Composable

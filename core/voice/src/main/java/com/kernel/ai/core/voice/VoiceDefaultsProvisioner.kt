@@ -56,6 +56,9 @@ class VoiceDefaultsProvisioner @Inject constructor(
 
     fun start() {
         scope.launch {
+            // One-time move to Automatic (#1980) first, so the engine planned below is the migrated value.
+            runCatching { voiceInputPreferences.applyAutoDefaultOnce() }
+                .onFailure { Log.w(TAG, "Failed to apply the one-time Automatic default", it) }
             // Read before the consent wait: the wizard does not change whether this is an existing install (#1868).
             val isExistingInstall = modelDownloadManager.isExistingInstall()
             runCatching { deleteLegacyVoskModel() }
