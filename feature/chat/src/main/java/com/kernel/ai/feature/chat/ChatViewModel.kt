@@ -866,8 +866,12 @@ class ChatViewModel @Inject constructor(
                             launchChatVoiceAttempt(attemptId) {
                                 _error.value = null
                                 // #2070: speak the re-prompt, then reopen the mic. Off when spoken responses are off.
+                                // A pending slot re-asks its question so the reply stays on the slot path.
                                 if (spokenResponsesEnabled) {
-                                    voiceOutputController.speak(VoiceSpeakRequest("Sorry, I didn't catch that. Please try again."))
+                                    val slotPrompt = conversationId?.let { slotFillerManager.pendingRequestFor(it) }?.promptMessage
+                                    val retry = slotPrompt?.let { "Sorry, I didn't catch that. $it" }
+                                        ?: "Sorry, I didn't catch that. Please try again."
+                                    voiceOutputController.speak(VoiceSpeakRequest(retry))
                                 }
                             }
                         } else {
@@ -1856,6 +1860,8 @@ class ChatViewModel @Inject constructor(
         if (_voiceMode.value != VoiceMode.BackAndForth) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
+        // #2070: each back-and-forth turn gets its own silence retry.
+        chatCommandVoiceRetryCount = 0
         val attemptId = beginChatVoiceAttempt()
         _voiceCaptureState.value = VoiceCaptureState.Preparing
         launchChatVoiceAttempt(attemptId) { _error.value = null }

@@ -35,6 +35,7 @@ import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.voice.VoiceRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -836,6 +837,10 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
         advanceUntilIdle()
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        }
         coVerify(exactly = 1) { voiceInputPreferences.recordMicUseStarted() }
 
         // Slot prompt ends: the automatic re-arm opens the slot-reply mic.

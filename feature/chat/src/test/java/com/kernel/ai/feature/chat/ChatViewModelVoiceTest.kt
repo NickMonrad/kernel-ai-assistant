@@ -39,6 +39,8 @@ import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.slot.SlotFillerManager
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.SlotSpec
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
 import com.kernel.ai.core.skills.slot.SlotValidationResult
 import com.kernel.ai.core.skills.mealplan.MealPlannerActivity
@@ -72,6 +74,7 @@ import com.kernel.ai.feature.chat.model.ChatUiState
 import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -1950,6 +1953,8 @@ class ChatViewModelVoiceTest {
 
     @Test
     fun `silent chat capture is retried once then shows no speech heard`() = runTest(dispatcher) {
+        // No slot is pending: the real SlotFillerManager returns null, so the generic re-prompt is spoken.
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
@@ -1968,6 +1973,10 @@ class ChatViewModelVoiceTest {
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
         coVerify(exactly = 1) {
             voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
         }
 
         val errorState = async {
@@ -1988,6 +1997,58 @@ class ChatViewModelVoiceTest {
         errorState.await()
 
         coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+    }
+
+    @Test
+    fun `silence while a slot is pending re-asks the slot question once then ends`() = runTest(dispatcher) {
+        every { slotFillerManager.pendingRequestFor("conv-existing") } returns PendingSlotRequest(
+            intentName = "set_timer",
+            existingParams = emptyMap(),
+            missingSlot = SlotSpec(name = "duration", promptTemplate = "For how long?"),
+        )
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        advanceUntilIdle()
+
+        // First silence: the pending slot question is re-asked, then the mic reopens once.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        coVerifyOrder {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. For how long?" })
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        val errorState = async {
+            viewModel.uiState.first { state ->
+                state is ChatUiState.Ready && state.error?.startsWith("No speech heard. Try again.") == true
+            }
+        }
+        // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        errorState.await()
+
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. For how long?" })
+        }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 

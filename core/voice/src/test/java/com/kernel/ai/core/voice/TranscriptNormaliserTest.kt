@@ -416,7 +416,7 @@ class TranscriptNormaliserTest {
     fun `misheard add in a list command becomes add`() {
         assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i've milk to my shopping list"))
         assertEquals("add milk to my shopping list", TranscriptNormaliser.normalise("i'd milk to my shopping list"))
-        assertEquals("add eggs and bread to the list.", TranscriptNormaliser.normalise("I've eggs and bread to the list."))
+        assertEquals("add eggs and bread to the list", TranscriptNormaliser.normalise("I've eggs and bread to the list."))
         assertEquals("add apples to my weekend grocery list", TranscriptNormaliser.normalise("ad apples to my weekend grocery list"))
     }
 
@@ -456,7 +456,7 @@ class TranscriptNormaliserTest {
     @Test
     fun `patroni is corrected to Petone as a whole word`() {
         assertEquals("Petone", TranscriptNormaliser.normalise("patroni"))
-        assertEquals("I drove to Petone.", TranscriptNormaliser.normalise("I drove to patroni."))
+        assertEquals("I drove to Petone", TranscriptNormaliser.normalise("I drove to patroni."))
         assertEquals("Petone's train", TranscriptNormaliser.normalise("patroni's train"))
     }
 
@@ -470,5 +470,18 @@ class TranscriptNormaliserTest {
     fun `words containing patroni are left alone`() {
         assertEquals("patronised", TranscriptNormaliser.normalise("patronised"))
         assertEquals("patronisingly", TranscriptNormaliser.normalise("patronisingly"))
+    }
+
+    @Test
+    fun `trailing sentence punctuation and whitespace is stripped`() {
+        assertEquals("Set a timer", TranscriptNormaliser.stripTrailingSentencePunctuation("Set a timer."))
+        assertEquals("Set a timer", TranscriptNormaliser.stripTrailingSentencePunctuation("Set a timer!  "))
+        assertEquals("Set a timer", TranscriptNormaliser.normalise("Set a timer."))
+    }
+
+    @Test
+    fun `interior decimals and clock times survive the trailing punctuation strip`() {
+        assertEquals("What's 3.5 plus 2", TranscriptNormaliser.stripTrailingSentencePunctuation("What's 3.5 plus 2?"))
+        assertEquals("Remind me at 5.30", TranscriptNormaliser.stripTrailingSentencePunctuation("Remind me at 5.30."))
     }
 }

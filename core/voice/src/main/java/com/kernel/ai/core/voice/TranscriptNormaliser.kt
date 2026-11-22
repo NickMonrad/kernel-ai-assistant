@@ -150,10 +150,11 @@ object TranscriptNormaliser {
      * - Returns [text] unchanged if blank.
      * - Idempotent: `normalise(normalise(x)) == normalise(x)`.
      * - Does not collapse whitespace — downstream consumers handle spacing.
+     * - Drops trailing sentence punctuation and whitespace before the rules run.
      */
     fun normalise(text: String): String {
         if (text.isBlank()) return text
-        var out = text
+        var out = stripTrailingSentencePunctuation(text)
         for ((re, replacement) in WEATHER_MISHEAR_REPLACEMENTS) {
             out = re.replace(out, replacement)
         }
@@ -177,4 +178,12 @@ object TranscriptNormaliser {
         }
         return out
     }
+
+    /**
+     * Drops the sentence punctuation and whitespace a recogniser appends ("Set a timer."). Only the tail
+     * is touched, so interior decimals and clock times ("3.5", "5.30") survive. Char predicate, not regex:
+     * Android ICU regex differs from the JVM (#1968).
+     */
+    fun stripTrailingSentencePunctuation(text: String): String =
+        text.trimEnd { it == '.' || it == '!' || it == '?' || it.isWhitespace() }
 }
