@@ -1,0 +1,16 @@
+# S21 (R5CR605B71K) asr4all M download and Auto route. Build e2d9ccc8 debug APK sha256 e4e3c7cc...
+11-22 18:48:27.009 24705 24728 I ModelDownloadManager: Auto-queue skipped: no download network chosen yet
+11-22 18:50:10.205 24705 24733 I VoiceDefaults: Queuing Piper voice CoriHigh
+11-22 18:50:10.225 24705 24705 I VoiceDefaults: Queuing asr4all M model for engine=Auto: [ASR4ALL_M_CONFIG, ASR4ALL_M_RELEASE_GEOM, ASR4ALL_M_PREPROCESSOR, ASR4ALL_M_METADATA, ASR4ALL_M_ENCODER]
+11-22 18:50:10.233 24705 24737 I VoiceDefaults: Queuing asr4all M model for engine=Auto: [ASR4ALL_M_CONFIG, ASR4ALL_M_RELEASE_GEOM, ASR4ALL_M_PREPROCESSOR, ASR4ALL_M_METADATA, ASR4ALL_M_ENCODER]
+11-22 18:50:11.930 24705 25537 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/release_geom.json
+11-22 18:50:11.987 24705 25534 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/preprocessor_config.json
+11-22 18:50:12.011 24705 24731 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/metadata.json
+11-22 18:50:12.072 24705 24731 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/config.json
+11-22 18:50:30.622 24705 24731 I ModelDownloadWorker: Download complete: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/asr_encoder.pte
+11-22 18:50:30.664 24705 24735 I ModelDownloadManager: Download succeeded: /storage/emulated/0/Android/data/ai.jandal.assistant.debug/files/models/asr4all/m/executorch/xnnpack_int8/asr_encoder.pte
+11-22 18:54:44.296 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=AlertCommand native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 18:54:45.131 24705 25929 I Asr4allSTT: asr4all engine loaded size=M threads=4
+11-22 18:57:01.337 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=AlertCommand native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 18:59:49.783 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false
+11-22 19:00:13.164 24705 24705 I SelectableVoiceInput: Auto STT route=Asr4all mode=Command native=skipped asr4allReady=true allowOnlineFallback=false

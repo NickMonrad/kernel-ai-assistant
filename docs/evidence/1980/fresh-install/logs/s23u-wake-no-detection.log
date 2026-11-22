@@ -1,0 +1,43 @@
+# S23U wake listener (target) 18:46-19:08: no WakeWordDiag output, no detection. S21 source replays (AcousticStimulus) shown for timing.
+11-22 18:46:43.905  6752  6752 I KernelAI: WakeWordService: starting wake word detection
+11-22 18:46:43.907  6752  6752 I KernelAI: WakeWordService: queued wake-verifier model download(s): [SHERPA_WHISPER_TINY_EN_ENCODER, SHERPA_WHISPER_TINY_EN_DECODER, SHERPA_WHISPER_TINY_EN_TOKENS]
+11-22 18:46:43.911  6752  6752 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 18:46:44.085  6752  8299 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 18:46:44.097  6752  8299 D KernelAI: WakeWordDetector: recording started
+11-22 18:46:47.675  6752  6758 I assistant.debug: Compiler allocated 9431KB to compile void com.kernel.ai.core.voice.OnnxWakeWordDetector.runDetectionLoop(long, com.kernel.ai.core.voice.OnnxWakeWordDe
+11-22 18:46:51.191  6752  6758 I assistant.debug: Compiler allocated 9694KB to compile void com.kernel.ai.core.voice.OnnxWakeWordDetector.runDetectionLoop(long, com.kernel.ai.core.voice.OnnxWakeWordDe
+11-22 18:54:11.187  6752  8294 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 18:54:11.341  6752  8294 D KernelAI: WakeWordDetector: stopped
+11-22 18:54:14.905  6752  9628 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 18:54:14.983  6752 11692 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 18:54:14.994  6752 11692 D KernelAI: WakeWordDetector: recording started
+11-22 18:54:42.167  6752  9628 I KernelAI: WakeWordService: yielding mic to voice session
+11-22 18:54:42.214  6752  9628 D KernelAI: WakeWordDetector: stopped
+11-22 18:54:44.922  6752  6791 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 18:54:44.950  6752 11822 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 18:54:44.958  6752 11822 D KernelAI: WakeWordDetector: recording started
+11-22 18:56:48.808  6752  6752 D KernelAI: WakeWordDetector: stopped
+11-22 18:56:48.809  6752  6752 D LeakCanary: Watching instance of com.kernel.ai.assistant.WakeWordService (com.kernel.ai.assistant.WakeWordService received Service#onDestroy() callback) with key 359b8
+11-22 19:00:39.199  6752  6752 I KernelAI: WakeWordService: starting wake word detection
+11-22 19:00:39.201  6752  6752 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 19:00:39.238  6752 12827 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 19:00:39.254  6752 12827 D KernelAI: WakeWordDetector: recording started
+11-22 19:04:47.541  6752  6752 D KernelAI: WakeWordDetector: stopped
+11-22 19:04:47.542  6752  6752 D LeakCanary: Watching instance of com.kernel.ai.assistant.WakeWordService (com.kernel.ai.assistant.WakeWordService received Service#onDestroy() callback) with key 88fc5
+11-22 19:04:50.611  6752  6752 I KernelAI: WakeWordService: starting wake word detection
+11-22 19:04:50.613  6752  6752 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-22 19:04:50.650  6752 13264 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-22 19:04:50.675  6752 13264 D KernelAI: WakeWordDetector: recording started
+--- S21 source replays
+11-22 19:01:22.495 24705 24705 I AcousticStimulus: {"event":"prepared","trial_id":"s21-src-wake-natural-002","fixture_id":"natural_wake","monotonic_ms":12053698218,"wall_clock_ms":1795338082495}
+11-22 19:01:24.762 24705 24705 I AcousticStimulus: {"event":"completed","trial_id":"s21-src-wake-natural-002","fixture_id":"natural_wake","monotonic_ms":12053700484,"wall_clock_ms":1795338084761}
+11-22 19:01:24.790 24705 24705 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"s21-src-wake-natural-002","fixture_id":"natural_wake","monotonic_ms":12053700513,"wall_clock_ms":17953380847
+11-22 19:02:37.634 24705 24705 I AcousticStimulus: {"event":"prepared","trial_id":"s21-src-wake-natural-003","fixture_id":"natural_wake","monotonic_ms":12053773357,"wall_clock_ms":1795338157634}
+11-22 19:02:39.883 24705 24705 I AcousticStimulus: {"event":"completed","trial_id":"s21-src-wake-natural-003","fixture_id":"natural_wake","monotonic_ms":12053775606,"wall_clock_ms":1795338159883}
+11-22 19:02:39.927 24705 24705 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"s21-src-wake-natural-003","fixture_id":"natural_wake","monotonic_ms":12053775649,"wall_clock_ms":17953381599
+11-22 19:05:06.134 24705 24705 I AcousticStimulus: {"event":"prepared","trial_id":"s21-src-wake-natural-004","fixture_id":"natural_wake","monotonic_ms":12053921857,"wall_clock_ms":1795338306134}
+11-22 19:05:08.370 24705 24705 I AcousticStimulus: {"event":"completed","trial_id":"s21-src-wake-natural-004","fixture_id":"natural_wake","monotonic_ms":12053924092,"wall_clock_ms":1795338308369}
+11-22 19:05:08.430 24705 24705 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"s21-src-wake-natural-004","fixture_id":"natural_wake","monotonic_ms":12053924152,"wall_clock_ms":17953383084
+11-22 19:07:41.950 24705 24705 I AcousticStimulus: {"event":"prepared","trial_id":"s21-src-wake-natural-005","fixture_id":"natural_wake","monotonic_ms":12054077673,"wall_clock_ms":1795338461950}
+11-22 19:07:44.187 24705 24705 I AcousticStimulus: {"event":"completed","trial_id":"s21-src-wake-natural-005","fixture_id":"natural_wake","monotonic_ms":12054079910,"wall_clock_ms":1795338464187}
+11-22 19:07:44.239 24705 24705 I AcousticStimulus: {"event":"cleanup_completed","trial_id":"s21-src-wake-natural-005","fixture_id":"natural_wake","monotonic_ms":12054079962,"wall_clock_ms":17953384642
