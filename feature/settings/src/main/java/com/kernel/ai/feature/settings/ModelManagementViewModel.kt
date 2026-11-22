@@ -28,6 +28,7 @@ import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.model.availability.ModelRoleCopy
 import com.kernel.ai.core.model.availability.ModelRoleSection
 import com.kernel.ai.core.model.availability.ModelRoles
 import com.kernel.ai.core.model.availability.StillNeededItem
@@ -76,6 +77,8 @@ data class ModelManagementUiState(
     val deviceTier: HardwareTier? = null,
     /** Selected speech-input engine status, read-only on the Models screen. */
     val speechRecognitionStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
+    /** The asr4all size under the speech row (e.g. "asr4all M · 60 MB"), for the engines that use it (#2048). */
+    val speechRecognitionDetail: String? = null,
     /** Jandal's voice (Cori) status, read-only on the Models screen. */
     val voiceOutputStatus: VoiceSectionStatus = VoiceSectionStatus.NOT_DOWNLOADED,
     /** The Downloads section switch: true only when mobile data is allowed for model downloads (#1855). */
@@ -107,6 +110,13 @@ internal fun speechStatusOf(
         downloads.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
         else -> VoiceSectionStatus.NOT_DOWNLOADED
     }
+}
+
+/** The asr4all size under the speech row, for the engines that use it (#2048). Null for the other engines. */
+internal fun speechDetailOf(engine: VoiceInputEngine, asr4allSize: Asr4AllSize): String? = when (engine) {
+    VoiceInputEngine.Auto, VoiceInputEngine.Asr4all ->
+        "asr4all ${asr4allSize.name} · ${ModelRoleCopy.sizeLabel(Asr4AllInstall.models(asr4allSize).sumOf { it.approxSizeBytes })}"
+    else -> null
 }
 
 /** The voice-output row follows the selected engine. Only the Sherpa engine uses the Cori pack. */
@@ -247,6 +257,7 @@ class ModelManagementViewModel @Inject constructor(
                 states = downloadStates,
                 asr4allSize = Asr4AllInstall.effectiveSize(asr4allStored, tier),
             ),
+            speechRecognitionDetail = speechDetailOf(inputEngine, Asr4AllInstall.effectiveSize(asr4allStored, tier)),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),
             mobileDataAllowed = mobileDataAllowed,
             waitingForWifi = waitingForWifi,

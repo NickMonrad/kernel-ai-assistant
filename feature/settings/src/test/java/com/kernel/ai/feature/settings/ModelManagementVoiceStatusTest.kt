@@ -9,6 +9,8 @@ import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.kernelModels
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class ModelManagementVoiceStatusTest {
@@ -61,6 +63,14 @@ class ModelManagementVoiceStatusTest {
             VoiceSectionStatus.NOT_DOWNLOADED,
             speechStatusOf(VoiceInputEngine.SherpaParaformer, whisper, Asr4AllSize.M),
         )
+    }
+
+    @Test
+    fun `the speech row names the asr4all size it runs, for the engines that use it`() {
+        assertTrue(speechDetailOf(VoiceInputEngine.Auto, Asr4AllSize.M)!!.startsWith("asr4all M · "))
+        assertTrue(speechDetailOf(VoiceInputEngine.Asr4all, Asr4AllSize.L)!!.startsWith("asr4all L · "))
+        assertNull(speechDetailOf(VoiceInputEngine.AndroidNative, Asr4AllSize.M))
+        assertNull(speechDetailOf(VoiceInputEngine.SherpaWhisper, Asr4AllSize.M))
     }
 
     private fun downloaded(models: List<KernelModel>): Map<KernelModel, DownloadState> =

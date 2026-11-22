@@ -171,7 +171,7 @@ fun ModelManagementScreen(
                         items = uiState.stillNeeded,
                         onDownload = { model -> startModelDownload(model.name) },
                     )
-                    // The speech model's download needs the Terms of Use accepted first (#1998); this opens them.
+                    // Still-needed downloads that carry Terms of Use (Gemma and asr4all, #1998) open them from here.
                     TermsOfUseLinkWithSheet(modifier = Modifier.padding(top = 4.dp))
                 }
             }
@@ -235,7 +235,7 @@ fun ModelManagementScreen(
             item(key = "speech_recognition") {
                 StatusSectionView(
                     title = ModelRoleCopy.STT_SECTION_TITLE,
-                    summary = "Managed in Voice settings.",
+                    summary = listOfNotNull(uiState.speechRecognitionDetail, "Managed in Voice settings.").joinToString(". "),
                     statusText = "Status: ${voiceStatusText(uiState.speechRecognitionStatus)}",
                     actionLabel = ModelRoleCopy.MANAGE_VOICE_ACTION,
                     onAction = onOpenVoiceSettings,

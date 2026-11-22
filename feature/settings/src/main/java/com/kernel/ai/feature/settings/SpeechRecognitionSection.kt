@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.model.availability.ModelCardCompact
 import com.kernel.ai.core.ui.ChipStatus
 import com.kernel.ai.core.ui.ChoiceCard
@@ -185,6 +186,9 @@ internal fun SpeechRecognitionSection(
                                         color = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.padding(vertical = 4.dp),
                                     )
+                                    if (message == TERMS_NOT_ACCEPTED_MESSAGE) {
+                                        TermsOfUseLinkWithSheet()
+                                    }
                                 }
                             }
                             when {

@@ -21,6 +21,7 @@ import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
 import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.isTermsRefusal
 import com.kernel.ai.core.inference.terms.termsAllowDownload
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
@@ -558,6 +559,8 @@ class ModelDownloadManager @Inject constructor(
                     }
 
                     WorkInfo.State.CANCELLED -> {
+                        // The Terms gate cancels a queued job it refuses. That refusal stays visible, not NotDownloaded (#2049).
+                        if (_downloadStates.value[model].isTermsRefusal()) return@collect
                         val (localFile, isPresent) = withContext(Dispatchers.IO) {
                             val f = model.localFile(context)
                             f to (f.exists() && f.length() > 0)

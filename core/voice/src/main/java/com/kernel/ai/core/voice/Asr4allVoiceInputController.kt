@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.SttFailure
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
@@ -203,6 +204,9 @@ class Asr4allVoiceInputController internal constructor(
         return startLock.withLock {
             if (!awaitCaptureEnded()) {
                 return@withLock VoiceInputStartResult.Unavailable("The previous microphone session is still closing. Try again.")
+            }
+            if (!termsAccepted()) {
+                return@withLock VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE)
             }
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(

@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import io.mockk.every
@@ -221,7 +222,8 @@ class Asr4allVoiceInputControllerTest {
     fun `without accepted terms the downloaded weights read as missing and nothing opens`() = runBlocking(Dispatchers.IO) {
         val c = controller(termsAccepted = false)
         assertFalse(c.isAvailable())
-        assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Unavailable)
+        val refusal = c.startListening(VoiceCaptureMode.Command)
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, (refusal as VoiceInputStartResult.Unavailable).message)
         assertTrue(openLog.isEmpty())
         assertEquals(0, micOpens.get())
     }
