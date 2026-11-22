@@ -2090,6 +2090,51 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `a completed back-and-forth turn resets the silence retry budget`() = runTest(dispatcher) {
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
+        every { quickIntentRouter.route("Hello loop") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startBackAndForthVoiceInput()
+        advanceUntilIdle()
+        // Turn 1: silence spends the one retry.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        // Turn 1 completes: the user speaks, the reply plays, playback stops and the mic re-arms.
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop", captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Turn 2: silence gets its own retry instead of ending with the error.
+        voiceInputEvents.emit(
+            VoiceInputEvent.Error(
+                mode = VoiceCaptureMode.Command,
+                message = "No speech heard. Try again.",
+                captureSessionId = 1L,
+                category = NO_SPEECH_WINDOW_EXHAUSTED,
+            ),
+        )
+        advanceUntilIdle()
+        coVerify(exactly = 4) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        }
+    }
+
+    @Test
     fun `stop phrase in back-and-forth loop ends the session without submitting a message`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         advanceUntilIdle()

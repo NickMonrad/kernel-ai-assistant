@@ -179,11 +179,17 @@ object TranscriptNormaliser {
         return out
     }
 
+    private val DOTTED_MERIDIEMS = setOf("a.m.", "p.m.")
+
     /**
      * Drops the sentence punctuation and whitespace a recogniser appends ("Set a timer."). Only the tail
-     * is touched, so interior decimals and clock times ("3.5", "5.30") survive. Char predicate, not regex:
-     * Android ICU regex differs from the JVM (#1968).
+     * is touched, so interior decimals and clock times ("3.5", "5.30") survive. A dotted meridiem keeps
+     * its final dot ("set an alarm for 7 p.m."); the alarm parser accepts it with or without the dot.
+     * Char predicate, not regex: Android ICU regex differs from the JVM (#1968).
      */
-    fun stripTrailingSentencePunctuation(text: String): String =
-        text.trimEnd { it == '.' || it == '!' || it == '?' || it.isWhitespace() }
+    fun stripTrailingSentencePunctuation(text: String): String {
+        val keepingDot = text.trimEnd { it == '!' || it == '?' || it.isWhitespace() }
+        if (keepingDot.takeLast(4).lowercase() in DOTTED_MERIDIEMS) return keepingDot
+        return text.trimEnd { it == '.' || it == '!' || it == '?' || it.isWhitespace() }
+    }
 }

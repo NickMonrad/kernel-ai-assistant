@@ -484,4 +484,17 @@ class TranscriptNormaliserTest {
         assertEquals("What's 3.5 plus 2", TranscriptNormaliser.stripTrailingSentencePunctuation("What's 3.5 plus 2?"))
         assertEquals("Remind me at 5.30", TranscriptNormaliser.stripTrailingSentencePunctuation("Remind me at 5.30."))
     }
+
+    @Test
+    fun `dotted meridiem keeps its final dot`() {
+        assertEquals(
+            "set an alarm for 7 p.m.",
+            TranscriptNormaliser.stripTrailingSentencePunctuation("set an alarm for 7 p.m."),
+        )
+        assertEquals(
+            "Wake me at 8:6:30 p.m.",
+            TranscriptNormaliser.stripTrailingSentencePunctuation("Wake me at 8:6:30 p.m.!"),
+        )
+        assertEquals("Wake me at 6:30 A.M.", TranscriptNormaliser.stripTrailingSentencePunctuation("Wake me at 6:30 A.M."))
+    }
 }
