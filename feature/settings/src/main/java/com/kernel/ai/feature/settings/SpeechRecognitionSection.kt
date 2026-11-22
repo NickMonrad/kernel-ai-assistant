@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
@@ -74,6 +76,8 @@ internal fun SpeechRecognitionSection(
     onDelete: (VoiceInputEngine) -> Unit,
     onAsr4allSize: (Asr4AllSize) -> Unit,
     onTermsAcceptedChanged: (Boolean) -> Unit = {},
+    /** Scrolls the asr4all Terms row into view when Settings › Voice opens from a refusal (#2049). */
+    termsRowRequester: BringIntoViewRequester? = null,
     modifier: Modifier = Modifier,
 ) {
     var onlineSheetOpen by rememberSaveable { mutableStateOf(false) }
@@ -158,7 +162,9 @@ internal fun SpeechRecognitionSection(
                                     accepted = uiState.termsAccepted,
                                     onAcceptedChange = onTermsAcceptedChanged,
                                     onOpenTerms = { termsSheetOpen = true },
-                                    modifier = Modifier.padding(vertical = 4.dp),
+                                    modifier = Modifier
+                                        .padding(vertical = 4.dp)
+                                        .then(termsRowRequester?.let { Modifier.bringIntoViewRequester(it) } ?: Modifier),
                                 )
                             }
                             if (engine == VoiceInputEngine.Asr4all) {

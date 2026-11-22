@@ -15,8 +15,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -566,9 +564,9 @@ private fun VoiceScreenContent(
             )
         },
     ) { innerPadding ->
-        val speechSectionRequester = remember { BringIntoViewRequester() }
+        val termsRowRequester = remember { BringIntoViewRequester() }
         LaunchedEffect(scrollToTerms) {
-            if (scrollToTerms) speechSectionRequester.bringIntoView()
+            if (scrollToTerms) termsRowRequester.bringIntoView()
         }
         Column(
             modifier = Modifier
@@ -675,18 +673,17 @@ private fun VoiceScreenContent(
                 }
             }
             HorizontalDivider()
-            Box(modifier = Modifier.bringIntoViewRequester(speechSectionRequester)) {
-                SpeechRecognitionSection(
-                    uiState = uiState,
-                    onSelect = onVoiceInputEngineSelected,
-                    onAllowOnline = onAllowOnlineSpeechFallbackChanged,
-                    onDownload = onDownloadSherpaStt,
-                    onCancel = onCancelSherpaStt,
-                    onDelete = onDeleteSherpaStt,
-                    onAsr4allSize = onAsr4allSizeSelected,
-                    onTermsAcceptedChanged = onTermsAcceptedChanged,
-                )
-            }
+            SpeechRecognitionSection(
+                uiState = uiState,
+                onSelect = onVoiceInputEngineSelected,
+                onAllowOnline = onAllowOnlineSpeechFallbackChanged,
+                onDownload = onDownloadSherpaStt,
+                onCancel = onCancelSherpaStt,
+                onDelete = onDeleteSherpaStt,
+                onAsr4allSize = onAsr4allSizeSelected,
+                onTermsAcceptedChanged = onTermsAcceptedChanged,
+                termsRowRequester = termsRowRequester,
+            )
 
 
             HorizontalDivider()
