@@ -377,8 +377,8 @@ class DiagnosticLogRedactorTest {
                 "ToolSet: runIntent(add_to_list, $r",
             ),
             Arguments.of(
-                "event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=\"Shopping: eggs, \\\"free range\\\" milk\"",
-                "event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content=\"$r",
+                "event_seq: tool_result name=load_skill resultType=Success directReply=false deliveredToModel=true content=\"Shopping: eggs, \\\"free range\\\" milk\"",
+                "event_seq: tool_result name=load_skill resultType=Success directReply=false deliveredToModel=true content=\"$r",
             ),
             // Memory text
             Arguments.of("ToolSet: saveMemory(My partner is called Sam)", "ToolSet: saveMemory($r"),

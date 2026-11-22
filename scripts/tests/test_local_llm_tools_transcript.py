@@ -40,7 +40,7 @@ class LocalTranscriptTest(unittest.TestCase):
                 "tool_result": {"result": tool_result},
                 "succeeded": True,
                 "direct_reply": False,
-                "returned_to_gemma": True,
+                "delivered_to_model": True,
             },
             {
                 "order": 1,
@@ -52,7 +52,7 @@ class LocalTranscriptTest(unittest.TestCase):
                 "tool_result": {"result": tool_result},
                 "succeeded": True,
                 "direct_reply": True,
-                "returned_to_gemma": False,
+                "delivered_to_model": True,
             },
         ]
         generation_attempts = [
@@ -147,7 +147,7 @@ class LocalTranscriptTest(unittest.TestCase):
         self.assertEqual(tool_result, conversation["tool_calls"][1]["result_content"])
         self.assertEqual(tool_result, conversation["tool_calls"][1]["tool_result"]["result"])
         self.assertTrue(conversation["terminal_call"]["direct_reply"])
-        self.assertFalse(conversation["terminal_call"]["returned_to_gemma"])
+        self.assertTrue(conversation["terminal_call"]["delivered_to_model"])
         self.assertEqual(final_response, conversation["final_visible_response"])
         self.assertEqual(generation_attempts, conversation["generation_attempts"])
 

@@ -32,7 +32,12 @@ data class LocalToolCallDiagnostic(
     val toolResult: Map<String, String>? = null,
     val succeeded: Boolean? = null,
     val directReply: Boolean? = null,
-    val returnedToGemma: Boolean? = null,
+    /**
+     * Set when the @Tool method returned this map to the LiteRT tool manager (DirectReply included).
+     * The send can still be dropped after that point, for example by stream cancellation, so this is
+     * not proof the model received the result. false only for a load_skill result withheld by the budget.
+     */
+    val deliveredToModel: Boolean? = null,
 )
 
 data class LocalGenerationAttemptDiagnostic(
@@ -153,13 +158,13 @@ class KernelAIToolSet @Inject constructor(
             toolResult,
             succeeded = false,
             directReply = false,
-            returnedToGemma = true,
+            deliveredToModel = true,
         )
         if (toolName != LOAD_SKILL_NAME) captureTerminalResult(toolName)
         Log.d(
             TAG,
             "event_seq: tool_result name=$toolName resultType=Failure " +
-                "directReply=false returnedToGemma=true contentLen=${error.length}",
+                "directReply=false deliveredToModel=true contentLen=${error.length}",
         )
         return toolResult
     }
@@ -187,6 +192,8 @@ class KernelAIToolSet @Inject constructor(
         /** The single non-terminal internal-only tool name. */
         private const val LOAD_SKILL_NAME = "load_skill"
         private val SAFE_IDENTIFIER_ARG = Regex("\"(skill_name|intent_name)\":\"([^\"]*)\"")
+        private val TOMORROW_WORD = Regex("\\btomorrow\\b", RegexOption.IGNORE_CASE)
+        private val TODAY_WORD = Regex("\\btoday\\b", RegexOption.IGNORE_CASE)
         // E4B sometimes omits "stop" when naming the stopwatch status action.
         private val RUN_INTENT_NAME_ALIASES =
             mapOf("getwatchstatus" to "get_stopwatch_status")
@@ -454,7 +461,7 @@ class KernelAIToolSet @Inject constructor(
         toolResult: Map<String, String>,
         succeeded: Boolean,
         directReply: Boolean,
-        returnedToGemma: Boolean,
+        deliveredToModel: Boolean,
     ) {
         if (order == null) return
         synchronized(localDiagnosticLock) {
@@ -465,7 +472,7 @@ class KernelAIToolSet @Inject constructor(
                 toolResult = toolResult.toMap(),
                 succeeded = succeeded,
                 directReply = directReply,
-                returnedToGemma = returnedToGemma,
+                deliveredToModel = deliveredToModel,
             )
         }
     }
@@ -570,13 +577,13 @@ class KernelAIToolSet @Inject constructor(
         }
         if (resultBudget == null) {
             lastToolResult = result["result"] ?: result["error"]
-            logLoadSkillToolResult(resultType, resultContent, returnedToGemma = true)
+            logLoadSkillToolResult(resultType, resultContent, deliveredToModel = true)
             return result
         }
         val resultTokens = LoadSkillToolResultBudget.estimateTokens(result)
         if (resultTokens <= resultBudget.maxTokens) {
             lastToolResult = result["result"] ?: result["error"]
-            logLoadSkillToolResult(resultType, resultContent, returnedToGemma = true)
+            logLoadSkillToolResult(resultType, resultContent, deliveredToModel = true)
             return result
         }
 
@@ -589,9 +596,9 @@ class KernelAIToolSet @Inject constructor(
             emptyMap(),
             succeeded = false,
             directReply = false,
-            returnedToGemma = false,
+            deliveredToModel = false,
         )
-        logLoadSkillToolResult("ContextBudgetExceeded", resultContent, returnedToGemma = false)
+        logLoadSkillToolResult("ContextBudgetExceeded", resultContent, deliveredToModel = false)
         Log.w(
             TAG,
             "load_skill_tool_result_context_abort resultTokens=$resultTokens budget=${resultBudget.maxTokens}",
@@ -603,13 +610,13 @@ class KernelAIToolSet @Inject constructor(
     private fun logLoadSkillToolResult(
         resultType: String,
         content: String,
-        returnedToGemma: Boolean,
+        deliveredToModel: Boolean,
     ) {
         Log.d(
             TAG,
             "event_seq: tool_result name=$LOAD_SKILL_NAME " +
                 "resultType=$resultType directReply=false " +
-                "returnedToGemma=$returnedToGemma " +
+                "deliveredToModel=$deliveredToModel " +
                 "content=\"${content.take(256).replace("\n", "\\n").replace("\"", "\\\"")}\"",
         )
     }
@@ -665,7 +672,7 @@ class KernelAIToolSet @Inject constructor(
                 toolResult,
                 succeeded = false,
                 directReply = false,
-                returnedToGemma = true,
+                deliveredToModel = true,
             )
             return toolResult
         }
@@ -690,7 +697,7 @@ class KernelAIToolSet @Inject constructor(
                     toolResult,
                     succeeded = false,
                     directReply = false,
-                    returnedToGemma = true,
+                    deliveredToModel = true,
                 )
                 return toolResult
             }
@@ -765,10 +772,10 @@ class KernelAIToolSet @Inject constructor(
         return result
     }
 
-    @Tool(description = "Get current weather or a multi-day forecast (pass forecastDays=1-7 for forecast). ONLY for weather queries. NOT for date, time, or general knowledge.")
+    @Tool(description = "Get current weather or a forecast. forecastDays counts from today: 1 = today only, 2 = today and tomorrow. For tomorrow questions pass forecastDays=2. ONLY for weather queries. NOT for date, time, or general knowledge.")
     fun getWeather(
         @ToolParam(description = "Optional location/city name. Leave blank for device GPS location.") location: String,
-        @ToolParam(description = "Number of forecast days (1-7). Omit or pass 0 for current conditions only.") forecastDays: String,
+        @ToolParam(description = "Forecast days starting today (1-7; use 2 for tomorrow). Omit or pass 0 for current conditions only.") forecastDays: String,
     ): Map<String, String> {
         val request = """{"location":"$location","forecast_days":"$forecastDays"}"""
         val arguments = if (localDiagnosticCaptureEnabled) {
@@ -786,14 +793,31 @@ class KernelAIToolSet @Inject constructor(
         if (location.isNotBlank()) {
             args["location"] = location
         }
-        if (forecastDays.isNotBlank() && forecastDays != "0") {
-            args["forecast_days"] = forecastDays
-        }
+        args.putAll(forecastWindowArgs(forecastDays, turnUserMessage))
+        Log.d(TAG, "ToolSet: getWeather effective window=${args.filterKeys { it != "location" }}")
 
         val result = executeSkill("get_weather_gps", args, diagnosticOrder)
         lastToolResult = result["result"] ?: result["error"]
         captureTerminalResult("get_weather")
         return result
+    }
+
+    /**
+     * Forecast window for get_weather_gps, decided from the user's turn when the model asked for at most one day (#2033).
+     * A model forecastDays of 2 or more is kept, so an implicit comparison ("hotter tomorrow?") keeps today's row.
+     * Turn with "tomorrow" and "today" gives forecast_days=2; "tomorrow" alone gives day=tomorrow (one row, the same
+     * request the QuickIntentRouter path sends). Otherwise the model's forecastDays is used unchanged.
+     */
+    private fun forecastWindowArgs(modelForecastDays: String, userMessage: String?): Map<String, String> {
+        val message = userMessage.orEmpty()
+        val modelDays = modelForecastDays.trim().toIntOrNull() ?: 0
+        val asksTomorrow = TOMORROW_WORD.containsMatchIn(message) && modelDays <= 1
+        return when {
+            asksTomorrow && TODAY_WORD.containsMatchIn(message) -> mapOf("forecast_days" to "2")
+            asksTomorrow -> mapOf("day" to "tomorrow")
+            modelForecastDays.isNotBlank() && modelForecastDays != "0" -> mapOf("forecast_days" to modelForecastDays)
+            else -> emptyMap()
+        }
     }
 
     @Tool(description = "Look up a named person, place, organisation, event, or other encyclopedia topic on Wikipedia. Use ONLY for explicit Wikipedia searches or fact lookups about a specific named entity. NOT for unit, measurement, or cooking conversions (cups, grams, ml, tbsp), arithmetic, weather, date/time, definitions, or how-to questions — answer those directly without a tool.")
@@ -890,7 +914,7 @@ class KernelAIToolSet @Inject constructor(
                 toolResult,
                 succeeded = false,
                 directReply = false,
-                returnedToGemma = true,
+                deliveredToModel = true,
             )
             return toolResult
         }
@@ -906,7 +930,7 @@ class KernelAIToolSet @Inject constructor(
                     toolResult,
                     succeeded = false,
                     directReply = false,
-                    returnedToGemma = true,
+                    deliveredToModel = true,
                 )
                 return toolResult
             }
@@ -935,7 +959,7 @@ class KernelAIToolSet @Inject constructor(
                 is SkillResult.DirectReply -> result.spokenSummary
                 else -> null
             }
-            val returnedToGemma = result !is SkillResult.DirectReply
+            // The map returned below goes to LiteRT for every result, DirectReply included.
             val resultContent = when (result) {
                 is SkillResult.Success -> result.content
                 is SkillResult.DirectReply -> result.content
@@ -948,7 +972,7 @@ class KernelAIToolSet @Inject constructor(
                     "event_seq: tool_result name=$skillName " +
                         "resultType=${result::class.simpleName} " +
                         "directReply=$lastToolWasDirectReply " +
-                        "returnedToGemma=$returnedToGemma " +
+                        "deliveredToModel=true " +
                         "contentLen=${resultContent.length}",
                 )
             }
@@ -973,7 +997,7 @@ class KernelAIToolSet @Inject constructor(
                 toolResult,
                 succeeded = succeeded,
                 directReply = lastToolWasDirectReply,
-                returnedToGemma = returnedToGemma,
+                deliveredToModel = true,
             )
             toolResult
         } catch (e: Exception) {
@@ -991,7 +1015,7 @@ class KernelAIToolSet @Inject constructor(
                 toolResult,
                 succeeded = false,
                 directReply = false,
-                returnedToGemma = true,
+                deliveredToModel = true,
             )
             toolResult
         }

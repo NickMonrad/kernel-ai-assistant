@@ -378,6 +378,12 @@ enum class KernelModel(
      * True for the asr4all speech model files. Their download needs the Terms of Use accepted first (#1998).
      */
     val requiresTermsAcceptance: Boolean get() = name.startsWith("ASR4ALL_")
+
+    /**
+     * True for downloads whose licence terms the app links to (#2049): the Gemma models (Gemma Terms of Use, listed in
+     * TERMS.md) and the asr4all speech files. The Models screen shows the Terms link on their download rows.
+     */
+    val showsTermsOfUseLink: Boolean get() = requiresTermsAcceptance || name.startsWith("GEMMA_")
 }
 
 /** Absolute path to this model's file on external app storage (survives reinstall). */

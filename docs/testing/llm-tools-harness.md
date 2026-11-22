@@ -192,7 +192,7 @@ For cases with `expected_tool_sequence`, the runner requires:
 - the last `llm_tools_tool_sequence` marker's `turn=` value to equal the expected order;
 - matching ordered `event_seq: tool_call` and `event_seq: tool_result` records;
 - the expected `load_skill.skill_name` and `run_intent.intent_name` targets;
-- `load_skill` to return `resultType=Success` and `returnedToGemma=true`;
+- `load_skill` to return `resultType=Success` and `deliveredToModel=true`;
 - the terminal result and `llm_tools_skill_result` to succeed, the terminal tool chip to
   match, and a non-empty final reply with no raw tool protocol or loaded instructions;
 - every `expected_reply_contains_all` term to appear in the final reply.
@@ -211,7 +211,7 @@ The runtime log forms are:
 
 ```text
 event_seq: tool_call name=load_skill argsLen=<n> args={"skill_name":"run_intent"}
-event_seq: tool_result name=load_skill resultType=Success directReply=false returnedToGemma=true content="<first 256 chars>"
+event_seq: tool_result name=load_skill resultType=Success directReply=false deliveredToModel=true content="<first 256 chars>"
 llm_tools_tool_sequence: attempt=run_intent turn=load_skill>run_intent terminal=run_intent
 ```
 

@@ -6,6 +6,7 @@ import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
+import com.kernel.ai.core.inference.terms.isTermsRefusal
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -208,10 +209,7 @@ class Asr4allSizeSwitcher internal constructor(
 
     /** Failure text for a switch: the Terms refusal when the Terms gate stopped the download (#1998). */
     private fun downloadFailureMessage(size: Asr4AllSize): String {
-        val termsRefused = Asr4AllInstall.models(size).any { model ->
-            val state = modelDownloadManager.downloadStates.value[model]
-            state is DownloadState.Error && state.message == TERMS_NOT_ACCEPTED_MESSAGE
-        }
+        val termsRefused = Asr4AllInstall.models(size).any { modelDownloadManager.downloadStates.value[it].isTermsRefusal() }
         return if (termsRefused) {
             TERMS_NOT_ACCEPTED_MESSAGE
         } else {

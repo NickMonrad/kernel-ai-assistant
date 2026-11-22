@@ -30,6 +30,9 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceRecovery
+import com.kernel.ai.core.voice.VoiceRefusal
+import com.kernel.ai.core.voice.recoveryFor
 import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
@@ -51,6 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -300,6 +304,12 @@ class ActionsViewModel @Inject constructor(
     /** Last error message to show in the UI. Cleared on next action. */
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+    private val _voiceRefusal = MutableStateFlow<VoiceRefusal?>(null)
+
+    /** The fix for the current [error] when it is a voice refusal with an action (#2049). */
+    val errorRecovery: StateFlow<VoiceRecovery?> = combine(_error, _voiceRefusal) { error, refusal ->
+        recoveryFor(error, refusal)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Non-null while the hands-free calling contextual dialog should be shown. */
     private val _handsFreeCallingState = MutableStateFlow<HandsFreeCallingState?>(null)
@@ -2371,6 +2381,7 @@ class ActionsViewModel @Inject constructor(
                         actionsVoiceAwaitingFinal = false
                         _voiceCaptureState.value = VoiceCaptureState.Idle
                         _error.value = result.message
+                        _voiceRefusal.value = result.recovery?.let { VoiceRefusal(result.message, it) }
                     }
                 }
                 is VoiceInputStartResult.Cancelled ->

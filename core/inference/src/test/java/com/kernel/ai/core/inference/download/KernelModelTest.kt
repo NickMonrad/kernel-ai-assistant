@@ -32,4 +32,20 @@ class KernelModelTest {
         assertEquals(231_508L, vocab.approxSizeBytes)
         assertEquals("${releasePrefix}${vocab.fileName}", vocab.downloadUrl)
     }
+
+    @Test
+    fun `every model has its own file name`() {
+        val names = KernelModel.entries.map { it.fileName }
+        assertEquals(names.size, names.toSet().size, "duplicate fileName among ${names.groupBy { it }.filterValues { it.size > 1 }.keys}")
+    }
+
+    @Test
+    fun `Gemma and asr4all downloads show the Terms link, other models do not`() {
+        assertTrue(KernelModel.GEMMA_4_E4B.showsTermsOfUseLink)
+        assertTrue(KernelModel.GEMMA_4_E2B.showsTermsOfUseLink)
+        KernelModel.entries.filter { it.requiresTermsAcceptance }.forEach { model ->
+            assertTrue(model.showsTermsOfUseLink, model.name)
+        }
+        assertFalse(KernelModel.ARCTIC_EMBED_M_V1_5.showsTermsOfUseLink)
+    }
 }

@@ -98,6 +98,9 @@ import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceRecovery
+import com.kernel.ai.core.voice.VoiceRefusal
+import com.kernel.ai.core.voice.recoveryFor
 import com.kernel.ai.core.voice.startListening
 import com.kernel.ai.core.voice.stopListening
 import com.kernel.ai.core.voice.cancelListening
@@ -326,6 +329,7 @@ class ChatViewModel @Inject constructor(
         ),
     )
     private val _error = MutableStateFlow<String?>(null)
+    private val _voiceRefusal = MutableStateFlow<VoiceRefusal?>(null)
     private val _settingsActionState = MutableStateFlow<SettingsActionState?>(null)
     val settingsActionState: StateFlow<SettingsActionState?> = _settingsActionState.asStateFlow()
 
@@ -604,6 +608,7 @@ class ChatViewModel @Inject constructor(
         val inputText: String,
         val inputTextReplacement: InputTextReplacement,
         val error: String?,
+        val errorRecovery: VoiceRecovery?,
         val conversationTitle: String?,
         val isSpeakingResponse: Boolean,
     )
@@ -634,9 +639,14 @@ class ChatViewModel @Inject constructor(
     }
 
     private val inputState = combine(
-        combine(_messages, _inputText, _inputTextReplacement, _error, _conversationTitle) {
-                messages, inputText, inputTextReplacement, error, title ->
-            InputState(messages, inputText, inputTextReplacement, error, title, false)
+        combine(
+            _messages,
+            _inputText,
+            _inputTextReplacement,
+            combine(_error, _voiceRefusal) { error, refusal -> error to recoveryFor(error, refusal) },
+            _conversationTitle,
+        ) { messages, inputText, inputTextReplacement, (error, errorRecovery), title ->
+            InputState(messages, inputText, inputTextReplacement, error, errorRecovery, title, false)
         },
         _isSpeakingResponse,
     ) { state, isSpeakingResponse ->
@@ -731,6 +741,7 @@ class ChatViewModel @Inject constructor(
                 inputTextReplacementRevision = input.inputTextReplacement.revision,
                 inputTextReplacementText = input.inputTextReplacement.text,
                 error = input.error,
+                errorRecovery = input.errorRecovery,
                 isLoadingModel = engine.isLoadingModel,
                 isPreparingResponse = engine.isPreparingResponse,
                 debugForceGpuConversationReset = engine.debugForceGpuConversationReset,
@@ -1800,7 +1811,8 @@ class ChatViewModel @Inject constructor(
                         _voiceMode.value = null
                         pendingVoiceReply = false
                         _voiceCaptureState.value = VoiceCaptureState.Idle
-                        _error.value = withVoiceSettingsHint(result.message)
+                        _error.value = if (result.recovery != null) result.message else withVoiceSettingsHint(result.message)
+                        _voiceRefusal.value = result.recovery?.let { VoiceRefusal(result.message, it) }
                     }
                 }
                 is VoiceInputStartResult.Cancelled ->
@@ -3746,8 +3758,8 @@ class ChatViewModel @Inject constructor(
                             // creating a token pattern where EOS is most likely. LiteRT then
                             // self-heals by resetting the session (#841).
                             // Retry once without RAG context (stripped prompt) before showing fallback.
-                            // A DirectReply already supplies the visible answer and returns no text to Gemma.
-                            // Do not mistake that expected empty generation for an immediate EOS.
+                            // A DirectReply already supplies the visible answer (its card text); the model's
+                            // text after the tool response is not shown. Do not mistake an empty follow-up for an immediate EOS.
                             val completedDirectReplyHasContent =
                                 kernelAIToolSet.terminalToolCalledInCurrentAttempt() &&
                                     kernelAIToolSet.terminalToolSucceededInCurrentAttempt() &&
