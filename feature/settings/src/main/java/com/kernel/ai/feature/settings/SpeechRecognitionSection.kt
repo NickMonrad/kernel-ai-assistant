@@ -114,7 +114,9 @@ internal fun SpeechRecognitionSection(
                 val engineWarning = if (engine != VoiceInputEngine.AndroidNative && selected) engine.warning else null
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
                 val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
-                val hasSub = nativeWarning != null || engineWarning != null || showOnline || showDownloadCard
+                val termsRowShown = engine == VoiceInputEngine.Asr4all &&
+                    (showDownloadCard || (uiState.selectedInputEngine == VoiceInputEngine.Auto && !uiState.termsAccepted))
+                val hasSub = nativeWarning != null || engineWarning != null || showOnline || showDownloadCard || termsRowShown
                 val tag: (@Composable () -> Unit)? = if (engine == VoiceInputEngine.Auto) {
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
                 } else if (sttState != null && engine.hasDownloadableModel) {
@@ -158,21 +160,21 @@ internal fun SpeechRecognitionSection(
                                 moreDescription = "More about online speech recognition",
                             )
                         }
-                        if (showDownloadCard) {
-                            if (engine == VoiceInputEngine.Asr4all) {
-                                val termsRowRequester = remember { BringIntoViewRequester() }
-                                LaunchedEffect(Unit) {
-                                    if (scrollToTermsRow) termsRowRequester.bringIntoView()
-                                }
-                                TermsAcceptRow(
-                                    accepted = uiState.termsAccepted,
-                                    onAcceptedChange = onTermsAcceptedChanged,
-                                    onOpenTerms = { termsSheetOpen = true },
-                                    modifier = Modifier
-                                        .padding(vertical = 4.dp)
-                                        .bringIntoViewRequester(termsRowRequester),
-                                )
+                        if (termsRowShown) {
+                            val termsRowRequester = remember { BringIntoViewRequester() }
+                            LaunchedEffect(Unit) {
+                                if (scrollToTermsRow) termsRowRequester.bringIntoView()
                             }
+                            TermsAcceptRow(
+                                accepted = uiState.termsAccepted,
+                                onAcceptedChange = onTermsAcceptedChanged,
+                                onOpenTerms = { termsSheetOpen = true },
+                                modifier = Modifier
+                                    .padding(vertical = 4.dp)
+                                    .bringIntoViewRequester(termsRowRequester),
+                            )
+                        }
+                        if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
                                 Asr4AllSizeRow(
                                     selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,

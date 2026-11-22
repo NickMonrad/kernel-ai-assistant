@@ -476,6 +476,8 @@ class ModelDownloadManager @Inject constructor(
                     if (!replayedFinished) {
                         JandalEvents.record("download", "worker_phase", "model" to model, "phase" to info.state.toWorkerPhase())
                     }
+                    // Wi-Fi waiting follows state transitions, not progress ticks, so it is updated here (#1855).
+                    updateWaitingForWifi(model, info.state)
                 }
 
                 val newState: DownloadState = when (info.state) {
@@ -560,26 +562,43 @@ class ModelDownloadManager @Inject constructor(
 
                     WorkInfo.State.CANCELLED -> {
                         // The Terms gate cancels a queued job it refuses. That refusal stays visible, not NotDownloaded (#2049).
-                        if (_downloadStates.value[model].isTermsRefusal()) return@collect
                         val (localFile, isPresent) = withContext(Dispatchers.IO) {
                             val f = model.localFile(context)
                             f to (f.exists() && f.length() > 0)
                         }
+                        val next = cancelledWorkerDownloadState(
+                            current = _downloadStates.value[model],
+                            localPath = localFile.absolutePath,
+                            filePresent = isPresent,
+                        ) ?: return@collect
                         if (isPresent) {
                             Log.i(TAG, "Worker cancelled but file present — treating as Downloaded: ${model.displayName}")
-                            DownloadState.Downloaded(localPath = localFile.absolutePath)
                         } else {
                             Log.i(TAG, "Download cancelled for ${model.displayName}")
-                            DownloadState.NotDownloaded
                         }
+                        next
                     }
 
                     else -> return@collect
                 }
-                updateWaitingForWifi(model, info.state)
                 updateState(model, newState)
             }
     }
+}
+
+/**
+ * The state a CANCELLED worker leaves, or null to keep [current]. A Terms refusal stays (#2049). Otherwise a file on
+ * disk means Downloaded, and no file means NotDownloaded.
+ */
+@VisibleForTesting
+internal fun cancelledWorkerDownloadState(
+    current: DownloadState?,
+    localPath: String,
+    filePresent: Boolean,
+): DownloadState? = when {
+    current.isTermsRefusal() -> null
+    filePresent -> DownloadState.Downloaded(localPath = localPath)
+    else -> DownloadState.NotDownloaded
 }
 
 /**

@@ -231,6 +231,13 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `the Terms block is reported only while the downloaded weights are on disk`() = runBlocking(Dispatchers.IO) {
+        assertTrue(controller(termsAccepted = false).apply { availableForTest = { true } }.isBlockedByTerms())
+        assertFalse(controller(termsAccepted = false).apply { availableForTest = { false } }.isBlockedByTerms())
+        assertFalse(controller(termsAccepted = true).apply { availableForTest = { true } }.isBlockedByTerms())
+    }
+
+    @Test
     fun `release supersedes a capture with no transcript and closes before the next open`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)

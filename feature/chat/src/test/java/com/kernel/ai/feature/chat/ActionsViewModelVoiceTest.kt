@@ -30,6 +30,8 @@ import com.kernel.ai.core.voice.SpeechStopCoordinator
 import org.junit.jupiter.api.Assertions.assertTrue
 import io.mockk.Runs
 import io.mockk.clearMocks
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
+import com.kernel.ai.core.voice.VoiceRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -173,6 +175,27 @@ class ActionsViewModelVoiceTest {
             ActionsViewModel.VoiceCaptureState.Idle,
             viewModel.voiceCaptureState.value,
         )
+    }
+
+    @Test
+    fun `a Terms refusal keeps its Settings fix until the next error replaces it`() = runTest(dispatcher) {
+        backgroundScope.launch { viewModel.errorRecovery.collect {} }
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returnsMany listOf(
+            VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS),
+            VoiceInputStartResult.Unavailable("Offline voice input is not available yet in this build."),
+        )
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        assertEquals(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, viewModel.error.value)
+        assertEquals(VoiceRecovery.ACCEPT_TERMS, viewModel.errorRecovery.value)
+
+        viewModel.startVoiceCommand()
+        advanceUntilIdle()
+        assertEquals("Offline voice input is not available yet in this build.", viewModel.error.value)
+        assertNull(viewModel.errorRecovery.value)
     }
 
     @Test

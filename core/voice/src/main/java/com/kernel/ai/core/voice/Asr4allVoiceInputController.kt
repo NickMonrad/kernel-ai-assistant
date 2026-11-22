@@ -16,7 +16,6 @@ import androidx.core.content.ContextCompat
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.SttFailure
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
-import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
@@ -173,9 +172,18 @@ class Asr4allVoiceInputController internal constructor(
     /** Runs on the caller just before a cancelled stop joins its reader; lets a test observe the reader still parked. */
     internal var beforeCancelledStopJoinForTest: (() -> Unit)? = null
 
+    /** Weights on disk for the size to load now. */
+    private suspend fun modelDownloaded(): Boolean = availableForTest?.invoke()
+        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) }
+
     /** Missing weights and a refused Terms acceptance both read as unavailable, so callers fall back the same way. */
-    suspend fun isAvailable(): Boolean = termsAccepted() && (availableForTest?.invoke()
-        ?: withContext(Dispatchers.IO) { Asr4AllInstall.isDownloaded(context, selectedSize()) })
+    suspend fun isAvailable(): Boolean = termsAccepted() && modelDownloaded()
+
+    /**
+     * True when the weights are on disk but the Terms refuse them. Auto and the native fallback then surface the
+     * Terms refusal with its Settings action, not another recognizer's message (#2049).
+     */
+    suspend fun isBlockedByTerms(): Boolean = !termsAccepted() && modelDownloaded()
 
     /** The size to load now: the user's choice, subject to the tier policy. */
     private suspend fun selectedSize(): Asr4AllSize = Asr4AllInstall.effectiveSize(
@@ -206,7 +214,7 @@ class Asr4allVoiceInputController internal constructor(
                 return@withLock VoiceInputStartResult.Unavailable("The previous microphone session is still closing. Try again.")
             }
             if (!termsAccepted()) {
-                return@withLock VoiceInputStartResult.Unavailable(TERMS_NOT_ACCEPTED_VOICE_MESSAGE, VoiceRecovery.ACCEPT_TERMS)
+                return@withLock termsNotAcceptedStart()
             }
             if (!isAvailable()) {
                 return@withLock VoiceInputStartResult.Unavailable(
