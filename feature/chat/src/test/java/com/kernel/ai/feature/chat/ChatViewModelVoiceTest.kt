@@ -1042,7 +1042,17 @@ class ChatViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
-        assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
+        // The query is now tool-shaped (#2058), so the tool path replaces the leaked syntax with
+        // the guard message and speaks it. The contract is that raw tool syntax is never spoken,
+        // and voice mode ends once that guard reply finishes playing.
+        assertTrue(
+            streamedChunks.none { (chunk, _) -> chunk.contains("<|tool_call>") || chunk.contains("<tool_call|>") },
+            "raw tool-call text was spoken: $streamedChunks",
+        )
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(streamedChunks.joinToString(" ") { it.first }))
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
         assertNull(viewModel.voiceMode.value, "voice mode stayed armed after a raw tool-call reply")
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
