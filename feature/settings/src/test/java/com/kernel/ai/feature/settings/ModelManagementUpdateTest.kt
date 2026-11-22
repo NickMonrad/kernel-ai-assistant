@@ -13,6 +13,8 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
 import com.kernel.ai.core.model.availability.GatedModelStatus
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -55,6 +57,7 @@ class ModelManagementUpdateTest {
     private val voiceInputPreferences = mockk<VoiceInputPreferences>(relaxed = true)
     private val downloadNetworkPreferences = mockk<DownloadNetworkPreferences>(relaxed = true)
     private val context = mockk<Context>(relaxed = true)
+    private val termsPreferences = mockk<TermsAcceptancePreferences>(relaxed = true)
     private val viewModelStore = ViewModelStore()
     @TempDir
     lateinit var tempDir: Path
@@ -78,6 +81,7 @@ class ModelManagementUpdateTest {
         every { downloadNetworkPreferences.choice } returns flowOf(null)
         every { voiceInputPreferences.selectedEngine } returns flowOf(VoiceInputEngine.Auto)
         every { voiceInputPreferences.asr4allSize } returns flowOf(Asr4AllSize.M)
+        every { termsPreferences.record } returns flowOf(TermsAcceptanceRecord())
     }
 
     @AfterEach
@@ -103,6 +107,7 @@ class ModelManagementUpdateTest {
             voiceOutputPreferences = voiceOutputPreferences,
             voiceInputPreferences = voiceInputPreferences,
             downloadNetworkPreferences = downloadNetworkPreferences,
+            termsAcceptancePreferences = termsPreferences,
         )
         viewModelStore.put("model-management", viewModel)
 
@@ -125,6 +130,7 @@ class ModelManagementUpdateTest {
         voiceOutputPreferences = voiceOutputPreferences,
         voiceInputPreferences = voiceInputPreferences,
         downloadNetworkPreferences = downloadNetworkPreferences,
+        termsAcceptancePreferences = termsPreferences,
     ).also {
         it.ioDispatcher = Dispatchers.Main
         viewModelStore.put("model-management", it)

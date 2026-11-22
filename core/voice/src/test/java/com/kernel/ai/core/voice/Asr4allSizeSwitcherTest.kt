@@ -7,6 +7,7 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -149,6 +150,27 @@ class Asr4allSizeSwitcherTest {
         assertEquals(Asr4AllSize.L, switcher.state.value.failure?.size)
         assertTrue(switcher.state.value.failure?.message?.contains("did not finish") == true)
         assertTrue(oldFiles.all { it.exists() }, "a failed download keeps the active model")
+        coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
+    }
+
+    @Test
+    fun `a switch the terms refusal stopped reports the terms message and keeps the active size`() = runTest {
+        val oldFiles = writeFiles(Asr4AllSize.M)
+        val switcher = switcher()
+
+        switcher.select(Asr4AllSize.L)
+        runCurrent()
+        downloads.update { current ->
+            current + (Asr4AllInstall.models(Asr4AllSize.L).first() to DownloadState.Error(TERMS_NOT_ACCEPTED_MESSAGE))
+        }
+        advanceUntilIdle()
+
+        assertEquals(Asr4AllSize.M, stored.value)
+        assertNull(pending.value)
+        assertNull(switcher.state.value.pendingSize)
+        assertEquals(Asr4AllSize.L, switcher.state.value.failure?.size)
+        assertEquals(TERMS_NOT_ACCEPTED_MESSAGE, switcher.state.value.failure?.message)
+        assertTrue(oldFiles.all { it.exists() }, "a terms-refused download keeps the active model")
         coVerify(exactly = 0) { controller.withEngineReleasedIfIdle<Unit>(any()) }
     }
 

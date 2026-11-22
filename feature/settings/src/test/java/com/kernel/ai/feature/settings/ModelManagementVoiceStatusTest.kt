@@ -33,37 +33,71 @@ class ModelManagementVoiceStatusTest {
     }
 
     @Test
-    fun `android native speech is built in whatever the asr4all files`() {
+    fun `android native speech is built in whatever the asr4all files or the terms`() {
         assertEquals(
             VoiceSectionStatus.BUILT_IN,
-            speechStatusOf(VoiceInputEngine.AndroidNative, emptyMap(), Asr4AllSize.M),
+            speechStatusOf(VoiceInputEngine.AndroidNative, emptyMap(), Asr4AllSize.M, termsAccepted = false),
         )
     }
 
     @Test
     fun `automatic speech needs the asr4all files, not the hey jandal verifier`() {
         val m = Asr4AllInstall.models(Asr4AllSize.M)
-        assertEquals(VoiceSectionStatus.READY, speechStatusOf(VoiceInputEngine.Auto, downloaded(m), Asr4AllSize.M))
+        assertEquals(
+            VoiceSectionStatus.READY,
+            speechStatusOf(VoiceInputEngine.Auto, downloaded(m), Asr4AllSize.M, termsAccepted = true),
+        )
         assertEquals(
             VoiceSectionStatus.NOT_DOWNLOADED,
-            speechStatusOf(VoiceInputEngine.Auto, downloaded(m.drop(1)), Asr4AllSize.M),
+            speechStatusOf(VoiceInputEngine.Auto, downloaded(m.drop(1)), Asr4AllSize.M, termsAccepted = true),
+        )
+    }
+
+    @Test
+    fun `automatic and asr4all speech with the files but the terms not accepted reads terms needed`() {
+        val m = downloaded(Asr4AllInstall.models(Asr4AllSize.M))
+        assertEquals(
+            VoiceSectionStatus.TERMS_NEEDED,
+            speechStatusOf(VoiceInputEngine.Auto, m, Asr4AllSize.M, termsAccepted = false),
+        )
+        assertEquals(
+            VoiceSectionStatus.TERMS_NEEDED,
+            speechStatusOf(VoiceInputEngine.Asr4all, m, Asr4AllSize.M, termsAccepted = false),
+        )
+    }
+
+    @Test
+    fun `terms needed applies only once the asr4all files are present`() {
+        val partial = downloaded(Asr4AllInstall.models(Asr4AllSize.M).drop(1))
+        assertEquals(
+            VoiceSectionStatus.NOT_DOWNLOADED,
+            speechStatusOf(VoiceInputEngine.Asr4all, partial, Asr4AllSize.M, termsAccepted = false),
         )
     }
 
     @Test
     fun `asr4all speech checks the files of the effective size`() {
         val m = downloaded(Asr4AllInstall.models(Asr4AllSize.M))
-        assertEquals(VoiceSectionStatus.READY, speechStatusOf(VoiceInputEngine.Asr4all, m, Asr4AllSize.M))
-        assertEquals(VoiceSectionStatus.NOT_DOWNLOADED, speechStatusOf(VoiceInputEngine.Asr4all, m, Asr4AllSize.L))
+        assertEquals(
+            VoiceSectionStatus.READY,
+            speechStatusOf(VoiceInputEngine.Asr4all, m, Asr4AllSize.M, termsAccepted = true),
+        )
+        assertEquals(
+            VoiceSectionStatus.NOT_DOWNLOADED,
+            speechStatusOf(VoiceInputEngine.Asr4all, m, Asr4AllSize.L, termsAccepted = true),
+        )
     }
 
     @Test
-    fun `a sherpa engine reports only its own spec files`() {
+    fun `a sherpa engine reports only its own spec files and ignores the terms`() {
         val whisper = downloaded(SherpaSttModelSpec.WHISPER.kernelModels())
-        assertEquals(VoiceSectionStatus.READY, speechStatusOf(VoiceInputEngine.SherpaWhisper, whisper, Asr4AllSize.M))
+        assertEquals(
+            VoiceSectionStatus.READY,
+            speechStatusOf(VoiceInputEngine.SherpaWhisper, whisper, Asr4AllSize.M, termsAccepted = false),
+        )
         assertEquals(
             VoiceSectionStatus.NOT_DOWNLOADED,
-            speechStatusOf(VoiceInputEngine.SherpaParaformer, whisper, Asr4AllSize.M),
+            speechStatusOf(VoiceInputEngine.SherpaParaformer, whisper, Asr4AllSize.M, termsAccepted = false),
         )
     }
 

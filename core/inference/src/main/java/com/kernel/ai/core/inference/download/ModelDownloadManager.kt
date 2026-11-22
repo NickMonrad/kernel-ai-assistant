@@ -283,7 +283,6 @@ class ModelDownloadManager @Inject constructor(
 
         // Track the download source for UI layer
         _downloadSources.update { it.toMutableMap().apply { put(model, source) } }
-        Log.i(TAG, "Enqueuing download for ${model.displayName}")
         // updateState moved inside coroutine — don't reset progress to 0 if KEEP is chosen
 
         scope.launch {
@@ -292,8 +291,10 @@ class ModelDownloadManager @Inject constructor(
             if (!termsAllowDownload(model, termsAcceptancePreferences.record.first())) {
                 withContext(Dispatchers.IO) { workManager.cancelUniqueWork(model.workerTag) }
                 updateState(model, DownloadState.Error(TERMS_NOT_ACCEPTED_MESSAGE))
+                Log.w(TAG, "Terms not accepted: refusing ${model.displayName}")
                 return@launch
             }
+            Log.i(TAG, "Enqueuing download for ${model.displayName}")
             withContext(Dispatchers.IO) {
                 val existingInfos = workManager.getWorkInfosForUniqueWork(model.workerTag).get()
                 val policy = when {

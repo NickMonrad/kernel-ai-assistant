@@ -16,6 +16,8 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.prefs.ModelPreferences
 import com.kernel.ai.core.inference.prefs.DownloadNetworkPreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
@@ -88,16 +90,19 @@ data class ModelManagementUiState(
 )
 
 /** Read-only status for a voice section on the Models screen. Managed in Voice settings. */
-enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE }
+enum class VoiceSectionStatus { READY, DOWNLOADING, NOT_DOWNLOADED, BUILT_IN, OTHER_ENGINE, TERMS_NEEDED }
 
 /**
  * The speech row follows the selected input engine (#1982): Android native is built in, Auto and asr4all
  * need the asr4all files of the effective size, and each Sherpa engine needs the files of its own spec.
+ * Auto and asr4all also need the Terms of Use accepted (#2049): with the files present and the Terms not
+ * accepted, the row reads [VoiceSectionStatus.TERMS_NEEDED] rather than Ready.
  */
 internal fun speechStatusOf(
     engine: VoiceInputEngine,
     states: Map<KernelModel, DownloadState>,
     asr4allSize: Asr4AllSize,
+    termsAccepted: Boolean,
 ): VoiceSectionStatus {
     val files = when (engine) {
         VoiceInputEngine.AndroidNative -> return VoiceSectionStatus.BUILT_IN
@@ -106,7 +111,10 @@ internal fun speechStatusOf(
     }
     val downloads = files.map { states[it] ?: DownloadState.NotDownloaded }
     return when {
-        downloads.all { it is DownloadState.Downloaded } -> VoiceSectionStatus.READY
+        downloads.all { it is DownloadState.Downloaded } -> {
+            val needsTerms = engine == VoiceInputEngine.Auto || engine == VoiceInputEngine.Asr4all
+            if (needsTerms && !termsAccepted) VoiceSectionStatus.TERMS_NEEDED else VoiceSectionStatus.READY
+        }
         downloads.any { it is DownloadState.Downloading } -> VoiceSectionStatus.DOWNLOADING
         else -> VoiceSectionStatus.NOT_DOWNLOADED
     }
@@ -147,6 +155,7 @@ class ModelManagementViewModel @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val voiceInputPreferences: VoiceInputPreferences,
     private val downloadNetworkPreferences: DownloadNetworkPreferences,
+    private val termsAcceptancePreferences: TermsAcceptancePreferences,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -199,6 +208,7 @@ class ModelManagementViewModel @Inject constructor(
         downloadNetworkPreferences.choice,
         voiceInputPreferences.selectedEngine,
         voiceInputPreferences.asr4allSize,
+        termsAcceptancePreferences.record,
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val downloadStates = array[0] as Map<KernelModel, DownloadState>
@@ -220,6 +230,7 @@ class ModelManagementViewModel @Inject constructor(
         val mobileDataAllowed = array[11] as DownloadNetworkChoice? == DownloadNetworkChoice.MOBILE_DATA_ALLOWED
         val inputEngine = array[12] as VoiceInputEngine
         val asr4allStored = array[13] as Asr4AllSize
+        val termsAccepted = (array[14] as TermsAcceptanceRecord).isAccepted()
 
         val filteredModels = KernelModel.entries.filter {
             it.showInModelManagement && !it.isDeprecated
@@ -257,6 +268,7 @@ class ModelManagementViewModel @Inject constructor(
                 engine = inputEngine,
                 states = downloadStates,
                 asr4allSize = asr4allSize,
+                termsAccepted = termsAccepted,
             ),
             speechRecognitionDetail = speechDetailOf(inputEngine, asr4allSize),
             voiceOutputStatus = voiceOutputStatusOf(engine, voicePacks[SherpaPiperVoice.CoriHigh]),

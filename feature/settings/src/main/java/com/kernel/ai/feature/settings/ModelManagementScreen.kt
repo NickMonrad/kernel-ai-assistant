@@ -318,6 +318,7 @@ private fun voiceStatusText(status: VoiceSectionStatus): String = when (status) 
     VoiceSectionStatus.NOT_DOWNLOADED -> ModelRoleCopy.VOICE_NOT_DOWNLOADED
     VoiceSectionStatus.BUILT_IN -> ModelRoleCopy.VOICE_BUILT_IN
     VoiceSectionStatus.OTHER_ENGINE -> ModelRoleCopy.VOICE_OTHER_ENGINE
+    VoiceSectionStatus.TERMS_NEEDED -> ModelRoleCopy.VOICE_TERMS_NEEDED
 }
 
 private fun modeTitle(mode: PersonaMode): String = when (mode) {

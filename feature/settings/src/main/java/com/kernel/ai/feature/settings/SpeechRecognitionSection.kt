@@ -115,7 +115,7 @@ internal fun SpeechRecognitionSection(
                 val selected = uiState.selectedInputEngine == engine
                 val sttState = uiState.sherpaSttStates[engine]
                 val isReady = !engine.hasDownloadableModel || sttState?.isDownloaded == true
-                val termsGate = engine != VoiceInputEngine.Asr4all || uiState.termsAccepted
+                val termsGate = engine != VoiceInputEngine.Asr4all || uiState.termsAccepted == true
                 val nativeWarning = if (engine == VoiceInputEngine.AndroidNative && selected) {
                     androidNativeSettingsWarning(
                         blockingMessage = uiState.androidNativeAvailabilityMessage,
@@ -134,7 +134,7 @@ internal fun SpeechRecognitionSection(
                 }
                 val showOnline = onlineSpeechToggleVisible(selected = uiState.selectedInputEngine, row = engine)
                 val showDownloadCard = engine.hasDownloadableModel && sttState != null && (!sttState.isDownloaded || selected)
-                val termsRowShown = engine == VoiceInputEngine.Asr4all &&
+                val termsRowShown = engine == VoiceInputEngine.Asr4all && uiState.termsAccepted != null &&
                     (showDownloadCard || (uiState.selectedInputEngine == VoiceInputEngine.Auto && !uiState.termsAccepted))
                 val hasSub = nativeWarning != null || engineWarning != null || automaticNote != null || showOnline ||
                     showDownloadCard || termsRowShown
@@ -200,7 +200,7 @@ internal fun SpeechRecognitionSection(
                                 }
                             }
                             TermsAcceptRow(
-                                accepted = uiState.termsAccepted,
+                                accepted = uiState.termsAccepted == true,
                                 onAcceptedChange = onTermsAcceptedChanged,
                                 onOpenTerms = { termsSheetOpen = true },
                                 modifier = Modifier
