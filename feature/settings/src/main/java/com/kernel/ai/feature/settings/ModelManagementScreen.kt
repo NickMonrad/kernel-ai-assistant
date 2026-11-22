@@ -372,15 +372,6 @@ private fun StorageSummaryCard(
     }
 }
 
-private fun formatBytes(bytes: Long): String {
-    return when {
-        bytes >= 1_000_000_000L -> "${"%.1f".format(bytes / 1_000_000_000.0)} GB"
-        bytes >= 1_000_000L -> "${"%.0f".format(bytes / 1_000_000.0)} MB"
-        bytes >= 1_000L -> "${"%.0f".format(bytes / 1_000.0)} KB"
-        else -> "$bytes B"
-    }
-}
-
 internal fun openInAppBrowser(context: android.content.Context, url: String): Boolean {
     val uri = runCatching { url.toUri() }.getOrNull() ?: return false
     val customTabsIntent = CustomTabsIntent.Builder().build()
