@@ -3,6 +3,7 @@ package com.kernel.ai.feature.chat
 import com.kernel.ai.feature.chat.model.ChatMessage
 import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.skills.SkillResult
+import com.kernel.ai.core.voice.SpeechLinkText
 import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
@@ -140,7 +141,7 @@ internal fun truncateForSpeech(text: String, maxSentences: Int): String {
 }
 
 internal fun normalizeChatTextForSpeech(text: String): String =
-    stripMarkdownForClipboard(text)
+    stripMarkdownForClipboard(SpeechLinkText.strip(text))
         .replace(Regex("""(?m)^\s*[-*_]{1,3}\s*$"""), "")  // thematic break / standalone dividers (***, ---, *, lone *)
         .replace(Regex("""\r?\n\s*\d+\.\s+"""), ". ")   // numbered list item boundary → sentence break
         .replace(Regex("""(?m)^\s*\d+\.\s+"""), "")      // strip leading numbered marker at start

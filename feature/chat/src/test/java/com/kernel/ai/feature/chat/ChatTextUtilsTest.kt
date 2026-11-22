@@ -347,15 +347,14 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `preserves https URL scheme colons`() {
-            val result = normalizeChatTextForSpeech("See https://example.com for details")
-            assertTrue(result.contains("https://"), "URL scheme should be preserved, got: $result")
+        fun `bare urls are not spoken, scheme and all (#2041)`() {
+            assertEquals("See for details", normalizeChatTextForSpeech("See https://example.com for details"))
+            assertEquals("Visit for more", normalizeChatTextForSpeech("Visit http://docs.kernel.ai for more"))
         }
 
         @Test
-        fun `preserves http URL scheme colons`() {
-            val result = normalizeChatTextForSpeech("Visit http://docs.kernel.ai for more")
-            assertTrue(result.contains("http://"), "http URL scheme should be preserved, got: $result")
+        fun `a non-web scheme keeps its colon-slash-slash so it is not split at the colon`() {
+            assertEquals("Fetch ftp://files.example.org", normalizeChatTextForSpeech("Fetch ftp://files.example.org"))
         }
 
         @Test

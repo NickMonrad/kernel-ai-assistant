@@ -4,6 +4,7 @@ package com.kernel.ai.core.voice
  * Conservative card-to-speech cleanup shared by every TTS engine. It only handles notation that
  * exists in weather and status cards: emoji, field separators ("|", "/", "·"), line breaks between
  * fields (a sentence pause), em dashes as pauses, and "H:17°C" / "L:10°C" / "Humidity: 92%" labels.
+ * Page links are removed first ([SpeechLinkText], #2041).
  *
  * Numbers, percentages, dates and times are deliberately NOT expanded here. Each engine's own
  * preparation owns that (SherpaSpeechText for Piper/Kokoro, InflectMicroTextFrontend for Inflect,
@@ -23,7 +24,7 @@ object SpeechCardText {
     private const val CLAUSE_END = ".!?:;,"
 
     fun speakable(text: String): String {
-        var value = emoji.replace(text, "")
+        var value = emoji.replace(SpeechLinkText.strip(text), "")
         value = arrow.replace(value, " to ")
         value = highLow.replace(value) { m ->
             val unit = if (m.groupValues[3].isNotEmpty()) " Fahrenheit" else ""
