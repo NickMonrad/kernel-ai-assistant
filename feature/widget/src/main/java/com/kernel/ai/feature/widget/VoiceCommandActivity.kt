@@ -3,6 +3,7 @@ package com.kernel.ai.feature.widget
 import android.Manifest
 import android.content.Intent
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -91,6 +92,7 @@ import javax.inject.Inject
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_ID
 import com.kernel.ai.core.voice.WakeOverlayPhase
 import com.kernel.ai.core.voice.WakeOverlayState
 
@@ -112,6 +114,9 @@ const val EXTRA_WAKE_OVERLAY = "wake_overlay"
 
 /** #1930: token of the live wake capture that opened the overlay; see [WakeOverlayChannel.begin]. */
 const val EXTRA_WAKE_TOKEN = "wake_token"
+
+/** #2081: set on a notification-held wake transcript delivered by tap; see [WakeWordHandoff.takeHeld]. */
+const val EXTRA_WAKE_HELD = "wake_held"
 
 /** #1930: delay before a routed wake overlay closes when its prefilled transcript never arrives. */
 internal const val WAKE_ROUTED_FINISH_TIMEOUT_MS = 2_000L
@@ -193,6 +198,7 @@ class VoiceCommandActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         if (handlePrefilledTranscript(intent)) return
+        if (handleHeldTranscriptIntent(intent)) return
         if (intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) {
             // #1930: a wake intent whose capture already ended must not fall through to a new session.
             if (!handleWakeOverlayIntent(intent)) finish()
@@ -218,7 +224,7 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (!handlePrefilledTranscript(intent)) handleWakeOverlayIntent(intent)
+        if (!handlePrefilledTranscript(intent) && !handleHeldTranscriptIntent(intent)) handleWakeOverlayIntent(intent)
         // Non-live wake intents and OS assistant re-triggers (no prefilled transcript) are ignored;
         // the existing voice session or overlay is still valid.
     }
@@ -246,6 +252,7 @@ class VoiceCommandActivity : ComponentActivity() {
         prefilledNavJob?.cancel()
         prefilledNavJob = null
         WakeWordHandoff.pendingTranscript = null
+        WakeWordHandoff.clearHeld()
         wakeOverlayJob?.cancel()
         wakeOverlayJob = null
         routePrefilledTranscript(extra)
@@ -271,12 +278,25 @@ class VoiceCommandActivity : ComponentActivity() {
     }
 
     /**
+     * #2081: delivers a transcript held for a tap on the overlay notification. Returns true when the intent is
+     * a held delivery. A stale or already-delivered token delivers nothing and only closes the overlay.
+     */
+    internal fun handleHeldTranscriptIntent(intent: Intent): Boolean {
+        if (!intent.getBooleanExtra(EXTRA_WAKE_HELD, false)) return false
+        val transcript = WakeWordHandoff.takeHeld(intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L))
+        getSystemService(NotificationManager::class.java).cancel(WAKE_OVERLAY_NOTIFICATION_ID)
+        if (transcript == null) finish() else routePrefilledTranscript(transcript)
+        return true
+    }
+
+    /**
      * Renders [WakeOverlayChannel] state: Listening, live partials, then Processing. The capture is
      * owned by [WakeWordService], so its timing and mic-ready cue are unchanged and this activity
      * never calls startListening. Closes when the capture ends without a routed transcript.
      */
     private fun startWakeOverlay() {
         wakeOverlayJob?.cancel()
+        getSystemService(NotificationManager::class.java).cancel(WAKE_OVERLAY_NOTIFICATION_ID)
         wakeBackCallback.isEnabled = true
         var phase by mutableStateOf(VoiceCommandPhase.Listening)
         var partialText by mutableStateOf("")
@@ -609,11 +629,9 @@ class VoiceCommandActivity : ComponentActivity() {
         ownedCaptureSessionId = null
         voiceStartAttemptId++
         super.onDestroy()
-        if (wakeIntentSeen) {
-            // #1930: backstop; the dismiss paths already requested cancel. A configuration change
-            // keeps the capture running.
-            if (!isChangingConfigurations) WakeOverlayChannel.requestCancel(wakeToken)
-        } else if (!cancelledVoiceStart) {
+        // #1930: the dismiss paths cancel a wake capture explicitly. onDestroy must not: an OEM stop
+        // (noHistory) during a live session would cancel it (#2081, Honor). Configuration changes keep it.
+        if (!wakeIntentSeen && !cancelledVoiceStart) {
             ownerSessionId?.let(voiceInputController::cancelListening)
         }
         toneGenerator?.release()

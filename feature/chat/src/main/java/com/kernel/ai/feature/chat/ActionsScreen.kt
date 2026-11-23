@@ -522,8 +522,8 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                // Screen off keeps speech running (#1918); Home/navigation still stops it. Both set the
-                // background pause that keeps every automatic mic path closed until ON_RESUME.
+                // Screen off or keyguard locked keeps speech running (#1918, #1989); Home/navigation still stops it.
+                // Both set the background pause that keeps every automatic mic path closed until ON_RESUME.
                 val screenOff = context.isScreenOffOrLocked()
                 viewModel.onScreenStopped(screenOff = screenOff)
             }

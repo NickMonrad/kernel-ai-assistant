@@ -12,7 +12,7 @@
     <!-- Notification permission (required on API 33+; minSdk=35 so always required) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- #2081: lets the Hey Jandal overlay open over the lock screen when the screen is off. The user
-         grants it in system settings on Android 14+; without it the overlay falls back to a direct launch. -->
+         grants it in system settings on Android 14+; without it the overlay falls back to a tap-to-open notification. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Lets downloads detect a metered-only connection to show "Waiting for Wi-Fi" (#1855). Normal permission, no prompt. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

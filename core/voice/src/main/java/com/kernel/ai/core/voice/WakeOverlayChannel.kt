@@ -6,6 +6,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
+/** #2081: notification ID of the Hey Jandal overlay notification, shared by the service and the overlay. */
+const val WAKE_OVERLAY_NOTIFICATION_ID = 9_501
+
+/** #2081: silent channel for the overlay notification. A new ID: channel sound cannot change once created. */
+const val WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay_silent"
+
 /** Phase of the Hey Jandal overlay (#1930). The UI maps this onto its own phase labels. */
 enum class WakeOverlayPhase { Listening, Processing }
 
@@ -68,6 +74,9 @@ object WakeOverlayChannel {
         _state.value = WakeOverlayState.Active(WakeOverlayPhase.Listening, "")
         return currentToken
     }
+
+    /** Token of the latest wake capture; a held transcript is keyed by it (#2081). */
+    fun currentToken(): Long = currentToken
 
     /** True while [token] names the capture that is currently [WakeOverlayState.Active]. */
     fun isLive(token: Long): Boolean = token == currentToken && _state.value is WakeOverlayState.Active

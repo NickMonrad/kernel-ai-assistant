@@ -8,12 +8,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
-import android.os.PowerManager
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.widget.Toast
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -43,6 +43,8 @@ import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WAKE_OVERLAY_CHANNEL_ID
+import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_ID
 import com.kernel.ai.core.inference.download.DownloadSource
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
@@ -50,11 +52,13 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
+import com.kernel.ai.feature.widget.EXTRA_WAKE_HELD
 import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import java.io.File
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineStart
@@ -462,7 +466,7 @@ internal suspend fun runWakeCommandHandoff(
     generationId: Long,
     sessionId: Long,
     onError: (String) -> Unit = {},
-    routeTranscript: (String) -> Boolean,
+    routeTranscript: suspend (String) -> Boolean,
     onSessionTerminal: () -> Unit,
     journal: WakeSessionJournal? = null,
     capturePermitted: () -> Boolean = { true },
@@ -557,7 +561,7 @@ internal suspend fun runWakeOverlayHandoff(
     generationId: Long,
     sessionId: Long,
     onError: (String) -> Unit,
-    routeTranscript: (String) -> Boolean,
+    routeTranscript: suspend (String) -> Boolean,
     onSessionTerminal: () -> Unit,
     capturePermitted: () -> Boolean,
     openOverlay: (token: Long) -> Unit,
@@ -598,24 +602,24 @@ private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
 private const val NOTIFICATION_TEXT_LISTENING = "Listening for wake word…"
-private const val WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
-private const val WAKE_OVERLAY_NOTIFICATION_ID = 9_501
+private const val LEGACY_WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
 private const val WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS = 15_000L
 
 /** How the Hey Jandal overlay opens after a wake (#2081). */
 internal enum class WakeOverlayRoute { DIRECT_ACTIVITY, FULL_SCREEN_NOTIFICATION, TAP_NOTIFICATION }
 
 /**
- * Picks the overlay route. An activity start from the background is blocked by Android when the
- * device is locked or the screen is off (BAL_BLOCK), so only an interactive, unlocked device starts
- * the activity directly. Otherwise the overlay is a notification: a full-screen intent when the user
- * has granted USE_FULL_SCREEN_INTENT, and a tap-to-open notification when they have not.
+ * Picks the overlay route for a wake (#2081). The overlay starts directly only on an interactive, unlocked
+ * device. Otherwise it is a notification: a full-screen intent when the user has granted
+ * USE_FULL_SCREEN_INTENT, else a tap-to-open notification. A direct start can still be refused by
+ * background-activity-launch rules; that case is handled when the transcript arrives, not here.
  */
 internal fun chooseWakeOverlayRoute(
-    deviceInteractiveAndUnlocked: Boolean,
+    interactive: Boolean,
+    keyguardLocked: Boolean,
     fullScreenAllowed: Boolean,
 ): WakeOverlayRoute = when {
-    deviceInteractiveAndUnlocked -> WakeOverlayRoute.DIRECT_ACTIVITY
+    interactive && !keyguardLocked -> WakeOverlayRoute.DIRECT_ACTIVITY
     fullScreenAllowed -> WakeOverlayRoute.FULL_SCREEN_NOTIFICATION
     else -> WakeOverlayRoute.TAP_NOTIFICATION
 }
@@ -1029,6 +1033,7 @@ class WakeWordService : Service() {
                     routeTranscript = ::routeTranscript,
                     onSessionTerminal = {
                         isHandlingDetection = false
+                        if (WakeWordHandoff.heldTranscript == null) cancelWakeOverlayNotification()
                         rearmDetector()
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
@@ -1052,58 +1057,70 @@ class WakeWordService : Service() {
      * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
      */
     private fun showWakeOverlay(token: Long) {
-        val overlay = Intent(this, VoiceCommandActivity::class.java).apply {
-            putExtra(EXTRA_WAKE_OVERLAY, true)
-            putExtra(EXTRA_WAKE_TOKEN, token)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val route = chooseWakeOverlayRoute(
-            deviceInteractiveAndUnlocked = pm.isInteractive && !km.isKeyguardLocked,
+            interactive = pm.isInteractive,
+            keyguardLocked = km.isKeyguardLocked,
             fullScreenAllowed = nm.canUseFullScreenIntent(),
         )
         Log.i(TAG, "WakeWordService: wake overlay route=$route token=$token")
         when (route) {
             WakeOverlayRoute.DIRECT_ACTIVITY -> try {
-                startActivity(overlay)
+                startActivity(wakeOverlayIntent(token, held = false))
             } catch (e: Exception) {
+                // Not fatal: the transcript is held for a tap if the overlay does not open (#2081).
                 Log.w(TAG, "WakeWordService: could not open the wake overlay", e)
             }
             WakeOverlayRoute.FULL_SCREEN_NOTIFICATION,
             WakeOverlayRoute.TAP_NOTIFICATION,
             -> postWakeOverlayNotification(
                 nm = nm,
-                overlay = overlay,
                 token = token,
+                held = false,
                 fullScreen = route == WakeOverlayRoute.FULL_SCREEN_NOTIFICATION,
             )
         }
     }
 
+    /** The overlay activity for capture [token]; [held] delivers a transcript the overlay could not take (#2081). */
+    private fun wakeOverlayIntent(token: Long, held: Boolean): Intent =
+        Intent(this, VoiceCommandActivity::class.java).apply {
+            putExtra(EXTRA_WAKE_OVERLAY, true)
+            putExtra(EXTRA_WAKE_TOKEN, token)
+            putExtra(EXTRA_WAKE_HELD, held)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
     /**
-     * Posts the overlay as a heads-up notification. Its content intent is user-initiated, so it opens
-     * the overlay with the screen off or locked; a full-screen intent is added only when the user has
-     * granted USE_FULL_SCREEN_INTENT.
+     * Posts the overlay as a notification. Its content intent is user-initiated, so a tap opens the overlay
+     * with the screen off or locked. A full-screen intent is added only when the user has granted
+     * USE_FULL_SCREEN_INTENT. The channel is silent: the notification appears while the user is speaking (#2081).
      */
     private fun postWakeOverlayNotification(
         nm: NotificationManager,
-        overlay: Intent,
         token: Long,
+        held: Boolean,
         fullScreen: Boolean,
     ) {
+        nm.deleteNotificationChannel(LEGACY_WAKE_OVERLAY_CHANNEL_ID)
         nm.createNotificationChannel(
             NotificationChannel(
                 WAKE_OVERLAY_CHANNEL_ID,
-                "Hey Jandal voice",
+                "Hey Jandal voice overlay",
                 NotificationManager.IMPORTANCE_HIGH,
-            ).apply { setShowBadge(false) },
+            ).apply {
+                description = "Opens the Hey Jandal voice overlay after a wake word"
+                setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+            },
         )
         val pending = PendingIntent.getActivity(
             this,
             token.toInt(),
-            overlay,
+            wakeOverlayIntent(token, held),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val builder = Notification.Builder(this, WAKE_OVERLAY_CHANNEL_ID)
@@ -1115,6 +1132,30 @@ class WakeWordService : Service() {
             .setTimeoutAfter(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
         if (fullScreen) builder.setFullScreenIntent(pending, true)
         nm.notify(WAKE_OVERLAY_NOTIFICATION_ID, builder.build())
+    }
+
+    /** #2081: the overlay is up, or the session ended with nothing held, so its notification goes. */
+    private fun cancelWakeOverlayNotification() {
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+            ?.cancel(WAKE_OVERLAY_NOTIFICATION_ID)
+    }
+
+    /**
+     * #2081: a held transcript lives as long as its notification. If nothing taps it in time it is
+     * dropped and recorded as a failed route, so no command is lost silently.
+     */
+    private fun scheduleHeldExpiry(token: Long) {
+        serviceScope.launch {
+            delay(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
+            if (WakeWordHandoff.expireHeld(token)) {
+                cancelWakeOverlayNotification()
+                Log.w(TAG, "WakeWordService: held wake command expired without a tap")
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = { mapOf("outcome" to "failed", "category" to "held_expired_undelivered") },
+                )
+            }
+        }
     }
 
 
@@ -1170,25 +1211,47 @@ class WakeWordService : Service() {
         updateNotification(NOTIFICATION_TEXT_LISTENING)
     }
 
-    private fun routeTranscript(transcript: String): Boolean {
-        // Set the in-process authorisation token before launching the activity.
-        // VoiceCommandActivity checks this field and clears it on read — external callers
-        // cannot set it, so they cannot inject transcripts even though the activity is exported.
-        WakeWordHandoff.pendingTranscript = transcript
-        return try {
-            startActivity(
-                Intent(this, VoiceCommandActivity::class.java).apply {
-                    putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-            WakeOverlayChannel.markRouted()
-            true
-        } catch (e: Exception) {
-            // Clear the token if startActivity failed so it doesn't linger.
-            WakeWordHandoff.pendingTranscript = null
-            Log.e(TAG, "WakeWordService: failed to launch VoiceCommandActivity", e)
-            false
+    /**
+     * Hands the final transcript to the overlay (#2081). The overlay takes it only when it is showing.
+     * Otherwise the transcript is held for a tap on the overlay notification and expires with a failure
+     * entry if untapped, so a command is never dropped silently. Returns true when it was consumed or held.
+     */
+    private suspend fun routeTranscript(transcript: String): Boolean {
+        val token = WakeOverlayChannel.currentToken()
+        val result = handOffWakeTranscript(
+            transcript = transcript,
+            wakeToken = token,
+            startOverlay = {
+                startActivity(
+                    Intent(this, VoiceCommandActivity::class.java).apply {
+                        putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+            },
+        )
+        return when (result) {
+            WakeTranscriptHandoffResult.Consumed -> {
+                WakeOverlayChannel.markRouted()
+                cancelWakeOverlayNotification()
+                true
+            }
+            is WakeTranscriptHandoffResult.Held -> {
+                Log.w(TAG, "WakeWordService: overlay did not take the transcript (${result.reason}); held for a tap")
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = { mapOf("outcome" to "held_for_tap", "category" to result.reason) },
+                )
+                WakeOverlayChannel.end()
+                postWakeOverlayNotification(
+                    nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
+                    token = token,
+                    held = true,
+                    fullScreen = false,
+                )
+                scheduleHeldExpiry(token)
+                true
+            }
         }
     }
 

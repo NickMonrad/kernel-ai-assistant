@@ -20,4 +20,9 @@ class ScreenOffStateTest {
     fun `keyguard locked with screen on counts as screen-off or locked (#1989)`() {
         assertTrue(screenOffOrLockedState(interactive = true, keyguardLocked = true))
     }
+
+    @Test
+    fun `screen off and keyguard locked counts as screen-off or locked`() {
+        assertTrue(screenOffOrLockedState(interactive = false, keyguardLocked = true))
+    }
 }
