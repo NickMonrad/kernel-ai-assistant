@@ -140,24 +140,44 @@ class GetWeatherSpokenSummaryTest {
     @Test
     fun `buildMultiDayForecastSpoken produces natural forecast sentence`() {
         val days = listOf(
-            Triple("Mon 2 Jun", "Partly cloudy", Pair(25.0, 18.0)),
-            Triple("Tue 3 Jun", "Rain", Pair(22.0, 15.0)),
+            Triple("Monday", "Partly cloudy", Pair(25.0, 18.0)),
+            Triple("Tuesday", "Rain", Pair(22.0, 15.0)),
         )
         val spoken = buildMultiDayForecastSpoken("Brisbane, AU", days)
         assertEquals(
-            "Brisbane 2-day forecast. Mon 2 Jun: partly cloudy, high 25 degrees, low 18 degrees. Tue 3 Jun: rain, high 22 degrees, low 15 degrees.",
+            "Brisbane forecast for the next 2 days. Monday, partly cloudy, high 25 degrees, low 18 degrees. Tuesday, rain, high 22 degrees, low 15 degrees.",
             spoken,
         )
     }
 
     @Test
-    fun `buildMultiDayForecastSpoken caps output at 3 days`() {
-        val days = (1..7).map { i ->
-            Triple("Day $i", "Clear sky", Pair(25.0, 18.0))
+    fun `buildMultiDayForecastSpoken speaks every day given, not a cut-down three`() {
+        val days = (23..29).map { day ->
+            Triple(formatForecastWeekdayForSpeech("2026-11-$day"), "Clear sky", Pair(25.0, 18.0))
         }
         val spoken = buildMultiDayForecastSpoken("Sydney", days)
-        assertTrue(spoken.contains("3-day forecast"))
-        assertFalse(spoken.contains("Day 4"))
+        assertTrue(spoken.startsWith("Sydney forecast for the next 7 days."))
+        assertTrue(spoken.contains("Sunday, clear sky"))
+        assertFalse(spoken.contains("-day"))
+        assertFalse(spoken.contains(":"))
+    }
+
+    @Test
+    fun `buildMultiDayForecastSpoken speaks 3 and 5 days in full`() {
+        val weekdays = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+        for (count in listOf(3, 5)) {
+            val days = weekdays.take(count).map { Triple(it, "Clear sky", Pair(25.0, 18.0)) }
+            val spoken = buildMultiDayForecastSpoken("Sydney", days)
+            assertTrue(spoken.startsWith("Sydney forecast for the next $count days."), spoken)
+            assertEquals(count, Regex("clear sky").findAll(spoken).count(), spoken)
+            assertTrue(spoken.contains("${weekdays[count - 1]}, clear sky"), spoken)
+        }
+    }
+
+    @Test
+    fun `buildMultiDayForecastSpoken with one day has no count heading`() {
+        val spoken = buildMultiDayForecastSpoken("Sydney", listOf(Triple("Monday", "Clear sky", Pair(25.0, 18.0))))
+        assertEquals("Sydney forecast. Monday, clear sky, high 25 degrees, low 18 degrees.", spoken)
     }
 
     @Test
@@ -181,8 +201,20 @@ class GetWeatherSpokenSummaryTest {
             low = 15.0,
         )
         assertEquals(
-            "Tomorrow in Brisbane: rain, high 22 degrees, low 15 degrees.",
+            "Tomorrow in Brisbane, rain, high 22 degrees, low 15 degrees.",
             spoken,
         )
+    }
+
+    @Test
+    fun `formatForecastWeekdayForSpeech gives the full weekday name`() {
+        assertEquals("Monday", formatForecastWeekdayForSpeech("2026-11-23"))
+        assertEquals("Saturday", formatForecastWeekdayForSpeech("2026-11-21"))
+        assertEquals("Tuesday", formatForecastWeekdayForSpeech("2026-12-01"))
+    }
+
+    @Test
+    fun `formatForecastWeekdayForSpeech returns unparseable input unchanged`() {
+        assertEquals("Mon 23 Nov", formatForecastWeekdayForSpeech("Mon 23 Nov"))
     }
 }

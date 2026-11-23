@@ -97,7 +97,7 @@ class GetWeatherStaleFallbackTest {
         )
         assertTrue(
             stale.spokenSummary.orEmpty()
-                .startsWith("The weather service isn't answering, so here's the forecast from $time: In "),
+                .startsWith("The weather service isn't answering, so here's the forecast from $time. In "),
             "spoken=${stale.spokenSummary}",
         )
         assertEquals(
