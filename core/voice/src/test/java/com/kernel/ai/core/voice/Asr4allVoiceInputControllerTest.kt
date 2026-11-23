@@ -778,6 +778,8 @@ class Asr4allVoiceInputControllerTest {
             val collected = Collected(c.events, scope)
             try {
                 partialForCall = { "heard" }
+                // Quiet lead-in, then speech at reads 31..40, then silence: the gate needs a quiet floor to classify speech.
+                amplitudeForRead = { read -> if (read in 31..40) 8000 else 0 }
                 finalText = ""
                 firstFrame = CountDownLatch(1)
                 val mark = exportMark()
@@ -1103,15 +1105,35 @@ class Asr4allVoiceInputControllerTest {
             // Quiet room, then soft speech at about 1% full scale (under the old 0.02 gate), then silence.
             amplitudeForRead = { read -> if (read <= 30) 30 else if (read <= 60) 300 else 0 }
             partialForCall = { calls -> if (calls <= 30) "" else "word$calls" }
-            readAhead = 2
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
-            readAhead = null
 
             assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
-            // 30 lead-in chunks, 30 speech chunks, then the 10-chunk quiet tail. The old gate endpointed during speech.
-            assertTrue(acceptCalls.get() >= 60, "soft speech was cut after ${acceptCalls.get()} chunks")
+            // 5 lead-in chunks, then the 30 speech chunks. The old gate endpointed during speech, so fewer than 35 were decoded.
+            assertTrue(acceptCalls.get() >= 35, "soft speech was cut after ${acceptCalls.get()} chunks")
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `load-time silence before speech is not decoded, only the lead-in before onset`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            // 50 chunks of silence (the engine load), 10 of speech, then silence until the 700 ms endpoint.
+            amplitudeForRead = { read -> if (read in 51..60) 8000 else 0 }
+            partialForCall = { "Final" }
+            firstFrame = CountDownLatch(1)
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            // 5 lead-in chunks, 10 of speech, 7 of trailing silence: 22 decoded of the 67 captured.
+            assertEquals(22, acceptCalls.get())
+            assertEquals(listOf("Final text"), collected.transcripts())
         } finally {
             collected.job.cancel()
             scope.cancel()
@@ -1145,10 +1167,10 @@ class Asr4allVoiceInputControllerTest {
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            partialForCall = { calls ->
-                if (calls == 5) amplitude = 0
-                if (calls <= 2) "weather" else "Weather, 42."
-            }
+            partialForCall = { calls -> if (calls <= 2) "weather" else "Weather, 42." }
+            // Quiet lead-in, then speech at reads 11..20, then silence to the 700 ms endpoint. The engine only sees
+            // speech-classified audio, so the speech must be above a quiet floor for the gate to classify it.
+            amplitudeForRead = { read -> if (read in 11..20) 8000 else 0 }
             finalText = "Weather, 42."
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)

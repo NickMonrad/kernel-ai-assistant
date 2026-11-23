@@ -49,6 +49,7 @@ private const val CHUNK_SAMPLES = SAMPLE_RATE / 10 // 100 ms
 private const val SPEECH_RMS_MIN = 0.003f // speech floor in a very quiet room
 private const val SPEECH_NOISE_MARGIN = 2f // speech is at least this multiple of the quietest recent chunk
 private const val NOISE_WINDOW_CHUNKS = 30 // 3 s of chunk RMS for the quietest-level estimate
+private const val LEAD_IN_CHUNKS = 5 // 0.5 s of audio kept before speech onset; load-time silence beyond it is never decoded
 private const val ASR4ALL_TIER = "stream_c16r4"
 /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
 private const val CAPTURE_JOIN_TIMEOUT_MS = 3_000L
@@ -369,6 +370,7 @@ class Asr4allVoiceInputController internal constructor(
     private fun readLoop(c: Capture) {
         val buf = ShortArray(CHUNK_SAMPLES)
         val gate = SpeechGate()
+        val leadIn = ArrayDeque<ShortArray>() // the last LEAD_IN_CHUNKS non-speech chunks before onset
         val endpoint = UtteranceEndpointer()
         try {
             if (!c.buffer.isClosed) c.recorder.startRecording()
@@ -376,13 +378,25 @@ class Asr4allVoiceInputController internal constructor(
                 val n = c.recorder.read(buf, 0, buf.size)
                 if (n < 0) break
                 if (n == 0) continue
-                c.buffer.append(buf, n)
                 val rms = rmsOf(buf, n)
                 _inputLevel.value = rms.coerceIn(0f, 1f)
                 val speech = gate.isSpeech(rms)
                 val wasHeard = endpoint.heardSpeech
                 val reason = endpoint.onChunk(n, speech)
-                if (speech && !wasHeard) _events.tryEmit(VoiceInputEvent.SpeechDetected(c.mode, c.sessionId))
+                if (speech && !wasHeard) {
+                    // Onset: the kept lead-in goes to the engine ahead of the speech.
+                    while (leadIn.isNotEmpty()) {
+                        val p = leadIn.removeFirst()
+                        c.buffer.append(p, p.size)
+                    }
+                    _events.tryEmit(VoiceInputEvent.SpeechDetected(c.mode, c.sessionId))
+                }
+                if (endpoint.heardSpeech) {
+                    c.buffer.append(buf, n)
+                } else {
+                    leadIn.addLast(buf.copyOf(n))
+                    if (leadIn.size > LEAD_IN_CHUNKS) leadIn.removeFirst()
+                }
                 if (reason != null) {
                     // Decided on captured audio here, not by the decoder: a slow decode delays the transcript only.
                     // The mic closes now; the consumer still decodes what was captured.
