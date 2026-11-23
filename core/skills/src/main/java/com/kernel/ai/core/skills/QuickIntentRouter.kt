@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills
 
 import android.util.Log
+import com.kernel.ai.core.skills.intent.PlaceSlotResolver
 import kotlinx.coroutines.delay
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -4669,8 +4670,10 @@ class QuickIntentRouter(
             // get_weather match shares one conservative normaliser so forecast
             // horizons, "tomorrow", "this week", and named locations survive
             // regardless of which pattern matched.
-            val params =
+            val weatherNormalized =
                 if (pattern.intentName == "get_weather") normalizeWeatherParams(trimmed, extracted) else extracted
+            // #2079 — snap a close spelling of an NZ place in a place slot to its gazetteer name.
+            val params = PlaceSlotResolver.resolve(pattern.intentName, weatherNormalized)
             val missingSlot = missingRequiredSlot(pattern.requiredSlots, params)
             val intent = MatchedIntent(
                 intentName = pattern.intentName,
