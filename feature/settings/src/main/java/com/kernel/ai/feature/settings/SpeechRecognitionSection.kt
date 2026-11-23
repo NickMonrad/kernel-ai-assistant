@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -364,6 +365,7 @@ private fun Asr4AllSizeRow(
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         sizes.forEach { size ->
             FilterChip(
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp),
                 selected = size == (pending ?: active),
                 onClick = { onSelect(size) },
                 label = { Text("${size.name} · ${size.approxDownload()}") },

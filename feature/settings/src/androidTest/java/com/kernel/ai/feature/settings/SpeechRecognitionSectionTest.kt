@@ -8,16 +8,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceInputEngine
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -102,6 +112,46 @@ class SpeechRecognitionSectionTest {
                 useUnmergedTree = true,
             )
             .assertIsDisplayed()
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun asr4allSizeChipsStayFullWidthAndTouchableAtLargeFont() {
+        var density: Density? = null
+        composeTestRule.setContent {
+            DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
+                density = LocalDensity.current
+                KernelAITheme(darkTheme = true, dynamicColor = false) {
+                    SpeechRecognitionSection(
+                        uiState = VoiceUiState(
+                            sherpaVoices = emptyList(),
+                            selectedInputEngine = VoiceInputEngine.Asr4all,
+                            termsAccepted = true,
+                            asr4allSize = Asr4AllSize.M,
+                            asr4allSizes = listOf(Asr4AllSize.M, Asr4AllSize.L),
+                            sherpaSttStates = mapOf(
+                                VoiceInputEngine.Asr4all to SherpaSttDownloadState(isDownloaded = true),
+                            ),
+                        ),
+                        onSelect = {},
+                        onAllowOnline = {},
+                        onDownload = {},
+                        onCancel = {},
+                        onDelete = {},
+                        onUseMobileData = {},
+                        onAsr4allSize = {},
+                    )
+                }
+            }
+        }
+        val chip = composeTestRule
+            .onNode(hasText("L · about 101 MB") and hasClickAction())
+            .fetchSemanticsNode()
+        val root = composeTestRule.onRoot().fetchSemanticsNode()
+        val minTouchPx = with(requireNotNull(density)) { 48.dp.roundToPx() }
+        // Squeezed chips measured ~50px wide at font 2.0; a full-width chip is well over half the root.
+        assertTrue("chip ${chip.size} squeezed in root ${root.size}", chip.size.width >= root.size.width / 2)
+        assertTrue("chip height ${chip.size.height}px below 48dp (${minTouchPx}px)", chip.size.height >= minTouchPx)
     }
 
     private fun setSection(
