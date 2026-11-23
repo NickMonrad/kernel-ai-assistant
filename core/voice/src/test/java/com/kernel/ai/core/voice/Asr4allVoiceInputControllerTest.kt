@@ -798,7 +798,7 @@ class Asr4allVoiceInputControllerTest {
         }
 
     @Test
-    fun `a capture at the 60 s cap with text heard and an empty final is not a microphone failure`() =
+    fun `a capture at the 20 s cap with text heard and an empty final is not a microphone failure`() =
         runBlocking(Dispatchers.IO) {
             val c = controller()
             val scope = CoroutineScope(Dispatchers.IO)
@@ -814,8 +814,8 @@ class Asr4allVoiceInputControllerTest {
                 c.startListening(VoiceCaptureMode.Command)
                 collected.awaitStops(1)
 
-                // 60 s of 100 ms chunks.
-                assertEquals(600, acceptCalls.get())
+                // 20 s of 100 ms chunks, counted on captured audio by the reader.
+                assertEquals(200, acceptCalls.get())
                 assertEquals(1, log.count { it == "finish#1" })
                 assertEquals(emptyList<String>(), collected.transcripts())
                 val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
@@ -1076,17 +1076,16 @@ class Asr4allVoiceInputControllerTest {
             val scope = CoroutineScope(Dispatchers.IO)
             val collected = Collected(c.events, scope)
             try {
-                amplitude = 0
-                partialForCall = { calls ->
-                    if (calls == 1) amplitude = 1638 // steady hiss of about 5% full scale from chunk 2 on
-                    "Final"
-                }
+                // Chunk 1 is the quiet reference; steady hiss of about 5% full scale from chunk 2 on, keyed by read so
+                // the reader's pace does not move the switch.
+                amplitudeForRead = { read -> if (read == 1) 0 else 1638 }
+                partialForCall = { "Final" }
                 firstFrame = CountDownLatch(1)
                 c.startListening(VoiceCaptureMode.Command)
                 collected.awaitStops(1)
 
-                // Chunk 1 is the only quiet reference; it leaves the 3 s window at chunk 31, after which the
-                // hiss is the floor and 10 quiet chunks endpoint. The old fixed gate ran to the 600-chunk cap.
+                // Chunk 1 leaves the 3 s window at chunk 31; from then the hiss is the floor, so 7 quiet chunks (700 ms)
+                // endpoint at chunk 37. The old fixed gate ran to the 600-chunk cap.
                 assertTrue(acceptCalls.get() < 60, "steady noise ran ${acceptCalls.get()} chunks")
                 assertEquals(listOf("Final text"), collected.transcripts())
             } finally {

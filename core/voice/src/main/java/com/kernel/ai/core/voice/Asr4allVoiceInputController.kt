@@ -49,9 +49,6 @@ private const val CHUNK_SAMPLES = SAMPLE_RATE / 10 // 100 ms
 private const val SPEECH_RMS_MIN = 0.003f // speech floor in a very quiet room
 private const val SPEECH_NOISE_MARGIN = 2f // speech is at least this multiple of the quietest recent chunk
 private const val NOISE_WINDOW_CHUNKS = 30 // 3 s of chunk RMS for the quietest-level estimate
-private const val NO_SPEECH_TIMEOUT_CHUNKS = 100 // 10 s without decoded text
-private const val ENDPOINT_SILENCE_CHUNKS = 10 // 1.0 s without speech after decoded text
-private const val MAX_UTTERANCE_CHUNKS = 600 // 60 s hard cap
 private const val ASR4ALL_TIER = "stream_c16r4"
 /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
 private const val CAPTURE_JOIN_TIMEOUT_MS = 3_000L
@@ -65,11 +62,15 @@ private class FocusHold(val request: AudioFocusRequest?)
  */
 private class Capture(
     val sessionId: Long,
+    val mode: VoiceCaptureMode,
     val buffer: PreRollAudioBuffer,
     val recorder: AudioRecord,
     val focus: FocusHold?,
 ) {
     lateinit var reader: Job
+
+    /** Set by the reader when the endpoint ends the capture; null when the mic ends it (stop, failure, supersede). */
+    @Volatile var endReason: EndpointReason? = null
 }
 
 /** Engine identity: a change of size or thread count needs a reopen. */
@@ -106,8 +107,8 @@ private class SpeechGate {
  *   recorder and focus.
  *
  * Partials are the running text from [Asr4AllEngine.acceptAudio], emitted when it changes. The
- * engine has no endpoint signal, so an utterance ends after [ENDPOINT_SILENCE_CHUNKS] chunks without
- * speech (see [SpeechGate]) that follow decoded text. The final text is [Asr4AllEngine.finish].
+ * engine has no endpoint signal. The reader ends an utterance on captured-audio time ([UtteranceEndpointer]),
+ * and the final text is [Asr4AllEngine.finish], decoded after the captured audio has drained.
  *
  * Two ways a capture ends:
  * - [stopListening] is an explicit finalize: the utterance so far is decoded and emitted.
@@ -244,7 +245,7 @@ class Asr4allVoiceInputController internal constructor(
                     // asynchronous (tryEmit, then the main-thread router), so it can land after the mic opens; the
                     // owner fence tolerates that overlap. An announced session ends in exactly one ListeningStopped.
                     _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
-                    openCapture(sessionId)?.also {
+                    openCapture(sessionId, mode)?.also {
                         lastCapture = it
                         activeCapture = it
                         captureActive.value = true
@@ -270,6 +271,7 @@ class Asr4allVoiceInputController internal constructor(
             } catch (e: Throwable) {
                 halt(capture)
                 joinReader(capture)
+                clearActive(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 withContext(NonCancellable) {
                     loading.join()
@@ -280,6 +282,7 @@ class Asr4allVoiceInputController internal constructor(
                 halt(capture)
                 beforeFailedLoadJoinForTest?.invoke()
                 joinReader(capture)
+                clearActive(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
@@ -293,13 +296,14 @@ class Asr4allVoiceInputController internal constructor(
                 halt(capture)
                 beforeCancelledStopJoinForTest?.invoke()
                 joinReader(capture)
+                clearActive(capture)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
             activeJob = scope.launch {
                 try {
                     eng.reset()
-                    runCapture(capture.buffer, eng, mode, sessionId, stop, discard)
+                    runCapture(capture, eng, mode, sessionId, stop, discard)
                 } catch (e: Exception) {
                     Log.e(TAG, "asr4all capture failed", e)
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.AUDIO_LOOP)
@@ -307,6 +311,7 @@ class Asr4allVoiceInputController internal constructor(
                 } finally {
                     capture.buffer.close()
                     joinReader(capture)
+                    clearActive(capture)
                     _inputLevel.value = 0f
                     _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = discard.get()))
                 }
@@ -337,7 +342,7 @@ class Asr4allVoiceInputController internal constructor(
      * capture's focus on every exit path, and nothing else.
      */
     @SuppressLint("MissingPermission")
-    private fun openCapture(sessionId: Long): Capture? {
+    private fun openCapture(sessionId: Long, mode: VoiceCaptureMode): Capture? {
         var focus: FocusHold? = null
         var recorder: AudioRecord? = null
         return try {
@@ -348,7 +353,7 @@ class Asr4allVoiceInputController internal constructor(
                 releaseAudioFocus(focus)
                 return null
             }
-            val capture = Capture(sessionId, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
+            val capture = Capture(sessionId, mode, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
             capture.reader = scope.launch { readLoop(capture) }
             capture
         } catch (e: Exception) {
@@ -363,12 +368,28 @@ class Asr4allVoiceInputController internal constructor(
 
     private fun readLoop(c: Capture) {
         val buf = ShortArray(CHUNK_SAMPLES)
+        val gate = SpeechGate()
+        val endpoint = UtteranceEndpointer()
         try {
             if (!c.buffer.isClosed) c.recorder.startRecording()
             while (!c.buffer.isClosed) {
                 val n = c.recorder.read(buf, 0, buf.size)
                 if (n < 0) break
-                if (n > 0) c.buffer.append(buf, n)
+                if (n == 0) continue
+                c.buffer.append(buf, n)
+                val rms = rmsOf(buf, n)
+                _inputLevel.value = rms.coerceIn(0f, 1f)
+                val speech = gate.isSpeech(rms)
+                val wasHeard = endpoint.heardSpeech
+                val reason = endpoint.onChunk(n, speech)
+                if (speech && !wasHeard) _events.tryEmit(VoiceInputEvent.SpeechDetected(c.mode, c.sessionId))
+                if (reason != null) {
+                    // Decided on captured audio here, not by the decoder: a slow decode delays the transcript only.
+                    // The mic closes now; the consumer still decodes what was captured.
+                    JandalEvents.record("voice", "stt_endpoint", "reason" to reason.logName)
+                    c.endReason = reason
+                    c.buffer.close()
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Pre-roll reader error", e)
@@ -376,15 +397,31 @@ class Asr4allVoiceInputController internal constructor(
             c.buffer.close()
             stopRecorder(c.recorder)
             releaseAudioFocus(c.focus)
-            synchronized(captureLock) {
-                if (activeCapture === c) {
-                    activeCapture = null
-                    captureActive.value = false
-                    activeStop = null
-                    activeDiscard = null
-                }
-            }
         }
+    }
+
+    /**
+     * Drops the controller's pointers to [c] once its consumer has ended. The reader does not clear them: a reader
+     * can end on its own endpoint while the final decode still runs, and a release during that decode must find the
+     * capture and discard it. Identity-checked, so a later capture is never cleared.
+     */
+    private fun clearActive(c: Capture) {
+        synchronized(captureLock) {
+            if (activeCapture !== c) return
+            activeCapture = null
+            captureActive.value = false
+            activeStop = null
+            activeDiscard = null
+        }
+    }
+
+    private fun rmsOf(pcm: ShortArray, n: Int): Float {
+        var sumSquares = 0.0
+        for (i in 0 until n) {
+            val f = pcm[i] / 32768.0
+            sumSquares += f * f
+        }
+        return sqrt(sumSquares / n).toFloat()
     }
 
     /**
@@ -495,53 +532,24 @@ class Asr4allVoiceInputController internal constructor(
     }
 
     /**
-     * Runs the capture loop over the pre-roll chunks, then live audio, until the buffer ends
-     * (explicit stop drains what was already captured), the endpoint is reached, or the
-     * no-speech timeout expires. A discard ends it at once with nothing emitted.
+     * Runs the capture loop over the pre-roll chunks, then live audio, until the buffer ends. The reader ends the
+     * buffer at its endpoint (see [Capture.endReason]) or when the mic stops; an explicit stop drains what was
+     * already captured. A discard ends it at once with nothing emitted.
      */
     private fun runCapture(
-        buffer: PreRollAudioBuffer,
+        c: Capture,
         eng: Asr4AllEngine,
         mode: VoiceCaptureMode,
         sessionId: Long,
         stop: AtomicBoolean,
         discard: AtomicBoolean,
     ) {
-        val preRoll = ArrayDeque(buffer.attach())
-        var heard = false
+        val preRoll = ArrayDeque(c.buffer.attach())
         var textHeard = false // the engine has produced nonempty partial text
         var partial = ""
-        var chunks = 0
-        val gate = SpeechGate()
-        var quietChunks = 0 // consecutive chunks that are not speech
-        var bufferEnded = false // set only when the mic reader ends the buffer; the sole microphone failure (#2059)
-        while (!discard.get() && chunks < MAX_UTTERANCE_CHUNKS) {
-            val pcm = nextCaptureChunk(preRoll, buffer)
-            if (pcm == null) {
-                bufferEnded = true
-                break
-            }
-            chunks++
-            val n = pcm.size
-            val floats = FloatArray(n)
-            var sumSquares = 0.0
-            for (i in 0 until n) {
-                val f = pcm[i] / 32768f
-                floats[i] = f
-                sumSquares += f * f
-            }
-            val rms = sqrt(sumSquares / n).toFloat()
-            _inputLevel.value = rms.coerceIn(0f, 1f)
-            if (gate.isSpeech(rms)) {
-                quietChunks = 0
-                if (!heard) {
-                    heard = true
-                    _events.tryEmit(VoiceInputEvent.SpeechDetected(mode, sessionId))
-                }
-            } else {
-                quietChunks++
-            }
-
+        while (!discard.get()) {
+            val pcm = nextCaptureChunk(preRoll, c.buffer) ?: break
+            val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
             // The engine returns its running text; emit only when it changes.
             val text = eng.acceptAudio(floats).trim()
             if (text.isNotEmpty()) textHeard = true
@@ -549,11 +557,7 @@ class Asr4allVoiceInputController internal constructor(
                 partial = text
                 if (!discard.get()) _events.tryEmit(VoiceInputEvent.PartialTranscript(mode, text, sessionId))
             }
-
-            if (textHeard && quietChunks >= ENDPOINT_SILENCE_CHUNKS) break
-            if (!textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS) break
         }
-        _inputLevel.value = 0f
         // Superseded: no finish, no error, no transcript.
         if (discard.get()) return
         if (textHeard) _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
@@ -566,9 +570,10 @@ class Asr4allVoiceInputController internal constructor(
             _events.tryEmit(VoiceInputEvent.Transcript(mode, text, sessionId))
         } else if (!stop.get()) {
             // An explicit stop with nothing decoded ends without an error, as before.
+            val endReason = c.endReason
             when {
-                // Only a real early end of the mic buffer is a microphone failure (#2059).
-                bufferEnded -> {
+                // The reader ended the buffer without an endpoint: a real early end of the mic (#2059).
+                endReason == null -> {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.MIC_UNAVAILABLE)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
@@ -578,9 +583,9 @@ class Asr4allVoiceInputController internal constructor(
                         ),
                     )
                 }
-                // Only the window's own timer exhausts the no-speech window. Silence is not a recognizer
+                // Only the no-speech window ends a capture with no decoded text. Silence is not a recognizer
                 // failure. The category feeds WakeWordService's wake no-retry gate (#2051); Command retries once (#2070).
-                !textHeard && chunks >= NO_SPEECH_TIMEOUT_CHUNKS -> {
+                !textHeard && endReason == EndpointReason.NO_SPEECH -> {
                     JandalEvents.record("voice", "stt_error", "category" to SttFailure.NO_SPEECH)
                     _events.tryEmit(
                         VoiceInputEvent.Error(
