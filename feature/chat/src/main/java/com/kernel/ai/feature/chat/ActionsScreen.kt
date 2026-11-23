@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.PowerManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
@@ -525,10 +524,9 @@ fun ActionsScreen(
                         "showBottomSheet=$showBottomSheet voiceCaptureState=$voiceCaptureState " +
                         "voicePlaybackState=$voicePlaybackState",
                 )
-                // Screen off keeps speech running (#1918); Home/navigation still stops it. Both set the
-                // background pause that keeps every automatic mic path closed until ON_RESUME.
-                val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
-                    ?.isInteractive == false
+                // Screen off or keyguard locked keeps speech running (#1918, #1989); Home/navigation still stops it.
+                // Both set the background pause that keeps every automatic mic path closed until ON_RESUME.
+                val screenOff = context.isScreenOffOrLocked()
                 viewModel.onScreenStopped(screenOff = screenOff)
             }
         }

@@ -822,7 +822,7 @@ private fun MakeYoursStep(state: SetupWizardUiState, actions: MakeYoursActions) 
         icon = Icons.Outlined.AutoAwesome,
         title = "Default assistant",
         status = assistantStatus.toChipStatus(),
-        description = "Opens Jandal from your phone's assistant button or gesture. Hey Jandal works best with this on.",
+        description = "Opens Jandal from your phone's assistant button or gesture. With this on, Hey Jandal also opens with the screen off or locked.",
         primary = CardAction("Open settings", actions.onOpenDefaultAssistant)
             .takeIf { assistantStatus == MakeYoursStatus.Off },
         secondary = CardAction("Change", actions.onOpenDefaultAssistant)

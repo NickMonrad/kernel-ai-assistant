@@ -155,7 +155,6 @@ import androidx.compose.ui.semantics.stateDescription
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Context
-import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -338,8 +337,7 @@ fun ChatScreen(
                     // handles no configChanges), so speech must not stop.
                     val rotating = (context as? android.app.Activity)?.isChangingConfigurations == true
                     if (!rotating) {
-                        val screenOff = (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)
-                            ?.isInteractive == false
+                        val screenOff = context.isScreenOffOrLocked()
                         viewModel.onScreenStopped(screenOff = screenOff)
                     }
                 }

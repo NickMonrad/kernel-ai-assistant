@@ -215,7 +215,7 @@ Don't use `primary` for text: the dark `primary` is `#4F7942`, which is only 3.4
 
     Finish never applies a blocked choice (`applyWakeWordChoice` writes nothing while a block remains), so a blocked card never says "Turns on when you tap Finish". These states and buttons follow today's `SetupWizardScreen` row; the chip, layout and shortened copy are new.
     Skip throws a pending choice away, as today.
-  - **Default assistant** (assistant sparkle): "Opens Jandal from your phone's assistant button or gesture. Hey Jandal works best with this on."
+  - **Default assistant** (assistant sparkle): "Opens Jandal from your phone's assistant button or gesture. With this on, Hey Jandal also opens with the screen off or locked."
     - On: chip **On**, text button **Change**.
     - Off: chip **Off**, tonal button **Open settings**.
     - No assistant role on the phone: **Not available**.
