@@ -2413,6 +2413,29 @@ class QuickIntentRouterTest {
         }
 
         @Test
+        fun `should set compare only for tomorrow-vs-today comparisons`() {
+            for (input in listOf("Will it be hotter in Apia tomorrow than today", "Is tomorrow going to be colder than today in Wellington?")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+                assertEquals("true", (result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["compare"], "compare for '$input'")
+            }
+            for (input in listOf("What's the weather in Apia today and tomorrow", "Is it going to rain today and tomorrow")) {
+                val result = regexOnlyRouter.route(input)
+                assertRegexMatch(result, "get_weather", input)
+                assertNull((result as QuickIntentRouter.RouteResult.RegexMatch).intent.params["compare"], "compare for '$input'")
+            }
+        }
+
+        @Test
+        fun `conditions questions with a non-place tail do not capture a location`() {
+            for (input in listOf("Will it be cloudy at night", "Is it humid in here", "Is it sunny in my calendar tomorrow", "Would it be sunny in Spain in July")) {
+                val result = regexOnlyRouter.route(input)
+                val location = (result as? QuickIntentRouter.RouteResult.RegexMatch)?.intent?.params?.get("location")
+                assertNull(location, "location for '$input'")
+            }
+        }
+
+        @Test
         fun `should never include temporal phrases in the location`() {
             val inputs = listOf(
                 "What's the weather in Sydney for the next 5 days",
@@ -4285,6 +4308,19 @@ class QuickIntentRouterTest {
             Arguments.of("Will it be hotter in Apia tomorrow than today and why.", "Apia", "2", null),
             Arguments.of("Will it be hotter in Wellington tomorrow than today", "Wellington", "2", null),
             Arguments.of("Will it be colder in Wellington tomorrow than today", "Wellington", "2", null),
+            Arguments.of("Will it be hotter tomorrow than today", null, "2", null),
+            Arguments.of("Is tomorrow going to be hotter than today", null, "2", null),
+            Arguments.of("Will tomorrow be colder than today in Apia", "Apia", "2", null),
+            Arguments.of("Will it be hotter in Apia tomorrow than it is today", "Apia", "2", null),
+            Arguments.of("Will it be hotter in Apia tomorrow compared to today", "Apia", "2", null),
+            Arguments.of("Will it be hotter in Apia tomorrow than today, and why?", "Apia", "2", null),
+            Arguments.of("Will it be hotter in Apia tomorrow than today and by how much please", "Apia", "2", null),
+            // #2066 — today-and-tomorrow and weekend phrasings with and without a place
+            Arguments.of("What's the weather in Apia today and tomorrow please", "Apia", "2", null),
+            Arguments.of("What's the weather today and tomorrow", null, "2", null),
+            Arguments.of("Is it going to rain today and tomorrow", null, "2", null),
+            Arguments.of("What's the weather over the weekend", null, null, null),
+            Arguments.of("What's the weather in Auckland next weekend", "Auckland", null, null),
             Arguments.of("What's the weather for Auckland over the next seven days", "Auckland", "7", null),
         )
 

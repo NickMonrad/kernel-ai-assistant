@@ -2257,15 +2257,48 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
-        // "Will it be hotter in Apia tomorrow than today and why" — the tool speaks a computed comparison (#2033, #2056).
+        // #2033/#2056 — tomorrow-vs-today comparisons, with or without a place and in any usual word order. The
+        // tool speaks the computed sentence, so the model never restates these numbers. Sets compare=true.
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """^(?:is|will)\s+it\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler)\s+(?:in|at|for)\s+(.+?)\s+tomorrow\s+than\s+today(?:\s+and\s+why)?[.!?]*$""",
+                """^(?:(?:is|will)\s+it\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler)(?:\s+(?:in|at|for)\s+(.+?))?\s+tomorrow|(?:is|will)\s+tomorrow\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler))\s+(?:than\s+(?:it\s+(?:is|was)\s+)?today|compared\s+to\s+today)(?:\s+(?:in|at|for)\s+(.+?))?(?:\s*,?\s*and\s+(?:why|by\s+how\s+much))?\s*(?:please\s*)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                val location = listOf(match.groupValues[1], match.groupValues[2])
+                    .map { it.trim().trimEnd('.') }
+                    .firstOrNull { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                    put("forecast_days", "2")
+                    put("compare", "true")
+                }
+            },
+        ),
+        // "What's the weather today and tomorrow", "is it going to rain today and tomorrow", with an optional place (#2066)
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """^(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s| is)\s+(?:the\s+)?weather|(?:is|will)\s+it\s+(?:going\s+to\s+|gonna\s+)?rain(?:ing)?)(?:\s+(?:in|for|at)\s+(.+?))?\s+(?:today\s+(?:and|or)\s+tomorrow|tomorrow\s+(?:and|or)\s+today)(?:\s+please)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().trimEnd('.').takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
+        // "What's the weather over the weekend" with no place (#2066); the normaliser sets period=weekend
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """^(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s| is)\s+(?:the\s+)?weather)(?:\s+(?:in|for|at)\s+(.+?))?\s+(?:over|for|this)\s+(?:the\s+)?weekend[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().trimEnd('.').takeIf { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
                 }
@@ -2327,11 +2360,11 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """^(?:is|will|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:windy|snowing|snowy|sunny|cloudy|foggy|stormy|humid|muggy|overcast|raining)\s+(?:in|at|for)\s+(.+?)(?:\s+(?:(?:this|the|over|for)\s+)*(?:today|tonight|tomorrow|weekend))?[.!?]*$""",
+                """^(?:is|will|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:windy|snowing|snowy|sunny|cloudy|foggy|stormy|humid|muggy|overcast|raining)\s+(?:in|at|for)\s+(?!(?:here|there|my|your|the|this|that|night|tonight|morning|afternoon|evening)\b)([A-Za-z][\w'\-]*\.?(?:\s+(?!(?:in|on|at|for|this|the|over|today|tonight|tomorrow|weekend|night|morning|afternoon|evening|now|later)\b)[A-Za-z][\w'\-]*\.?){0,3})(?:\s+(?:(?:this|the|over|for)\s+)*(?:today|tonight|tomorrow|weekend))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                val location = match.groupValues[1].trim().trimEnd('.').takeIf { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
                 }
@@ -5060,7 +5093,7 @@ class QuickIntentRouter(
     )
 
     private val weatherTemporalTail = Regex(
-        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning)|(?:^|\s+)(?:(?:for|over|this|in)\s+)?(?:the\s+)?weekend|(?:^|\s+)(?:and\s+)?(?:the\s+)?day\s+after(?:\s+tomorrow)?|(?:^|\s+)(?:for|over)\s+the|(?:^|\s+)(?:and|or))$""",
+        """(?i)(?:(?:^|\s+)(?:for|over|in|on|at)?\s*(?:the\s+)?next\s+(?:few|one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+days|(?:^|\s+)(?:for|over|in|on|at)?\s*(?:tomorrow|today|tonight|now)|(?:^|\s+)this\s+(?:week|weekend|afternoon|evening|morning)|(?:^|\s+)(?:(?:for|over|this|in)\s+)?(?:the\s+)?next\s+weekend|(?:^|\s+)(?:(?:for|over|this|in)\s+)?(?:the\s+)?weekend|(?:^|\s+)(?:and\s+)?(?:the\s+)?day\s+after(?:\s+tomorrow)?|(?:^|\s+)(?:for|over)\s+the|(?:^|\s+)(?:and|or)|(?:^|\s+)please)$""",
     )
 
     private val weatherLocationPrefix = Regex(
@@ -5070,7 +5103,7 @@ class QuickIntentRouter(
 
     /** #1455 — explicit weekend wording. Takes precedence over the unspecified-forecast default. */
     private val weatherWeekendPeriod = Regex(
-        """\b(?:this|the)\s+weekend\b""",
+        """\b(?:this|the|next)\s+weekend\b""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -5083,12 +5116,6 @@ class QuickIntentRouter(
     /** #2066 — "tomorrow and the day after": a two-day window starting tomorrow. */
     private val weatherTomorrowAndDayAfter = Regex(
         """\btomorrow\s+(?:and|or)\s+(?:the\s+)?day\s+after\b""",
-        RegexOption.IGNORE_CASE,
-    )
-
-    /** #2033/#2056 — "hotter/colder/warmer/cooler tomorrow than today": answered with the computed comparison sentence. */
-    private val weatherTomorrowVsToday = Regex(
-        """\b(?:hotter|warmer|colder|cooler)\b.*\btomorrow\s+than\s+today\b""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -5136,11 +5163,10 @@ class QuickIntentRouter(
         ) {
             normalized["forecast_days"] = "2"
         }
-        // #2033/#2056 — tomorrow-vs-today comparison: two days, no day filter, spoken as the computed sentence only.
-        if (weatherTomorrowVsToday.containsMatchIn(raw)) {
+        // #2033/#2056 — the comparison pattern sets compare: two days, no day filter.
+        if (normalized["compare"] == "true") {
             normalized.remove("day")
             normalized["forecast_days"] = "2"
-            normalized["compare"] = "true"
         }
 
         // "this weekend" → period=weekend (#1455): the weekend period is explicit

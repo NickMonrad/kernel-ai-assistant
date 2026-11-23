@@ -906,6 +906,7 @@ class ChatTextUtilsTest {
                 "forecast for Auckland for the next 3 days",
                 "Will it rain in Apia today and tomorrow",
                 "Is it hotter in Brisbane than Auckland",
+                "Will it be cooler tomorrow than today",
                 "Should I take an umbrella today",
                 "Is it going to be sunny tomorrow",
                 "Should I take an umbrella in Wellington tomorrow",

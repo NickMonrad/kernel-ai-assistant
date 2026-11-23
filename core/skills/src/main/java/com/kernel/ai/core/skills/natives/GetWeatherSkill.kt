@@ -167,14 +167,12 @@ private fun StringBuilder.appendSpokenForecastDays(
 internal fun buildMultiDayForecastSpoken(
     locationLabel: String?,
     days: List<Triple<String, String, Pair<Double?, Double?>>>,
-    comparison: String? = null,
 ): String {
     val place = locationForSpeech(locationLabel)
     val count = days.size
     return buildString {
         append(if (count == 1) "$place forecast." else "$place forecast for the next $count days.")
         appendSpokenForecastDays(days)
-        comparison?.let { append(" $it") }
     }
 }
 
@@ -546,41 +544,33 @@ internal fun sliceDailyRows(json: String, from: Int, count: Int): String {
 internal data class TwoDayComparison(val content: String, val spoken: String)
 
 /**
- * Compares the second of two days with the first, per temperature. Null unless both days are present.
- * `content` keeps high and low for the model. `spoken` is the ready-to-speak high sentence (#2033).
- * Compared after rounding to whole degrees, matching the text shown.
+ * Compares row 1 (tomorrow) with row 0 (today) by position, so the labels never depend on the phone's date.
+ * Null unless both high temperatures are present. `content` keeps high and low for the model; `spoken` is the
+ * ready-to-speak high sentence (#2033). Compared after rounding to whole degrees, matching the text shown.
  */
-internal fun twoDayComparison(
-    dates: List<java.time.LocalDate>,
-    highs: List<Double>,
-    lows: List<Double>,
-    today: java.time.LocalDate,
-    place: String,
-): TwoDayComparison? {
-    if (dates.size != 2 || highs.size != 2 || lows.size != 2) return null
+internal fun twoDayComparison(highs: List<Double>, lows: List<Double>, place: String): TwoDayComparison? {
+    if (highs.size != 2 || lows.size != 2) return null
     val parts = listOfNotNull(
         comparisonPart("high", earlier = highs[0], later = highs[1]),
         comparisonPart("low", earlier = lows[0], later = lows[1]),
     )
     if (parts.isEmpty()) return null
-    val earlierLabel = relativeDayLabel(dates[0], today)
-    val laterLabel = relativeDayLabel(dates[1], today)
     val spoken = comparisonSpoken(
-        subject = laterLabel.replaceFirstChar { it.uppercase() },
+        subject = "Tomorrow",
         place = place,
-        earlierLabel = earlierLabel,
+        earlierLabel = "today",
         earlier = highs[0],
         later = highs[1],
     ) ?: return null
     return TwoDayComparison(
-        content = "Comparison, $laterLabel vs $earlierLabel: " + parts.joinToString("; ") { it.content } + ".",
+        content = "Comparison, tomorrow vs today: " + parts.joinToString("; ") { it.content } + ".",
         spoken = spoken,
     )
 }
 
 /**
- * "Tomorrow will be slightly cooler in Apia: a high of 30 degrees, down from 31." Whole degrees; a change of
- * 1–2 degrees is "slightly".
+ * "Tomorrow will be slightly cooler in Apia, with a high of 30 degrees, down from 31." Whole degrees; a change of
+ * 1–2 degrees is "slightly". No colon: the reply is read aloud.
  */
 private fun comparisonSpoken(
     subject: String,
@@ -593,12 +583,12 @@ private fun comparisonSpoken(
     val from = Math.round(earlier).toInt()
     val to = Math.round(later).toInt()
     val delta = to - from
-    if (delta == 0) return "$subject will be about the same as $earlierLabel in $place: a high of $to degrees."
+    if (delta == 0) return "$subject will be about the same as $earlierLabel in $place, with a high of $to degrees."
     val size = kotlin.math.abs(delta)
     val word = if (delta > 0) "warmer" else "cooler"
     val change = if (size <= 2) "slightly $word" else "$size degrees $word"
     val direction = if (delta > 0) "up from" else "down from"
-    return "$subject will be $change in $place: a high of $to degrees, $direction $from."
+    return "$subject will be $change in $place, with a high of $to degrees, $direction $from."
 }
 
 private class ComparisonPart(val content: String)
@@ -612,13 +602,6 @@ private fun comparisonPart(label: String, earlier: Double, later: Double): Compa
     val word = if (delta > 0) "hotter" else "colder"
     return ComparisonPart("$label ${to}°C vs ${from}°C, ${kotlin.math.abs(delta)}°C $word")
 }
-
-private fun relativeDayLabel(date: java.time.LocalDate, today: java.time.LocalDate): String =
-    when (date.toEpochDay() - today.toEpochDay()) {
-        0L -> "today"
-        1L -> "tomorrow"
-        else -> formatForecastWeekdayForSpeech(date.toString())
-    }
 
 /**
  * Current conditions keep the cached temperature but must not show a past day's high/low (#1921).
@@ -1343,7 +1326,6 @@ class GetWeatherSkill @Inject constructor(
     internal fun parseForecastResponse(
         json: String,
         displayName: String?,
-        today: java.time.LocalDate = java.time.LocalDate.now(ZoneId.systemDefault()),
         compare: Boolean = false,
     ): SkillResult {
         val obj = JSONObject(json)
@@ -1364,13 +1346,15 @@ class GetWeatherSkill @Inject constructor(
             return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
         }
 
-        val comparison = twoDayComparison(
-            dates = (0 until len).mapNotNull { runCatching { java.time.LocalDate.parse(dates.getString(it)) }.getOrNull() },
-            highs = (0 until len).map { maxTemps.optDouble(it, Double.NaN) },
-            lows = (0 until len).map { minTemps.optDouble(it, Double.NaN) },
-            today = today,
-            place = locationForSpeech(displayName ?: UNRESOLVED_LOCATION_LABEL),
-        )
+        val comparison = if (compare) {
+            twoDayComparison(
+                highs = (0 until len).map { maxTemps.optDouble(it, Double.NaN) },
+                lows = (0 until len).map { minTemps.optDouble(it, Double.NaN) },
+                place = locationForSpeech(displayName ?: UNRESOLVED_LOCATION_LABEL),
+            )
+        } else {
+            null
+        }
         val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = buildString {
             append("$locationLabel forecast:\n")
@@ -1491,15 +1475,8 @@ class GetWeatherSkill @Inject constructor(
                 forecast = forecastDays,
                 attributionText = weatherAttributionFor(obj),
             ),
-            spokenSummary = if (compare && comparison != null) {
-                comparison.spoken
-            } else {
-                buildMultiDayForecastSpoken(
-                    locationLabel = locationLabel,
-                    days = spokenDays,
-                    comparison = comparison?.spoken,
-                )
-            },
+            spokenSummary = comparison?.spoken
+                ?: buildMultiDayForecastSpoken(locationLabel = locationLabel, days = spokenDays),
         )
     }
 
@@ -1760,8 +1737,8 @@ class GetWeatherSkill @Inject constructor(
 
             // Line 2: today's high / low
             if (tempMax != null || tempMin != null) {
-                val highStr = tempMax?.let { "H:%.0f°C".format(it) }
-                val lowStr = tempMin?.let { "L:%.0f°C".format(it) }
+                val highStr = tempMax?.let { "High %.0f°C".format(it) }
+                val lowStr = tempMin?.let { "Low %.0f°C".format(it) }
                 appendLine("🌡 Today: " + listOfNotNull(highStr, lowStr).joinToString(" / "))
             }
 

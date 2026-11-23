@@ -131,7 +131,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22)),
+            skill.parseForecastResponse(json, "Wellington", compare = true),
         )
         assertTrue(
             direct.content.contains(
@@ -141,7 +141,7 @@ class GetWeatherHighLowFormatTest {
         )
         assertTrue(
             direct.spokenSummary.orEmpty().endsWith(
-                "Tomorrow will be 3 degrees cooler in Wellington: a high of 18 degrees, down from 21.",
+                "Tomorrow will be 3 degrees cooler in Wellington, with a high of 18 degrees, down from 21.",
             ),
             "spoken=${direct.spokenSummary}",
         )
@@ -158,10 +158,10 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+            skill.parseForecastResponse(json, "Apia", compare = true),
         )
         assertEquals(
-            "Tomorrow will be slightly cooler in Apia: a high of 30 degrees, down from 31.",
+            "Tomorrow will be slightly cooler in Apia, with a high of 30 degrees, down from 31.",
             direct.spokenSummary,
         )
     }
@@ -176,11 +176,11 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22)),
+            skill.parseForecastResponse(json, "Apia", compare = true),
         )
         assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
         assertTrue(
-            direct.spokenSummary.orEmpty().endsWith("Tomorrow will be about the same as today in Apia: a high of 20 degrees."),
+            direct.spokenSummary.orEmpty().endsWith("Tomorrow will be about the same as today in Apia, with a high of 20 degrees."),
             "spoken=${direct.spokenSummary}",
         )
     }
@@ -195,7 +195,24 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22)),
+            skill.parseForecastResponse(json, "Wellington", compare = true),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2033 — without compare=true a two-day forecast is a plain readback: no computed comparison. */
+    @Test
+    fun `two-day forecast without compare has no comparison`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington"),
         )
         assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
         assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
