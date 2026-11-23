@@ -70,6 +70,8 @@ private class Capture(
 
     /** Set by the reader when the endpoint ends the capture; null when the mic ends it (stop, failure, supersede). */
     @Volatile var endReason: EndpointReason? = null
+    /** When speech ended: the endpoint, or the mic halt on stop or supersede if no endpoint came first. Feeds stt_decode_done. */
+    @Volatile var endedAtNanos: Long = 0L
 }
 
 /** Engine identity: a change of size or thread count needs a reopen. */
@@ -398,7 +400,8 @@ class Asr4allVoiceInputController internal constructor(
                 if (reason != null) {
                     // Decided on captured audio here, not by the decoder: a slow decode delays the transcript only.
                     // The mic closes now; the consumer still decodes what was captured.
-                    JandalEvents.record("voice", "stt_endpoint", "reason" to reason.logName)
+                    JandalEvents.record("voice", "stt_endpoint", "reason" to reason, "audio_ms" to endpoint.capturedMs)
+                    c.endedAtNanos = System.nanoTime()
                     c.endReason = reason
                     c.buffer.close()
                 }
@@ -441,6 +444,7 @@ class Asr4allVoiceInputController internal constructor(
      * a read blocked in the recorder returns. Idempotent. The reader releases the rest.
      */
     private fun halt(c: Capture) {
+        if (c.endedAtNanos == 0L) c.endedAtNanos = System.nanoTime()
         c.buffer.close()
         try {
             if (c.recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) c.recorder.stop()
@@ -574,6 +578,14 @@ class Asr4allVoiceInputController internal constructor(
         if (discard.get()) return
         if (textHeard) _events.tryEmit(VoiceInputEvent.SpeechEnded(mode, sessionId))
         val text = TranscriptNormaliser.stripTrailingSentencePunctuation(eng.finish().trim())
+        if (c.endedAtNanos != 0L) {
+            JandalEvents.record(
+                "voice",
+                "stt_decode_done",
+                "ms" to (System.nanoTime() - c.endedAtNanos) / 1_000_000L,
+                "endpointed" to (c.endReason != null),
+            )
+        }
         // A release may arrive during the final decode; a superseded transcript is dropped.
         if (discard.get()) return
         beforeFinalEmitForTest?.invoke()

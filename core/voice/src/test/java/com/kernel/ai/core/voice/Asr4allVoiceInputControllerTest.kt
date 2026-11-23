@@ -1100,6 +1100,30 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
+    fun `endpoint and decode-complete events journal the reason and the captured audio length`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            // Quiet lead-in, speech at reads 11..20, then silence to the 700 ms endpoint.
+            amplitudeForRead = { read -> if (read in 11..20) 8000 else 0 }
+            partialForCall = { "Final" }
+            firstFrame = CountDownLatch(1)
+            val mark = exportMark()
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            val lines = exportedAfter(mark)
+            // 27 reads at 100 ms (10 quiet, 10 speech, 7 silence): the endpoint at read 27 journals 2700 ms.
+            assertTrue(lines.any { " voice stt_endpoint " in it && "reason=VAD" in it && "audio_ms=2700" in it })
+            assertTrue(lines.any { " voice stt_decode_done " in it && "endpointed=true" in it })
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `load-time silence before speech is not decoded, only the lead-in before onset`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)

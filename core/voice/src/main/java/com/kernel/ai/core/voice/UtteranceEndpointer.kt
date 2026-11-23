@@ -1,15 +1,15 @@
 package com.kernel.ai.core.voice
 
-/** Why an asr4all capture ended on its own. Logged as `stt_endpoint reason=<logName>`. */
-internal enum class EndpointReason(val logName: String) {
+/** Why an asr4all capture ended on its own. Journaled as `stt_endpoint reason=VAD|NO_SPEECH|CAP` (enum token). */
+internal enum class EndpointReason {
     /** Speech was heard, then quiet for [ENDPOINT_SILENCE_SAMPLES]. */
-    VAD("vad"),
+    VAD,
 
     /** No speech within [NO_SPEECH_SAMPLES] of captured audio. */
-    NO_SPEECH("no_speech"),
+    NO_SPEECH,
 
     /** [CAPTURE_CAP_SAMPLES] of captured audio. */
-    CAP("cap"),
+    CAP,
 }
 
 /** 700 ms at 16 kHz: the trailing silence that ends an utterance after speech. */
@@ -32,6 +32,9 @@ internal class UtteranceEndpointer(
 ) {
     private var captured = 0L
     private var silentSamples = 0L
+
+    /** Milliseconds of audio recorded so far, on the captured-audio clock (16 kHz mono). */
+    val capturedMs: Long get() = captured * 1000L / 16_000L
 
     /** True once any chunk has been classified as speech. */
     var heardSpeech = false
