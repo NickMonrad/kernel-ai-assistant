@@ -341,7 +341,8 @@ fun ActionsScreen(
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
                 VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
                 VoiceCaptureMode.AlertCommand -> Unit
-                VoiceCaptureMode.Dictation -> error("Dictation has no chat start path")
+                // Actions never starts Dictation: the chat composer owns that mode.
+                VoiceCaptureMode.Dictation -> Unit
             }
             return
         }

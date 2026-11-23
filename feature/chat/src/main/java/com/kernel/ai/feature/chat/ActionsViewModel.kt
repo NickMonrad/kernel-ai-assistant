@@ -1410,7 +1410,8 @@ class ActionsViewModel @Inject constructor(
             VoiceCaptureMode.Command -> startVoiceCommand()
             VoiceCaptureMode.SlotReply -> startVoiceSlotReply()
             VoiceCaptureMode.AlertCommand -> Unit
-            VoiceCaptureMode.Dictation -> error("Dictation has no chat start path")
+            // Actions never starts Dictation: the chat composer owns that mode.
+            VoiceCaptureMode.Dictation -> Unit
         }
     }
 
