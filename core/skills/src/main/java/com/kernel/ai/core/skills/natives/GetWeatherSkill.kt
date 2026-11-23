@@ -1327,7 +1327,7 @@ class GetWeatherSkill @Inject constructor(
         json: String,
         displayName: String?,
         compare: Boolean = false,
-        today: java.time.LocalDate = java.time.LocalDate.now(ZoneId.systemDefault()),
+        nowMillis: Long = System.currentTimeMillis(),
     ): SkillResult {
         val obj = JSONObject(json)
         val daily = obj.getJSONObject("daily")
@@ -1347,9 +1347,16 @@ class GetWeatherSkill @Inject constructor(
             return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
         }
 
-        // A cached reply from before midnight has a first row that is now yesterday: no "today vs tomorrow" then.
+        // The place's own date: Open-Meteo's utc_offset_seconds (timezone=auto). The phone zone is only a fallback.
+        // A cached reply from before the place's midnight has a first row that is now yesterday there.
+        val placeZone = if (obj.has("utc_offset_seconds")) {
+            java.time.ZoneOffset.ofTotalSeconds(obj.getInt("utc_offset_seconds"))
+        } else {
+            ZoneId.systemDefault()
+        }
+        val placeToday = java.time.Instant.ofEpochMilli(nowMillis).atZone(placeZone).toLocalDate()
         val firstRowIsNotPast = dates.length() > 0 &&
-            !java.time.LocalDate.parse(dates.getString(0)).isBefore(today)
+            !java.time.LocalDate.parse(dates.getString(0)).isBefore(placeToday)
         val comparison = if (compare && firstRowIsNotPast) {
             twoDayComparison(
                 highs = (0 until len).map { maxTemps.optDouble(it, Double.NaN) },

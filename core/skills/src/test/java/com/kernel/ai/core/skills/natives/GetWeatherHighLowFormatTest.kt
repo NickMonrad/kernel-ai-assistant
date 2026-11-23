@@ -35,8 +35,16 @@ class GetWeatherHighLowFormatTest {
         unmockkStatic(Log::class)
     }
 
-    private fun dailyJson(dates: List<String>, highs: List<Double>, lows: List<Double>): String = """
-        {"latitude":-13.83,"longitude":-171.76,
+    /** 2026-11-22 12:00 UTC: the place's date is 22 Nov at utc_offset 0 (dailyJson default). */
+    private val NOON_22_NOV_UTC: Long = java.time.Instant.parse("2026-11-22T12:00:00Z").toEpochMilli()
+
+    private fun dailyJson(
+        dates: List<String>,
+        highs: List<Double>,
+        lows: List<Double>,
+        utcOffsetSeconds: Int = 0,
+    ): String = """
+        {"latitude":-13.83,"longitude":-171.76,"utc_offset_seconds":$utcOffsetSeconds,
          "daily":{
             "time":[${dates.joinToString(",") { "\"$it\"" }}],
             "temperature_2m_max":[${highs.joinToString(",")}],
@@ -131,7 +139,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
         )
         assertTrue(
             direct.content.contains(
@@ -158,7 +166,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+            skill.parseForecastResponse(json, "Apia", compare = true, nowMillis = NOON_22_NOV_UTC),
         )
         assertEquals(
             "Tomorrow will be slightly cooler in Apia, with a high of 30 degrees, down from 31.",
@@ -176,7 +184,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+            skill.parseForecastResponse(json, "Apia", compare = true, nowMillis = NOON_22_NOV_UTC),
         )
         assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
         assertTrue(
@@ -195,7 +203,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", compare = true),
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
         )
         assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
         assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
@@ -229,7 +237,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
         )
         assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
         assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
@@ -252,5 +260,54 @@ class GetWeatherHighLowFormatTest {
         assertTrue(direct.content.contains("24 Nov"), "text=${direct.content}")
         assertFalse(direct.content.contains("22 Nov"), "text=${direct.content}")
         assertFalse(direct.content.contains("25 Nov"), "text=${direct.content}")
+    }
+
+    /** The place's date decides "today": London asked from NZ on the morning of 23 Nov still has 22 Nov as its today. */
+    @Test
+    fun `comparison uses the place's date when the phone is ahead of it`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(9.0, 12.0),
+            lows = listOf(4.0, 6.0),
+            utcOffsetSeconds = 0,
+        )
+        val previous = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Pacific/Auckland"))
+        try {
+            // 09:00 on 23 Nov in Auckland (NZDT, UTC+13) = 20:00 UTC on 22 Nov
+            val nowMillis = java.time.Instant.parse("2026-11-22T20:00:00Z").toEpochMilli()
+            val direct = assertInstanceOf(
+                SkillResult.DirectReply::class.java,
+                skill.parseForecastResponse(json, "London", compare = true, nowMillis = nowMillis),
+            )
+            assertTrue(direct.content.contains("Comparison, tomorrow vs today"), "text=${direct.content}")
+            assertTrue(
+                direct.spokenSummary.orEmpty().startsWith("Tomorrow will be"),
+                "spoken=${direct.spokenSummary}",
+            )
+        } finally {
+            java.util.TimeZone.setDefault(previous)
+        }
+    }
+
+    /** A cached reply from before the place's midnight: its first row is yesterday at the place, so it is dropped. */
+    @Test
+    fun `cached reply from before the place's midnight drops the comparison`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(9.0, 12.0),
+            lows = listOf(4.0, 6.0),
+            utcOffsetSeconds = 0,
+        )
+        // 00:30 on 23 Nov in London (UTC+0)
+        val nowMillis = java.time.Instant.parse("2026-11-23T00:30:00Z").toEpochMilli()
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "London", compare = true, nowMillis = nowMillis),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
     }
 }
