@@ -14,7 +14,8 @@ private const val TAG = "KernelAI"
 private const val CUE_VOLUME_PERCENT = 60
 private const val DEFAULT_CUE_STREAM = AudioManager.STREAM_MUSIC
 private const val AUDIBLE_CUE_STREAM = AudioManager.STREAM_ALARM
-private const val CUE_DURATION_MS = 100
+/** Length of the shared start cue. The endpoint guard must cover it; the Silero test derives its grid from this. */
+internal const val START_CUE_DURATION_MS = 100
 private const val CUE_POLICY_VERSION = "2026-07-cue-v1"
 
 /** Pure mapping: cue context → Android stream constant. Extracted for local unit testing. */
@@ -125,7 +126,7 @@ class ToneStartListeningCuePlayer @Inject constructor(
             return buildResult(started = false, context = context, failureCategory = "tone_generator_unavailable")
         }
         return try {
-            val started = generator.startTone(ToneGenerator.TONE_PROP_BEEP, CUE_DURATION_MS)
+            val started = generator.startTone(ToneGenerator.TONE_PROP_BEEP, START_CUE_DURATION_MS)
             if (started) {
                 buildResult(started = true, context = context)
             } else {

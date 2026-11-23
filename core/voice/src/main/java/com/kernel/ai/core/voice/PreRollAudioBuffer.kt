@@ -58,6 +58,9 @@ internal class PreRollAudioBuffer(private val maxPreRollSamples: Int) {
         pre
     }
 
+    /** True once [attach] has run: the recognizer is ready, so every chunk now reaches it. */
+    val isAttached: Boolean get() = synchronized(lock) { attached }
+
     /**
      * Blocks until a live chunk is queued and returns it, or returns null once [close] has been
      * called and nothing is left. Must only be called after [attach].

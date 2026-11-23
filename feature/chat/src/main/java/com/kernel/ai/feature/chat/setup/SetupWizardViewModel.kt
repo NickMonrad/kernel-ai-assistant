@@ -15,6 +15,7 @@ import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.inference.setup.SetupWizardFlow
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
@@ -358,7 +359,7 @@ class SetupWizardViewModel @Inject constructor(
     /** Ticks or unticks "I agree to the Terms of Use" on Welcome. Stored at once so process death keeps it (#1998). */
     fun onTermsAcceptedChanged(accepted: Boolean) {
         _uiState.value = _uiState.value.copy(termsAccepted = accepted)
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = TermsAcceptanceSource.SETUP_WIZARD) }
     }
 
     /**

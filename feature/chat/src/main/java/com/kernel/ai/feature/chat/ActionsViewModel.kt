@@ -12,6 +12,8 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillOutcomeEvents
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.RepromptSkipReason
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
@@ -366,6 +368,7 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var pendingVoiceRetryJob: Job? = null
     private var chunkedVoiceSpeechJob: Job? = null
     /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
     private var voiceSpeechCancelled = false
@@ -488,7 +491,8 @@ class ActionsViewModel @Inject constructor(
                                     onSlotReply(normalizedTranscript)
                                 }
                             }
-                            VoiceCaptureMode.AlertCommand -> Unit
+                            // Dictation has no chat surface and nothing starts it; its transcripts are not consumed here.
+                            VoiceCaptureMode.AlertCommand, VoiceCaptureMode.Dictation -> Unit
                         }
                     }
                     is VoiceInputEvent.Error -> {
@@ -562,14 +566,17 @@ class ActionsViewModel @Inject constructor(
                                         }
                                         // speak() returns when playback ends or is stopped, which may be
                                         // after ON_STOP: the background-paused gate keeps the mic closed.
+                                        // The retry is no longer pending once it reopens the mic; clear it first so
+                                        // the mic's own speech cancel does not journal a skipped re-prompt.
+                                        pendingVoiceRetryJob = null
                                         startVoiceCapture(VoiceCaptureMode.Command, userInitiated = false)
-                                    }
+                                    }.also { pendingVoiceRetryJob = it }
                                 } else {
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                     _error.value = event.message
                                 }
                             }
-                            VoiceCaptureMode.AlertCommand -> {
+                            VoiceCaptureMode.AlertCommand, VoiceCaptureMode.Dictation -> {
                                 _voiceCaptureState.value = VoiceCaptureState.Idle
                                 _error.value = event.message
                             }
@@ -1406,6 +1413,8 @@ class ActionsViewModel @Inject constructor(
             VoiceCaptureMode.Command -> startVoiceCommand()
             VoiceCaptureMode.SlotReply -> startVoiceSlotReply()
             VoiceCaptureMode.AlertCommand -> Unit
+            // Actions never starts Dictation: the chat composer owns that mode.
+            VoiceCaptureMode.Dictation -> Unit
         }
     }
 
@@ -2325,6 +2334,7 @@ class ActionsViewModel @Inject constructor(
     ) {
         if (!userInitiated && backgroundPaused) {
             Log.d(TAG, "ActionsViewModel: automatic startVoiceCapture mode=$mode skipped, screen background-paused")
+            JandalEvents.record("voice", "reprompt_skip", "reason" to RepromptSkipReason.BACKGROUND_PAUSED)
             return
         }
         Log.d(
@@ -2452,6 +2462,11 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun cancelPendingVoiceSpeech() {
+        // Only a retry still waiting to reopen the mic is a skipped re-prompt. A finished reply is not.
+        if (pendingVoiceRetryJob?.isActive == true) {
+            JandalEvents.record("voice", "reprompt_skip", "reason" to RepromptSkipReason.PENDING_CANCELLED)
+        }
+        pendingVoiceRetryJob = null
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
         voiceSpeechCancelled = true

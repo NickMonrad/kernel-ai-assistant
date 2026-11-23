@@ -226,10 +226,10 @@ class ChatTextUtilsTest {
         }
 
         @Test
-        fun `weather card through chat speech keeps degrees and drops card separators`() {
+        fun `weather card through chat speech spells out degrees and drops card separators`() {
             val card = "☀️ Oakland — 11°C · Clear sky\n🌡 Today: H:17°C / L:10°C\n💧 Humidity: 92%"
             val result = normalizeChatTextForSpeech(card)
-            assertTrue(result.contains("11°C"), "degrees kept, got: $result")
+            assertTrue(result.contains("11 degrees"), "degrees spelled out, got: $result")
             assertTrue(result.contains("high 17"), "high read out, got: $result")
             assertTrue(result.contains("low 10"), "low read out, got: $result")
             assertFalse(result.contains("·") || result.contains("/") || result.contains("|"), "separators removed, got: $result")
@@ -250,9 +250,9 @@ class ChatTextUtilsTest {
 
         @Test
         fun `strips inline unicode bullet characters that would be vocalised as dot`() {
-            // • not at line start (e.g. single-line bullet run)
+            // • between items is a card separator, so it becomes a comma pause rather than being read as "dot"
             assertEquals(
-                "apples bread oranges",
+                "apples, bread, oranges",
                 normalizeChatTextForSpeech("apples • bread • oranges"),
             )
             // Triangular bullet
@@ -906,11 +906,14 @@ class ChatTextUtilsTest {
                 "forecast for Auckland for the next 3 days",
                 "Will it rain in Apia today and tomorrow",
                 "Is it hotter in Brisbane than Auckland",
+                "Will it be cooler tomorrow than today",
                 "Should I take an umbrella today",
                 "Is it going to be sunny tomorrow",
                 "Should I take an umbrella in Wellington tomorrow",
                 "Will it be windy in Wellington tomorrow",
                 "Is it raining outside",
+                "Will it be hot in Wellington tomorrow",
+                "Will it be cold in Wellington tomorrow",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {

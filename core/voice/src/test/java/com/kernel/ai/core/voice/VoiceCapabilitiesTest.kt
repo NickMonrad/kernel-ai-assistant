@@ -53,6 +53,35 @@ class VoiceCapabilitiesTest {
     }
 
     @Test
+    fun `unknown locale is not a missing language pack (#2086)`() {
+        assertTrue(AndroidNativeRecognitionLocaleStatus.Unknown.isLocaleReadyForWarning())
+        assertNull(androidNativeWarning(full, localeReady = AndroidNativeRecognitionLocaleStatus.Unknown.isLocaleReadyForWarning(), onlineAllowed = true))
+    }
+
+    @Test
+    fun `unknown locale with online recognition off still warns about stall risk (#2086)`() {
+        assertEquals(
+            AndroidNativeWarning.OnlineOff,
+            androidNativeWarning(full, localeReady = AndroidNativeRecognitionLocaleStatus.Unknown.isLocaleReadyForWarning(), onlineAllowed = false),
+        )
+    }
+
+    @Test
+    fun `ready and unknown locales pass the locale check, not-supported and unavailable fail it (#2086)`() {
+        assertTrue(AndroidNativeRecognitionLocaleStatus.Ready.isLocaleReadyForWarning())
+        assertFalse(AndroidNativeRecognitionLocaleStatus.NotSupported.isLocaleReadyForWarning())
+        assertFalse(AndroidNativeRecognitionLocaleStatus.Unavailable.isLocaleReadyForWarning())
+    }
+
+    @Test
+    fun `not-supported locale keeps the language pack warning`() {
+        assertEquals(
+            AndroidNativeWarning.LanguagePackMissing,
+            androidNativeWarning(full, localeReady = AndroidNativeRecognitionLocaleStatus.NotSupported.isLocaleReadyForWarning(), onlineAllowed = true),
+        )
+    }
+
+    @Test
     fun `native hand-off is allowed only for not-ready and stalled categories before speech`() {
         assertTrue(isAsr4allHandoffEligible(NATIVE_NOT_READY, hadSpeechProgress = false))
         assertTrue(isAsr4allHandoffEligible(NATIVE_STALLED, hadSpeechProgress = false))

@@ -340,6 +340,8 @@ fun ActionsScreen(
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
                 VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
                 VoiceCaptureMode.AlertCommand -> Unit
+                // Actions never starts Dictation: the chat composer owns that mode.
+                VoiceCaptureMode.Dictation -> Unit
             }
             return
         }
@@ -1764,7 +1766,7 @@ private fun VoiceCaptureCard(
         is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
             VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
-            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply -> "Listening, speak now"
+            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply, VoiceCaptureMode.Dictation -> "Listening, speak now"
         }
         is ActionsViewModel.VoiceCaptureState.Processing -> "Processing voice input"
         ActionsViewModel.VoiceCaptureState.Idle -> return

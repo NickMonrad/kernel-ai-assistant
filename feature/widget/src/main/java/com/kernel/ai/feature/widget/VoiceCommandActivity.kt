@@ -6,8 +6,6 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.pm.PackageManager
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -59,6 +57,8 @@ import com.kernel.ai.core.voice.VoiceInputPreferences
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceSpeakRequest
+import com.kernel.ai.core.voice.StartListeningCueContext
+import com.kernel.ai.core.voice.StartListeningCuePlayer
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -119,6 +119,7 @@ class VoiceCommandActivity : ComponentActivity() {
     @Inject lateinit var voiceInputController: VoiceInputController
     @Inject lateinit var navigator: WidgetNavigator
     @Inject lateinit var voiceInputPreferences: VoiceInputPreferences
+    @Inject lateinit var startListeningCuePlayer: StartListeningCuePlayer
     /** Volume key stops Jandal's speech while the voice overlay is open (#1873). */
     @Inject lateinit var speechStopCoordinator: com.kernel.ai.core.voice.SpeechStopCoordinator
     @Inject lateinit var chatPreferences: ChatPreferences
@@ -141,7 +142,6 @@ class VoiceCommandActivity : ComponentActivity() {
 
     /** Cancellable job for the 400 ms prefilled-transcript navigation delay. */
     private var prefilledNavJob: Job? = null
-    private var toneGenerator: ToneGenerator? = null
     /** Observer of [WakeOverlayChannel] while a Hey Jandal overlay is shown (#1930). */
     private var wakeOverlayJob: Job? = null
     private var wakeTranscriptJob: Job? = null
@@ -407,14 +407,8 @@ class VoiceCommandActivity : ComponentActivity() {
 
     /** Start cue, played when the recognizer reports Listening (#1850), not when the overlay opens. */
     private fun playStartCue() {
-        try {
-            toneGenerator?.release()
-            toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 80).also {
-                it.startTone(ToneGenerator.TONE_PROP_BEEP, 200)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "VoiceCommandActivity: could not play boop", e)
-        }
+        // The shared 100 ms cue every capture path plays; the endpoint start guard is sized for it.
+        startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
     }
 
     private fun startVoiceSession() {
@@ -615,8 +609,6 @@ class VoiceCommandActivity : ComponentActivity() {
         if (!wakeIntentSeen && !cancelledVoiceStart) {
             ownerSessionId?.let(voiceInputController::cancelListening)
         }
-        toneGenerator?.release()
-        toneGenerator = null
     }
 }
 

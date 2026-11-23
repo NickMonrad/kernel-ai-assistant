@@ -23,6 +23,7 @@ import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.inference.terms.isTermsRefusal
 import com.kernel.ai.core.inference.terms.termsAllowDownload
+import com.kernel.ai.core.inference.terms.termsRefusalsToClear
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
@@ -99,6 +100,12 @@ class ModelDownloadManager @Inject constructor(
     /** Models queued on Wi-Fi only while the phone is on mobile data. Drives "Waiting for Wi-Fi" (#1855). */
     val waitingForWifi: StateFlow<Set<KernelModel>> = _waitingForWifi.asStateFlow()
 
+    /**
+     * Models whose current download was started with "Use mobile data" (#2074). This is a per-model override of the
+     * global choice: it applies to this download only and is cleared once the model leaves [DownloadState.Downloading].
+     */
+    private val mobileDataModels: MutableSet<KernelModel> = ConcurrentHashMap.newKeySet()
+
     val deviceTier: HardwareTier get() = hardwareProfileDetector.profile.tier
 
     /** Job state per model, used to derive "Waiting for Wi-Fi" (#1855). */
@@ -142,6 +149,14 @@ class ModelDownloadManager @Inject constructor(
                 }
                 first = false
                 previous = choice
+            }
+        }
+
+        // A Terms refusal is true only while the acceptance is missing. Once it is on record, re-evaluate the models
+        // that refused, so the asr4all card stops asking for an acceptance the user already gave (#2080).
+        scope.launch {
+            termsAcceptancePreferences.record.collect { record ->
+                termsRefusalsToClear(_downloadStates.value, record).forEach { refreshState(it) }
             }
         }
         context.getSystemService(ConnectivityManager::class.java)
@@ -244,7 +259,7 @@ class ModelDownloadManager @Inject constructor(
             DownloadNetworkChoice.WIFI_ONLY
         val metered = isOnMeteredNetwork(context)
         _waitingForWifi.value = KernelModel.entries
-            .filter { workStates[it] == WorkInfo.State.ENQUEUED && wifiOnly && metered }
+            .filter { workStates[it] == WorkInfo.State.ENQUEUED && wifiOnly && metered && it !in mobileDataModels }
             .toSet()
     }
 
@@ -267,12 +282,15 @@ class ModelDownloadManager @Inject constructor(
         force: Boolean = false,
         source: DownloadSource = DownloadSource.USER_INITIATED,
         restartRunning: Boolean = false,
+        allowMobileData: Boolean = false,
     ) {
         if (model.isBundled) return  // bundled assets are always available; nothing to download
         if (!force && model.isDownloaded(context)) {
             updateState(model, DownloadState.Downloaded(model.localFile(context).absolutePath))
             return
         }
+        // "Use mobile data" for this model only (#2074). Recorded after the already-downloaded return.
+        if (allowMobileData) mobileDataModels.add(model)
 
 
         // User-initiated download clears any prior suppression so the model can auto-queue
@@ -314,7 +332,11 @@ class ModelDownloadManager @Inject constructor(
                 )
 
                 // Build and enqueue inside same withContext block to shrink TOCTOU window
-                val network = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
+                val network = if (model in mobileDataModels) {
+                    DownloadNetworkChoice.MOBILE_DATA_ALLOWED
+                } else {
+                    DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
+                }
                 val dataBuilder = Data.Builder()
                     .putString(KEY_DOWNLOAD_URL, model.downloadUrl)
                     .putString(KEY_FILE_NAME, model.fileName)
@@ -345,6 +367,8 @@ class ModelDownloadManager @Inject constructor(
 
                 workManager.enqueueUniqueWork(model.workerTag, policy, request)
             }
+            // A mobile-data override changes what counts as waiting; the enqueued job stays ENQUEUED, so refresh now (#2074).
+            refreshWaitingForWifi()
         }
 
         ensureObserving(model)
@@ -424,6 +448,7 @@ class ModelDownloadManager @Inject constructor(
     private fun updateState(model: KernelModel, state: DownloadState) {
         val previous = _downloadStates.value[model]
         _downloadStates.update { it.toMutableMap().apply { put(model, state) } }
+        if (state !is DownloadState.Downloading) mobileDataModels.remove(model)
         // Transitions only: progress ticks within one state are not recorded.
         if (previous?.javaClass != state.javaClass) {
             JandalEvents.record("download", "state", "model" to model, "state" to state.toJandalStateKind())

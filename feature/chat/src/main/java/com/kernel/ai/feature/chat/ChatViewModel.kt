@@ -825,7 +825,7 @@ class ChatViewModel @Inject constructor(
                     // #2027: the pre-start event only moves the wake mic; readiness state stays with ListeningStarted.
                     is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND)
                         _listeningHaptics.trySend(Unit)
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
@@ -835,23 +835,23 @@ class ChatViewModel @Inject constructor(
                     }
                     is VoiceInputEvent.SpeechDetected -> Unit
                     is VoiceInputEvent.SpeechEnded -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         chatVoiceAwaitingFinal = true
                         (_voiceCaptureState.value as? VoiceCaptureState.Listening)?.let { listening ->
                             _voiceCaptureState.value = VoiceCaptureState.Processing(listening.transcript)
                         }
                     }
                     is VoiceInputEvent.PartialTranscript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Listening(event.text)
                     }
                     is VoiceInputEvent.Transcript -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         chatVoiceAwaitingFinal = false
                         submitVoiceTranscript(event.text)
                     }
                     is VoiceInputEvent.Error -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         awaitingVoicePlaybackCompletion = false
                         pendingVoiceReply = false
                         voicePresynthesis.discard()
@@ -883,7 +883,7 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                     is VoiceInputEvent.ListeningStopped -> {
-                        if (event.mode != VoiceCaptureMode.Command || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
+                        if (!isChatMicEvent(event.mode) || !ownsCommandVoiceCapture(event.captureSessionId)) return@collect
                         when (val currentState = _voiceCaptureState.value) {
                             is VoiceCaptureState.Listening -> {
                                 if (event.cancelled || currentState.transcript.isBlank()) {
@@ -1760,6 +1760,16 @@ class ChatViewModel @Inject constructor(
             (_voiceCaptureState.value == VoiceCaptureState.Preparing ||
                 _voiceCaptureState.value is VoiceCaptureState.Listening ||
                 _voiceCaptureState.value is VoiceCaptureState.Processing)
+
+    /** Modes the chat mic can capture: a dictation, or a command while a slot question is pending. */
+    private fun isChatMicEvent(mode: VoiceCaptureMode): Boolean =
+        mode == VoiceCaptureMode.Command || mode == VoiceCaptureMode.Dictation
+
+    /** Slot replies stay Command; any other chat mic press is a dictation (60 s cap, 1.5 s end silence). */
+    private fun chatCaptureMode(): VoiceCaptureMode =
+        if (conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null) VoiceCaptureMode.Command
+        else VoiceCaptureMode.Dictation
+
     private fun beginChatVoiceAttempt(): Long {
         val attemptId = ++chatVoiceAttemptId
         chatVoiceStartJob?.cancel()
@@ -1806,7 +1816,7 @@ class ChatViewModel @Inject constructor(
             beforeStart()
             if (attemptId != chatVoiceAttemptId) return@launch
             when (
-                val result = voiceInputController.startListening(VoiceCaptureMode.Command) { sessionId ->
+                val result = voiceInputController.startListening(chatCaptureMode()) { sessionId ->
                     bindChatVoiceSession(sessionId, attemptId)
                 }
             ) {

@@ -33,6 +33,20 @@ class GetWeatherCachePolicyTest {
     }
 
     @Test
+    fun `tomorrow keys differ by day count so a one-day answer is not reused for a range`() {
+        val one = weatherCacheKey(
+            WeatherLookupMode.NAMED_LOCATION, "Wellington", false, "tomorrow", 0,
+            millis(2027, 1, 15, 9, 0), auckland,
+        )
+        val three = weatherCacheKey(
+            WeatherLookupMode.NAMED_LOCATION, "Wellington", false, "tomorrow", 3,
+            millis(2027, 1, 15, 9, 0), auckland,
+        )
+
+        assertNotEquals(one, three)
+    }
+
+    @Test
     fun `weekend key changes across local midnight`() {
         val before = weatherCacheKey(WeatherLookupMode.DEVICE_LOCATION, null, true, null, 0, millis(2027, 1, 15, 23, 59), auckland)
         val after = weatherCacheKey(WeatherLookupMode.DEVICE_LOCATION, null, true, null, 0, millis(2027, 1, 16, 0, 1), auckland)
