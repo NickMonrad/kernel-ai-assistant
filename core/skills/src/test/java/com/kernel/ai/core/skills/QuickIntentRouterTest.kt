@@ -4282,6 +4282,7 @@ class QuickIntentRouterTest {
             Arguments.of("weather forecast for the weekend", null, null, null),
             // #2033/#2056 — tomorrow-vs-today comparisons: two days, day omitted, answered by the tool's sentence
             Arguments.of("Will it be hotter in Apia tomorrow than today and why", "Apia", "2", null),
+            Arguments.of("Will it be hotter in Apia tomorrow than today and why.", "Apia", "2", null),
             Arguments.of("Will it be hotter in Wellington tomorrow than today", "Wellington", "2", null),
             Arguments.of("Will it be colder in Wellington tomorrow than today", "Wellington", "2", null),
             Arguments.of("What's the weather for Auckland over the next seven days", "Auckland", "7", null),
