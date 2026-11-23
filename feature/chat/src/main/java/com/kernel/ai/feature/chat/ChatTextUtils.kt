@@ -544,7 +544,7 @@ private val WEATHER_STRONG_REGEX = Regex(
     """\b(?<!under the )weather\b(?!\s+(?:the|out)\s+(?:storm|crisis|challenges?|bad|rough|tough|hard|tricky|difficult)\b)|\bforecast\s+(?=(?:for|in|at|on|tomorrow|today|tonight|this|next|over)\b)""",
 )
 private val WEATHER_FRAME_REGEX = Regex(
-    """\b(?:will|is|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:rain|raining|snow|snowing|sunny|windy|humid|hotter|colder)\b""",
+    """\b(?:will|is|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:rain|raining|snow|snowing|sunny|windy|humid|hot|hotter|cold|colder|warm|warmer)\b""",
 )
 private val WEATHER_AMBIGUOUS_REGEX = Regex(
     """\b(?:rain(?:y|ing|fall)?|snow(?:y|ing)?|temperature|hotter|colder|umbrella|humidity|sunny|windy|wind\s+(?:speed|chill|gusts?)|the\s+wind)\b""",

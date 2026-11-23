@@ -119,4 +119,85 @@ class GetWeatherHighLowFormatTest {
         assertTrue(direct.content.contains(", high 30°C, low 25°C"), "text=${direct.content}")
         assertTrue(direct.content.contains(", high 29°C, low 23°C"), "text=${direct.content}")
     }
+
+    /** #2056 — the Wellington repro: today 21/13, tomorrow 18/15. The tool does the arithmetic. */
+    @Test
+    fun `two-day forecast adds a computed comparison of tomorrow against today`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22)),
+        )
+        assertTrue(
+            direct.content.contains(
+                "Comparison, tomorrow vs today: high 18°C vs 21°C, 3°C colder; low 15°C vs 13°C, 2°C hotter.",
+            ),
+            "text=${direct.content}",
+        )
+        assertTrue(
+            direct.spokenSummary.orEmpty().endsWith(
+                "Tomorrow compared with today: 3 degrees colder on the high and 2 degrees hotter on the low.",
+            ),
+            "spoken=${direct.spokenSummary}",
+        )
+    }
+
+    @Test
+    fun `equal temperatures are reported as the same`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(20.0, 20.0),
+            lows = listOf(10.0, 10.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22)),
+        )
+        assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
+        assertTrue(
+            direct.spokenSummary.orEmpty().endsWith("the same on the high and the same on the low."),
+            "spoken=${direct.spokenSummary}",
+        )
+    }
+
+    @Test
+    fun `comparison is only added for exactly two days`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23", "2026-11-24"),
+            highs = listOf(21.0, 18.0, 19.0),
+            lows = listOf(13.0, 15.0, 14.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22)),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("compared with"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2066 — "tomorrow" plus N days keeps rows 1..N of a body that starts today. */
+    @Test
+    fun `parseForecastRange returns the requested days from tomorrow onward`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25"),
+            highs = listOf(21.0, 18.0, 19.0, 20.0),
+            lows = listOf(13.0, 15.0, 14.0, 12.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastRange(json, "Wellington", fromIndex = 1, count = 2),
+        )
+        assertTrue(direct.content.contains("23 Nov"), "text=${direct.content}")
+        assertTrue(direct.content.contains("24 Nov"), "text=${direct.content}")
+        assertFalse(direct.content.contains("22 Nov"), "text=${direct.content}")
+        assertFalse(direct.content.contains("25 Nov"), "text=${direct.content}")
+    }
 }

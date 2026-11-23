@@ -2423,7 +2423,8 @@ class QuickIntentRouterTest {
                 "What's the weather forecast for Auckland for the next 3 days",
                 "What's the weather for Auckland for the next seven days",
                 "What's the weather in Apia today and tomorrow",
-                "What's the weather in Apia tomorrow and today",
+                "What's the weather in Apia tomorrow and the day after",
+                "What's the forecast for Auckland over the weekend",
             )
             for (input in inputs) {
                 val result = regexOnlyRouter.route(input)
@@ -4017,7 +4018,6 @@ class QuickIntentRouterTest {
             Arguments.of("weather forecast for Paris", "Paris"),
             Arguments.of("how's the weather in Sydney", "Sydney"),
             Arguments.of("What's the weather in Brisbane?", "Brisbane"),
-            Arguments.of("weather forecast for the weekend", "the weekend"),
         )
 
         @JvmStatic
@@ -4263,11 +4263,23 @@ class QuickIntentRouterTest {
             Arguments.of("What is the weather forecast for Auckland over the next 3 days", "Auckland", "3", null),
             Arguments.of("What's the weather for Auckland for the next seven days", "Auckland", "7", null),
             Arguments.of("Forecast for Auckland for the next 3 days", "Auckland", "3", null),
-            Arguments.of("What's the weather in Apia today and tomorrow", "Apia", null, "tomorrow"),
-            Arguments.of("What's the weather in Apia tomorrow and today", "Apia", null, "tomorrow"),
-            Arguments.of("weather in Apia today and tomorrow", "Apia", null, "tomorrow"),
-            Arguments.of("Will it rain in Apia today and tomorrow?", "Apia", null, "tomorrow"),
-            Arguments.of("What's the weather in Apia today or tomorrow", "Apia", null, "tomorrow"),
+            // #2066 — "today and tomorrow" is a two-day window that starts today (day must not be tomorrow)
+            Arguments.of("What's the weather in Apia today and tomorrow", "Apia", "2", null),
+            Arguments.of("What's the weather in Apia tomorrow and today", "Apia", "2", null),
+            Arguments.of("weather in Apia today and tomorrow", "Apia", "2", null),
+            Arguments.of("Will it rain in Apia today and tomorrow?", "Apia", "2", null),
+            Arguments.of("What's the weather in Apia today or tomorrow", "Apia", "2", null),
+            // #2066 — "tomorrow and the day after" is two days starting tomorrow
+            Arguments.of("What's the weather in Apia tomorrow and the day after", "Apia", "2", "tomorrow"),
+            // #2066 — day-anchored and conditions phrasings from the issue
+            Arguments.of("forecast tomorrow", null, null, "tomorrow"),
+            Arguments.of("Is it windy in Wellington", "Wellington", null, null),
+            Arguments.of("Is it snowing in Queenstown", "Queenstown", null, null),
+            Arguments.of("Will it be windy in Wellington tomorrow", "Wellington", null, "tomorrow"),
+            Arguments.of("Is it going to rain this weekend", null, null, null),
+            Arguments.of("Will it rain in Sydney over the weekend", "Sydney", null, null),
+            // #2066 — bare weekend wording must not capture "the weekend" as a place
+            Arguments.of("weather forecast for the weekend", null, null, null),
             Arguments.of("What's the weather for Auckland over the next seven days", "Auckland", "7", null),
         )
 

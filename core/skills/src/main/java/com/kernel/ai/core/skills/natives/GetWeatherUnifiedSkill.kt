@@ -60,7 +60,9 @@ class GetWeatherUnifiedSkill @Inject constructor(
             ),
             "day" to SkillParameter(
                 type = "string",
-                description = "Optional day to get weather for: \"today\" or \"tomorrow\". When \"tomorrow\", returns tomorrow's forecast only.",
+                description = "Optional day to get weather for: \"today\" or \"tomorrow\". \"tomorrow\" alone returns tomorrow only; " +
+                    "with forecast_days=N it returns N days starting tomorrow. For \"today and tomorrow\" or comparing today with tomorrow, " +
+                    "use forecast_days=2 and omit day: the result then includes a computed comparison line.",
             ),
             "period" to SkillParameter(
                 type = "string",

@@ -911,6 +911,8 @@ class ChatTextUtilsTest {
                 "Should I take an umbrella in Wellington tomorrow",
                 "Will it be windy in Wellington tomorrow",
                 "Is it raining outside",
+                "Will it be hot in Wellington tomorrow",
+                "Will it be cold in Wellington tomorrow",
             ],
         )
         fun `returns true for tool-related queries`(query: String) {
