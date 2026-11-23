@@ -61,6 +61,13 @@ enum class AndroidNativeRecognitionLocaleStatus {
     Unknown,
 }
 
+/**
+ * Whether the locale check lets the native recognizer warn-free start. Unknown means the platform could not say,
+ * so it is not treated as missing (#2086). NotSupported and Unavailable are not ready.
+ */
+fun AndroidNativeRecognitionLocaleStatus.isLocaleReadyForWarning(): Boolean =
+    this == AndroidNativeRecognitionLocaleStatus.Ready || this == AndroidNativeRecognitionLocaleStatus.Unknown
+
 private data class ParsedRecognitionComponent(
     val packageName: String,
     val className: String,

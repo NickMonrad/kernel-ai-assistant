@@ -367,6 +367,8 @@ class ModelDownloadManager @Inject constructor(
 
                 workManager.enqueueUniqueWork(model.workerTag, policy, request)
             }
+            // A mobile-data override changes what counts as waiting; the enqueued job stays ENQUEUED, so refresh now (#2074).
+            refreshWaitingForWifi()
         }
 
         ensureObserving(model)

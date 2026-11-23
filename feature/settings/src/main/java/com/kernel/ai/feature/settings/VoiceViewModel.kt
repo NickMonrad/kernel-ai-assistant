@@ -5,7 +5,7 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
-import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
+import com.kernel.ai.core.voice.isLocaleReadyForWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
@@ -39,6 +39,8 @@ import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
+import com.kernel.ai.core.model.availability.ModelRoleCopy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 
@@ -264,9 +266,9 @@ internal fun SherpaSttDownloadState.toModelAvailability(): ModelAvailabilityStat
 /** The one status label for a speech model: the card badge and its row both read it (#2075). */
 internal fun SherpaSttDownloadState.statusLabel(): String = when {
     isDownloaded -> "Downloaded"
-    waitingForWifi -> "Waiting for Wi-Fi"
-    isDownloading -> "Downloading"
-    else -> "Not downloaded"
+    waitingForWifi -> ModelRoleCopy.WAITING_FOR_WIFI
+    isDownloading -> ModelRoleCopy.VOICE_DOWNLOADING
+    else -> ModelRoleCopy.VOICE_NOT_DOWNLOADED
 }
 
 /**
@@ -318,6 +320,7 @@ private data class SttSnapshot(
     val waiting: Set<KernelModel>,
     val asr4allSize: Asr4AllSize,
     val switchState: Asr4allSwitchState,
+    val termsAccepted: Boolean,
 )
 
 @HiltViewModel
@@ -373,7 +376,7 @@ class VoiceViewModel @Inject constructor(
                     androidNativeAvailabilityMessage = nativeWarning,
                     androidNativeLanguageName = availability.languageDisplayName,
                     // Unknown means the language check could not run, not that the pack is missing (#2086).
-                    androidNativeLocaleReady = availability.localeStatus != AndroidNativeRecognitionLocaleStatus.Unavailable,
+                    androidNativeLocaleReady = availability.localeStatus.isLocaleReadyForWarning(),
                     androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )
             }
@@ -573,14 +576,17 @@ class VoiceViewModel @Inject constructor(
                 modelDownloadManager.waitingForWifi,
                 voiceInputPreferences.asr4allSize,
                 asr4allSizeSwitcher.state,
-            ) { states, waiting, stored, switchState ->
+                termsAcceptancePreferences.record,
+            ) { states, waiting, stored, switchState, record ->
                 SttSnapshot(
                     states = states,
                     waiting = waiting,
                     asr4allSize = Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier),
                     switchState = switchState,
+                    // Same combine as the failure it hides, so no emission order leaves a stale message (#2080).
+                    termsAccepted = record.isAccepted(),
                 )
-            }.collect { (states, waiting, asr4allSize, switchState) ->
+            }.collect { (states, waiting, asr4allSize, switchState, termsAccepted) ->
                 val pendingSize = switchState.pendingSize
                 val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
                     sherpaSttDownloadState(
@@ -610,7 +616,7 @@ class VoiceViewModel @Inject constructor(
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         asr4allPendingSize = pendingSize,
                         asr4allSwitchFailure = switchState.failure?.message.takeUnless { m ->
-                            m == TERMS_NOT_ACCEPTED_MESSAGE && it.termsAccepted == true
+                            m == TERMS_NOT_ACCEPTED_MESSAGE && termsAccepted
                         },
                         sherpaSttStates = perFamilyStates,
                     )
@@ -872,7 +878,7 @@ class VoiceViewModel @Inject constructor(
 
     /** Ticks or unticks the Terms of Use on the asr4all speech card. Stored at once (#1998). */
     fun onTermsAcceptedChanged(accepted: Boolean) {
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = "voice_settings") }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = TermsAcceptanceSource.VOICE_SETTINGS) }
     }
 
     fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {

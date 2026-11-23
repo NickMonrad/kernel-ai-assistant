@@ -80,6 +80,9 @@ fun termsRefusalsToClear(
         states.filter { (model, state) -> model.requiresTermsAcceptance && state.isTermsRefusal() }.keys.toList()
     }
 
+/** The screen that ticked or unticked the Terms of Use. An enum, because the event journal only accepts enum tokens. */
+enum class TermsAcceptanceSource { SETUP_WIZARD, CHAT_BANNER, VOICE_SETTINGS }
+
 /**
  * Persists the Terms of Use acceptance (#1998). Acceptance is written as soon as the checkbox is ticked, so a
  * process death or a rotation keeps it, and the stored version decides whether the user is asked again.
@@ -112,9 +115,10 @@ class TermsAcceptancePreferences internal constructor(private val dataStore: Dat
 
     /**
      * Ticks ([accepted] = true) or unticks the checkbox for [TERMS_VERSION]. Unticking clears the acceptance.
-     * [source] names the screen that changed it; the journal records it so a re-prompt can be traced (#2080).
+     * [source] names the screen that changed it. The journal records it as an enum token, so it survives
+     * the journal's allowlist (#2080).
      */
-    suspend fun setAccepted(accepted: Boolean, source: String, nowMillis: Long = System.currentTimeMillis()) {
+    suspend fun setAccepted(accepted: Boolean, source: TermsAcceptanceSource, nowMillis: Long = System.currentTimeMillis()) {
         dataStore.edit { prefs ->
             if (accepted) {
                 prefs[acceptedVersionKey] = TERMS_VERSION
@@ -124,7 +128,7 @@ class TermsAcceptancePreferences internal constructor(private val dataStore: Dat
                 prefs.remove(acceptedAtKey)
             }
         }
-        JandalEvents.record("terms", if (accepted) "accepted" else "cleared", "source" to source, "version" to TERMS_VERSION)
+        JandalEvents.record("terms", if (accepted) "accepted" else "cleared", "source" to source)
     }
 
     /** Dismisses the update prompt for [TERMS_VERSION]. The prompt does not return for this version. */

@@ -37,6 +37,7 @@ import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
 import com.kernel.ai.core.inference.download.localFile
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
  import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -218,6 +219,7 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns modelDownloadStates
         every { modelDownloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
+        every { termsAcceptancePreferences.record } returns MutableStateFlow(TermsAcceptanceRecord())
         every { hardwareProfileDetector.profile.tier } returns HardwareTier.FLAGSHIP
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs

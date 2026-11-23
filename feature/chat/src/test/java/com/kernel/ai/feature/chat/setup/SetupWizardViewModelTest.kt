@@ -15,6 +15,7 @@ import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.inference.terms.TERMS_VERSION
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
 import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
@@ -1004,6 +1005,6 @@ class SetupWizardViewModelTest {
         vm.onTermsAcceptedChanged(true)
         dispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.termsAccepted)
-        coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, "setup_wizard", any()) }
+        coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, TermsAcceptanceSource.SETUP_WIZARD, any()) }
     }
 }

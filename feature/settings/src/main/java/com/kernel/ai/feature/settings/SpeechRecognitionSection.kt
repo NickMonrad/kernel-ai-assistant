@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -57,6 +58,7 @@ import com.kernel.ai.core.ui.terms.rememberBundledTerms
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -104,7 +106,7 @@ internal fun SpeechRecognitionSection(
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
     /** The speech model whose Delete confirmation is open. Null when none is. */
-    var pendingDeleteEngine by remember { mutableStateOf<VoiceInputEngine?>(null) }
+    var pendingDeleteEngine by rememberSaveable { mutableStateOf<VoiceInputEngine?>(null) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         SectionLabel(
@@ -252,9 +254,8 @@ internal fun SpeechRecognitionSection(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
-                                        OutlinedButton(
+                                        Button(
                                             modifier = Modifier.padding(vertical = 2.dp),
-                                            colors = accentOutlinedColors,
                                             onClick = { onUseMobileData(engine) },
                                         ) {
                                             Text("Use mobile data")
@@ -390,13 +391,12 @@ private fun Asr4AllSize.sizeNote(active: Asr4AllSize, pending: Asr4AllSize?): St
     return "$state ${plainDescription()}"
 }
 
-private fun Asr4AllSize.plainDescription(): String = when (this) {
-    Asr4AllSize.L ->
-        "More accurate: about 19–21% word error rate in our test, about 150–210 ms to final text on S23 Ultra. " +
-            "Slower on low-end phones."
-    else ->
-        "Faster: about 120–160 ms to final text on S23 Ultra, about 25–26% word error rate in our test. " +
-            "Recommended default."
+private fun Asr4AllSize.plainDescription(): String {
+    val trade = when (this) {
+        Asr4AllSize.L -> "More accurate. Slower on low-end phones."
+        else -> "Faster and smaller. Less accurate."
+    }
+    return if (this == Asr4AllInstall.defaultSize) "$trade Recommended." else trade
 }
 
 /** What Delete removes: the active asr4all size with its download size, or the whole speech model. */
