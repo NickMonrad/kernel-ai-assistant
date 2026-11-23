@@ -165,12 +165,19 @@ def build(features: list[dict], name_field: str, type_field: str, types: set[str
 
 
 def merge(rows: list[dict]) -> list[dict]:
-    """One row per name. A name keeps its rewritable row if it has one, so NZ rewritable wins over AU."""
+    """One row per name. A name keeps its rewritable row if it has one, so NZ rewritable wins over AU.
+    A kept rewritable row whose folded name also appears as an AU row is flagged au_homograph (v2 veto)."""
+    au_keys = {lexicon.fold(r["name"]) for r in rows if r.get("attribution") == AU_ATTRIBUTION}
     rows = sorted(rows, key=lambda r: r["role"] != "rewritable")
     seen: dict[str, dict] = {}
     for r in rows:
         seen.setdefault(r["name"], r)
-    return sorted(seen.values(), key=lambda r: (r["role"], r["name"]))
+    out = []
+    for r in seen.values():
+        if r["role"] == "rewritable" and lexicon.fold(r["name"]) in au_keys:
+            r = {**r, "au_homograph": True}
+        out.append(r)
+    return sorted(out, key=lambda r: (r["role"], r["name"]))
 
 
 def au_features(path: str) -> list[dict]:

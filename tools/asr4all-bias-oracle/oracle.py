@@ -301,8 +301,8 @@ def load_places(path: Path | None, default: list[str]) -> list[dict]:
         return [{"name": n, "role": "rewritable", "prio": 0} for n in default]
     data = _rows(path)
     if data and isinstance(data[0], dict):
-        return [{"name": r["name"], "role": r.get("role", "rewritable"), "prio": int(r.get("prio", 0))}
-                for r in data]
+        return [{"name": r["name"], "role": r.get("role", "rewritable"), "prio": int(r.get("prio", 0)),
+                 "au_homograph": bool(r.get("au_homograph", False))} for r in data]
     return [{"name": n, "role": "rewritable", "prio": 0} for n in data]
 
 
@@ -315,6 +315,7 @@ class Entries:
     row_variant: np.ndarray  # [R] 0 = canonical fold
     row_n: np.ndarray        # [R] pieces
     row_ext: list[list[int]]
+    homograph: frozenset = frozenset()  # entry indices of NZ rows whose folded name is also an AU name (v2 veto)
 
     @classmethod
     def build(cls, model: Model, places: list[dict], impostors: list[str]) -> "Entries":
@@ -322,6 +323,7 @@ class Entries:
         re_, rv, rn, rext = [], [], [], []
         seen: set[str] = set()
         skipped: list[str] = []
+        homo_keys = {lexicon.fold(p["name"]) for p in places if p.get("au_homograph")}
         # Rewritable first, then competitors, then impostors: a folded collision keeps the earlier entry.
         order = [("nz" if p["role"] == "rewritable" else "comp", p["name"], p["prio"])
                  for p in places if p["role"] == "rewritable"]
@@ -345,8 +347,9 @@ class Entries:
                 rv.append(vi)
                 rn.append(len(seg))
                 rext.append(ctc_ext(seg, model.blank))
+        homograph = frozenset(i for i, n in enumerate(names) if kinds[i] == "nz" and lexicon.fold(n) in homo_keys)
         return cls(names, kinds, np.array(prio, dtype=float), np.array(re_), np.array(rv),
-                   np.array(rn, dtype=float), rext)
+                   np.array(rn, dtype=float), rext, homograph)
 
     def by_length(self) -> dict[int, np.ndarray]:
         groups: dict[int, list[int]] = {}
@@ -435,7 +438,8 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
 
     Checks, in order:
       - exact veto: the folded greedy slot text equals a competitor or impostor name -> no rewrite;
-        equals a rewritable name -> rewrite to that name (canonical spelling only);
+        equals a rewritable name -> rewrite to that name (canonical spelling only), unless the name is an AU
+        homograph (v2): then veto, reason au_homograph;
       - the overall top must be rewritable with Score > 0 (competitor or impostor top -> no rewrite);
       - accept only if the top beats the runner-up of any kind by MARGIN and its span ends at a word boundary
         covering at most name words + 1 words; otherwise outcome "suggest" (Did you mean X?), reason = the check.
@@ -456,7 +460,9 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
     reason: str | None = None
     hit = exact.get(clip.slot_text) if clip.slot_text else None
     pos = bool(best_any[top] > 0)
-    if hit is not None and kinds[hit] == "nz":
+    if hit is not None and hit in entries.homograph:
+        final, outcome, reason = hit, "veto", "au_homograph"
+    elif hit is not None and kinds[hit] == "nz":
         final, outcome = hit, "accept"
     elif hit is not None:
         final, outcome = hit, "veto"
@@ -473,6 +479,10 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
             name_words = len(lexicon.fold(entries.names[top]).split())
             reason = "margin" if margin < MARGIN else boundary_check(clip, int(ra[row]), int(rb[row]), name_words)
             outcome = "suggest" if reason else "accept"
+    # the place text the rewrite would replace: the exact slot on an exact hit, else the top's matched frames
+    row_top = int(arg_any[top])
+    match = clip.slot_text if hit is not None else lexicon.fold(
+        "".join(clip.text[c] for c in clip.chars_in(int(ra[row_top]), int(rb[row_top]))))
     return {
         "outcome": outcome,
         "reason": reason,
@@ -482,6 +492,7 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
         "margin": round(margin, 2),
         "rw_top_name": entries.names[argbest(best_any, rw_idx)],
         "rw_top_canon_name": entries.names[argbest(best_can, rw_idx)],
+        "match": match,
     }
 
 

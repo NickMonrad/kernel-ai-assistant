@@ -204,6 +204,16 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual(out["outcome"], "accept")
         self.assertEqual(out["top_name"], "Taupō")
 
+    def test_au_homograph_exact_match_vetoes_instead_of_rewriting(self):
+        base = self._entries(["Hamilton"], ["nz"])
+        entries = Entries(base.names, base.kinds, base.prio, base.row_entry, base.row_variant,
+                          base.row_n, base.row_ext, frozenset({0}))
+        out = evaluate(np.array([-5.0]), np.array([0]), np.array([5]), entries, 2.0, [],
+                       self._clip("hamilton"), {"hamilton": 0})
+        self.assertEqual(out["outcome"], "veto")
+        self.assertEqual(out["reason"], "au_homograph")
+        self.assertFalse(out["accept"])
+
     def test_nonpositive_top_is_not_rewritten(self):
         out = self._run(["Taupō"], ["nz"], [-3.0], "zz", [0], [0])
         self.assertEqual(out["outcome"], "below_threshold")

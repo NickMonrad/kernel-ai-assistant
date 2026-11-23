@@ -308,29 +308,31 @@ False-boost lines (rewrites, same at M and L; trigger column = lines the gate sc
 |---|---|---|---|---|
 | AU competitor city | 6 | 0/6 | 4 | 0/4 |
 | Foreign city | 5 | 0/5 | 4 | 0/4 |
-| Foreign city, homograph of an NZ City | 1 | 1/1 | not gated | – |
+| Foreign city, homograph of an NZ City | 1 | 0/1 non-identity (identity: "hamilton" → "Hamilton", case only) | not gated | – |
 | POI | 4 | 0/4 | 4 | 0/4 |
 | Contact name / street address | 3 | 0/3 | 1 | 0/1 |
 | Suburb / locality (must stay unchanged) | 4 | 0/4 | 3 | 0/3 |
-| NZ place already correct | 3 | 3/3 (rewrite to the same name) | 2 | 2/2 (same name) |
+| NZ place already correct | 3 | 0/3 non-identity (all identity) | 2 | 0/2 non-identity (identity) |
 | Gate trap | 5 | 0/5 | 3 | 0/3 |
 
-Sensitivity: β 3 gives 1 gold substitution in hint L and in trigger L. β 5 gives none. The homograph rewrite
-appears at all three β values in the full and hint slots.
+Sensitivity: β 3 gives 1 gold substitution in hint L and in trigger L. β 5 gives none; β 5 was chosen after the
+β 4 failure (post-hoc, not validated). The homograph line is an identity at every β, so it is not a rewrite.
 
 Pre-registered criteria (β 4):
 
 1. Gold substitutions = 0: **fail** (1/30 hint L; 1/13 trigger L).
-2. Foreign-city and POI rewrites = 0: **fail** on the homograph line (1/1, all β, full and hint). Other foreign cities and POIs: 0 rewrites.
+2. Non-identity false-boost rewrites = 0: **pass**. The homograph line is an identity. v1 counted it as a rewrite; that was a scoring error.
 3. Competitor-place rewrites = 0: **pass** (0 in every competitor class). Competitor abstains: 2 distinct gold lines; both had an AU CGA name as top (one in each of full M, full L, hint M, hint L).
-4. NZ already-correct places: **pass**. All rewrites return the spoken name unchanged.
+4. NZ already-correct places: **pass**. All lines are identity (no change).
 5. Gate traps: **pass** (0 rewrites; 2 of 5 trap lines were not gated in the trigger slot).
 6. Scoring p95: **not measured**. The oracle is a batch PC run with no per-clip timing, and nothing ran on the S21.
 
-Verdict: the pre-registered test does not pass at β 4. The homograph line is a report-only trap in
-`HELDOUT-PREREG.md`, but its criterion text makes a rewrite a fail, so the literal result is fail. Excluding
-it, the substitution failure in the L size remains. Limits: synthetic (TTS) audio, not the S21 microphone; one
-take per line; 61 lines; zero-count upper bounds are about 11% per class with 30 lines. The flag stays off.
+Verdict: the pre-registered test (β 4) does not pass. Only criterion 1 fails: the L-size gold substitution
+(Motueka → Owaka) at hint and trigger. Criterion 2 was mis-scored in v1 (see above). Post-hoc at β 5 (chosen after
+this failure, not validated): zero gold substitutions, zero non-identity false-boost rewrites. The v2 scoring and
+pass criteria are in `HELDOUT-PREREG-v2.md` and apply only to the owner's real recordings. Limits: synthetic (TTS)
+audio, not the S21 microphone; one take per line; 61 lines; zero-count upper bounds ≈ 11% per class with 30 lines.
+The flag stays off.
 
 ## Privacy
 
