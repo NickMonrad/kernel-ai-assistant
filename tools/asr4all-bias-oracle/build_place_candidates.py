@@ -1,4 +1,4 @@
-"""Build the NZ place candidate list from LINZ NZ Place Names (layer 51681), CC BY 4.0.
+"""Build the place candidate list: NZ from LINZ NZ Place Names (layer 51681), CC BY 4.0; optionally AU competitors from the Composite Gazetteer of Australia (see AU_* constants).
 
 Attribution: "NZ Place Names (layer 51681), LINZ, CC BY 4.0". Every output row carries it.
 
@@ -40,6 +40,19 @@ LICENCE_TEXT = "Contains data sourced from the LINZ Data Service and licensed fo
 LICENCE_URL = "https://creativecommons.org/licenses/by/4.0/"
 EXPORT_DATE = "2026-11-23"  # stated by the owner for the CSV download; not read from the file
 PAGE = 1000
+
+# Australian source: Composite Gazetteer of Australia (Geoscience Australia). Competitors only; never
+# rewritten to. The owner asked for CC BY 4.0; the published record says "© Commonwealth of Australia
+# (Geoscience Australia) 2025", access Open, and no CC BY 4.0 statement. The header carries the published
+# text and a note; do not change the licence fields without that confirmation.
+AU_RECORD = "https://ecat.ga.gov.au/geonetwork/srv/api/records/f91a52b3-26f6-4f2c-bb8e-520f40864d5b"
+AU_SERVICE = "https://services.ga.gov.au/gis/rest/services/Composite_Gazetteer_of_Australia/MapServer/0"
+AU_CATEGORY = "POPULATED PLACE"
+AU_FEATURES = ("POPULATION CENTRE", "SETTLEMENT", "NEIGHBOURHOOD", "OUTCAMP")  # NEIGHBOURHOOD = suburbs
+AU_ATTRIBUTION = "Composite Gazetteer of Australia (Geoscience Australia), © Commonwealth of Australia 2025"
+AU_LICENCE_TEXT = "© Commonwealth of Australia (Geoscience Australia) 2025; access: Open (as published)"
+AU_LICENCE_NOTE = ("owner requested CC BY 4.0; published metadata does not state it; "
+                   "confirm before changing the licence text")
 
 
 # ---------------------------------------------------------------- sources
@@ -148,11 +161,39 @@ def build(features: list[dict], name_field: str, type_field: str, types: set[str
             lon, lat = geom["coordinates"][:2]
         rows.append({"name": name, "type": t, "role": "rewritable" if rewritable else "competitor",
                      "prio": PRIORITY.get(t, 0), "lat": lat, "lon": lon, "attribution": ATTRIBUTION})
-    rows.sort(key=lambda r: r["role"] != "rewritable")  # a name keeps its rewritable row if it has one
+    return merge(rows)
+
+
+def merge(rows: list[dict]) -> list[dict]:
+    """One row per name. A name keeps its rewritable row if it has one, so NZ rewritable wins over AU."""
+    rows = sorted(rows, key=lambda r: r["role"] != "rewritable")
     seen: dict[str, dict] = {}
     for r in rows:
         seen.setdefault(r["name"], r)
     return sorted(seen.values(), key=lambda r: (r["role"], r["name"]))
+
+
+def au_features(path: str) -> list[dict]:
+    """CGA attribute records: a saved ArcGIS query response ({"features": [{"attributes": ...}]}) or a JSON list
+    of attribute dicts (the saved form). Geometry is not used; latitude/longitude are attributes."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(data, dict):
+        data = [f["attributes"] for f in data.get("features", [])]
+    return data
+
+
+def au_rows(records: list[dict]) -> list[dict]:
+    """Populated places and suburbs from the CGA. Always competitors: they can win and abstain, never rewritten to."""
+    rows = []
+    for a in records:
+        if a.get("category") not in (None, AU_CATEGORY) or a.get("feature") not in AU_FEATURES:
+            continue
+        name = a.get("name")
+        if not name:
+            continue
+        rows.append({"name": str(name), "type": a["feature"], "role": "competitor", "prio": 0,
+                     "lat": a.get("latitude"), "lon": a.get("longitude"), "attribution": AU_ATTRIBUTION})
+    return rows
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -170,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--glossary-places", type=Path,
                     help="text file, one glossary place per line; these names are rewritable")
     ap.add_argument("--out", help="output JSON path (required for a build)")
+    ap.add_argument("--au-file", help="saved CGA query (populated places, see README); adds AU competitors")
+    ap.add_argument("--au-retrieved", help="UTC retrieval time of --au-file, recorded in the header")
     args = ap.parse_args(argv)
 
     if args.from_file:
@@ -211,6 +254,25 @@ def main(argv: list[str] | None = None) -> int:
                     "names stored as exported (macrons kept); folding to ASCII and respellings applied at scoring time, not here"),
         "generator": "build_place_candidates.py",
     }
+    if args.au_file:
+        au_records = au_features(args.au_file)
+        au = au_rows(au_records)
+        rows = merge(rows + au)
+        header["au_source"] = {
+            "source": "Composite Gazetteer of Australia (CGA), Geoscience Australia",
+            "metadata_record": AU_RECORD,
+            "service_layer": AU_SERVICE,
+            "category": AU_CATEGORY,
+            "features": list(AU_FEATURES),
+            "licence": AU_LICENCE_TEXT,
+            "licence_note": AU_LICENCE_NOTE,
+            "retrieved_utc": args.au_retrieved,
+            "source_sha256": hashlib.sha256(Path(args.au_file).read_bytes()).hexdigest(),
+            "records_in_file": len(au_records),
+            "competitor_rows": len(au),
+            "changes": ("populated places and suburbs only (the four features above); all competitors; "
+                        "names stored as exported; per-row attribution; coordinates taken from attributes"),
+        }
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump({"header": header, "places": rows}, fh, ensure_ascii=False, indent=1)
     print(f"wrote {len(rows)} places to {args.out}", file=sys.stderr)

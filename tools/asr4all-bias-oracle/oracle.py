@@ -437,8 +437,8 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
       - exact veto: the folded greedy slot text equals a competitor or impostor name -> no rewrite;
         equals a rewritable name -> rewrite to that name (canonical spelling only);
       - the overall top must be rewritable with Score > 0 (competitor or impostor top -> no rewrite);
-      - the top must beat the runner-up of any kind by MARGIN;
-      - the matched span must end at a greedy word boundary and cover at most name words + 1 words.
+      - accept only if the top beats the runner-up of any kind by MARGIN and its span ends at a word boundary
+        covering at most name words + 1 words; otherwise outcome "suggest" (Did you mean X?), reason = the check.
     rw_top is the best rewritable entry by Score (the rank-1 measure, reporting only).
     """
     score = raw + beta * entries.row_n
@@ -453,6 +453,7 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
     rest = best_any.copy()
     rest[top] = NEG
     margin = float(best_any[top] - rest.max())
+    reason: str | None = None
     hit = exact.get(clip.slot_text) if clip.slot_text else None
     pos = bool(best_any[top] > 0)
     if hit is not None and kinds[hit] == "nz":
@@ -467,14 +468,14 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
             outcome = "abstain_competitor"
         elif kinds[top] == "imp":
             outcome = "impostor_top"
-        elif margin < MARGIN:
-            outcome = "margin"
         else:
             row = int(arg_any[top])
             name_words = len(lexicon.fold(entries.names[top]).split())
-            outcome = boundary_check(clip, int(ra[row]), int(rb[row]), name_words) or "accept"
+            reason = "margin" if margin < MARGIN else boundary_check(clip, int(ra[row]), int(rb[row]), name_words)
+            outcome = "suggest" if reason else "accept"
     return {
         "outcome": outcome,
+        "reason": reason,
         "accept": outcome == "accept",
         "top_name": entries.names[final],
         "top_kind": str(kinds[final]),
@@ -562,9 +563,15 @@ def summarise(rows: list[dict], betas: list[float]) -> dict:
                 "accepted": sum(r[key]["accept"] and r[key]["top_name"] in r["gold"] for r in gold_rows),
                 "substituted": sum(r[key]["accept"] and r[key]["top_name"] not in r["gold"] for r in gold_rows),
                 "abstained_competitor_won": sum(r[key]["outcome"] == "abstain_competitor" for r in gold_rows),
+                "suggested": sum(r[key]["outcome"] == "suggest" for r in gold_rows),
+                "suggested_correct": sum(r[key]["outcome"] == "suggest" and r[key]["top_name"] in r["gold"]
+                                         for r in gold_rows),
+                "suggest_reasons": dict(Counter(r[key]["reason"] for r in gold_rows
+                                                if r[key]["outcome"] == "suggest")),
                 "gold_outcomes": dict(Counter(r[key]["outcome"] for r in gold_rows)),
                 "nonplace_clips_scored": len(nonp),
                 "nonplace_false_accept": sum(r[key]["accept"] for r in nonp),
+                "nonplace_suggested": sum(r[key]["outcome"] == "suggest" for r in nonp),
                 "nonplace_outcomes": dict(Counter(r[key]["outcome"] for r in nonp)),
             }
         out[size] = {

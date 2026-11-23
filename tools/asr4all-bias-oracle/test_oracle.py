@@ -175,7 +175,7 @@ class DecisionTest(unittest.TestCase):
 
     def test_margin_below_one_is_not_rewritten(self):
         out = self._run(["Rotorua Town", "Rotorua City"], ["nz", "nz"], [0.0, -0.5], "rotorua", [0, 0], [6, 6])
-        self.assertEqual(out["outcome"], "margin")  # 2.0 vs 1.5
+        self.assertEqual((out["outcome"], out["reason"]), ("suggest", "margin"))  # 2.0 vs 1.5
 
     def test_margin_exactly_one_with_word_boundary_accepts(self):
         out = self._run(["Taupō", "Karori"], ["nz", "comp"], [-0.5, -1.5], "taupo hi", [0, 0], [5, 5])
@@ -184,13 +184,13 @@ class DecisionTest(unittest.TestCase):
 
     def test_prefix_of_longer_word_is_a_boundary_failure(self):
         bad = self._run(["Bulls"], ["nz"], [-0.5], "bullshit", [0], [5])
-        self.assertEqual(bad["outcome"], "boundary")
+        self.assertEqual((bad["outcome"], bad["reason"]), ("suggest", "boundary"))
         good = self._run(["Bulls"], ["nz"], [-0.5], "bulls hit", [0], [5])
         self.assertEqual(good["outcome"], "accept")
 
     def test_span_with_more_words_than_the_name_allows(self):
         out = self._run(["Bulls"], ["nz"], [-0.5], "bulls a b", [0], [9])
-        self.assertEqual(out["outcome"], "word_count")  # 3 words > 1 + 1
+        self.assertEqual((out["outcome"], out["reason"]), ("suggest", "word_count"))  # 3 words > 1 + 1
 
     def test_exact_competitor_match_vetoes(self):
         out = self._run(["Karori", "Taupō"], ["comp", "nz"], [0.0, -5.0], "karori", [0, 0], [6, 6],
