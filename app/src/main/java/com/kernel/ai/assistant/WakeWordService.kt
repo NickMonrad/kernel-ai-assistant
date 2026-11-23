@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
+import android.os.PowerManager
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -596,6 +597,9 @@ private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
 private const val NOTIFICATION_TEXT_LISTENING = "Listening for wake word…"
+private const val WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
+private const val WAKE_OVERLAY_NOTIFICATION_ID = 9_501
+private const val WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS = 15_000L
 private const val NOTIFICATION_TEXT_CAMERA_PAUSED = "Paused while Camera is in use"
 
 /** #1502: monitor cadence validated on the Honor BKQ-N49 (well below the measured detection need). */
@@ -1028,17 +1032,51 @@ class WakeWordService : Service() {
      * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
      */
     private fun showWakeOverlay(token: Long) {
+        val overlay = Intent(this, VoiceCommandActivity::class.java).apply {
+            putExtra(EXTRA_WAKE_OVERLAY, true)
+            putExtra(EXTRA_WAKE_TOKEN, token)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        // #2081: with the screen off Android blocks a background activity start from this service
+        // (BAL_BLOCK), so the overlay never opens and the wake session dies silently. A full-screen
+        // intent is the supported route to show it; it needs the user-granted full-screen permission.
+        if (!pm.isInteractive && nm.canUseFullScreenIntent()) {
+            postWakeOverlayFullScreen(nm, overlay, token)
+            return
+        }
         try {
-            startActivity(
-                Intent(this, VoiceCommandActivity::class.java).apply {
-                    putExtra(EXTRA_WAKE_OVERLAY, true)
-                    putExtra(EXTRA_WAKE_TOKEN, token)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
+            startActivity(overlay)
         } catch (e: Exception) {
             Log.w(TAG, "WakeWordService: could not open the wake overlay", e)
         }
+    }
+
+    private fun postWakeOverlayFullScreen(nm: NotificationManager, overlay: Intent, token: Long) {
+        nm.createNotificationChannel(
+            NotificationChannel(
+                WAKE_OVERLAY_CHANNEL_ID,
+                "Hey Jandal voice",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply { setShowBadge(false) },
+        )
+        val pending = PendingIntent.getActivity(
+            this,
+            token.toInt(),
+            overlay,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = Notification.Builder(this, WAKE_OVERLAY_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("Hey Jandal")
+            .setContentText("Listening…")
+            .setFullScreenIntent(pending, true)
+            .setAutoCancel(true)
+            .setTimeoutAfter(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
+            .build()
+        nm.notify(WAKE_OVERLAY_NOTIFICATION_ID, notification)
+        Log.i(TAG, "WakeWordService: screen off — wake overlay posted as full-screen intent token=$token")
     }
 
 
