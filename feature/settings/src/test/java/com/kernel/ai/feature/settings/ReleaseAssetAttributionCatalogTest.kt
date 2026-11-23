@@ -66,6 +66,7 @@ class ReleaseAssetAttributionCatalogTest {
         assertEquals(1, whisper.size)
         assertTrue(whisper.all { it.releaseStatus == "Downloaded with Hey Jandal · release-visible" })
         assertTrue(whisper.all { it.licenceText.contains("Apache-2.0") })
+        assertTrue(whisper.all { !it.licenceText.contains("under review") && !it.lineageText.contains("under review") })
     }
 
     @Test

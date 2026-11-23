@@ -55,8 +55,8 @@ object ReleaseAssetAttributionCatalog {
             KernelModel.SHERPA_WHISPER_TINY_EN_ENCODER, KernelModel.SHERPA_WHISPER_TINY_EN_DECODER,
             KernelModel.SHERPA_WHISPER_TINY_EN_TOKENS -> Triple(
                 "csukuangfj/sherpa-onnx-whisper-tiny.en",
-                "Apache-2.0 recorded for openai/whisper-tiny.en; export terms under review",
-                "ONNX export lineage: openai/whisper-tiny.en (English-only)",
+                "OpenAI Whisper code MIT; whisper-tiny.en weights Apache-2.0 (OpenAI model card). The export repository has no licence file; attributed to the upstream weights (NOTICE)",
+                "ONNX export lineage: openai/whisper-tiny.en (English-only); export pinned at d026532c022fa99fd789d6b32446a1df7b6bfc43",
             )
             KernelModel.SHERPA_PARAFORMER_ENCODER, KernelModel.SHERPA_PARAFORMER_DECODER,
             KernelModel.SHERPA_PARAFORMER_TOKENS -> Triple(
