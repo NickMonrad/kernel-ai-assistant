@@ -598,17 +598,19 @@ private const val LEGACY_WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
 internal enum class WakeOverlayRoute { DIRECT_ACTIVITY, ASSISTANT_SESSION, TAP_NOTIFICATION }
 
 /**
- * Picks the overlay route for a wake (#2081). The overlay starts directly only on an interactive, unlocked
- * device. A screen-off or locked device uses the assistant session when Jandal holds the assistant role,
- * and otherwise a tap-to-open notification. A direct start can still be refused by background-activity
- * launch rules; a transcript the overlay does not take is held for a tap.
+ * Picks the overlay route for a wake (#2081). The direct start needs an interactive, unlocked device
+ * AND a Jandal window already visible: with no visible window the start is a background launch that
+ * Android blocks, so the wake takes the same route as a locked device. A locked or backgrounded device
+ * uses the assistant session when Jandal holds the assistant role, and otherwise a tap-to-open
+ * notification. A transcript the overlay does not take is held for a tap.
  */
 internal fun chooseWakeOverlayRoute(
     interactive: Boolean,
     keyguardLocked: Boolean,
+    jandalVisible: Boolean,
     assistantSessionAvailable: Boolean,
 ): WakeOverlayRoute = when {
-    interactive && !keyguardLocked -> WakeOverlayRoute.DIRECT_ACTIVITY
+    interactive && !keyguardLocked && jandalVisible -> WakeOverlayRoute.DIRECT_ACTIVITY
     assistantSessionAvailable -> WakeOverlayRoute.ASSISTANT_SESSION
     else -> WakeOverlayRoute.TAP_NOTIFICATION
 }
@@ -1053,8 +1055,8 @@ class WakeWordService : Service() {
     /**
      * #1930: opens the Hey Jandal overlay once the mic-ready cue has played. [token] names the live
      * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
-     * #2081: a screen-off or locked device opens it through the assistant session when Jandal is the
-     * assistant; otherwise through a tap-to-open notification.
+     * #2081: without an interactive, unlocked device and a visible Jandal window, it opens through the
+     * assistant session when Jandal is the assistant; otherwise through a tap-to-open notification.
      */
     private fun showWakeOverlay(token: Long) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -1063,6 +1065,7 @@ class WakeWordService : Service() {
         val route = chooseWakeOverlayRoute(
             interactive = pm.isInteractive,
             keyguardLocked = km.isKeyguardLocked,
+            jandalVisible = JandalActivityVisibility.isVisible,
             assistantSessionAvailable = JandalVoiceInteractionService.isActive,
         )
         Log.i(TAG, "WakeWordService: wake overlay route=$route token=$token")

@@ -7,23 +7,33 @@ import org.junit.jupiter.params.provider.CsvSource
 internal class WakeOverlayRouteTest {
 
     /**
-     * #2081: the direct start needs an interactive, unlocked device. A screen-off or locked device uses the
-     * assistant session when Jandal is the assistant, and a tap-to-open notification otherwise.
+     * #2081: the direct start needs an interactive, unlocked device with a visible Jandal window; with no
+     * visible window it is a background launch that Android blocks. Every other case uses the assistant
+     * session when Jandal is the assistant, and a tap-to-open notification otherwise.
      */
-    @ParameterizedTest(name = "interactive={0} keyguardLocked={1} assistantSession={2} -> {3}")
+    @ParameterizedTest(name = "interactive={0} keyguardLocked={1} jandalVisible={2} assistantSession={3} -> {4}")
     @CsvSource(
-        "true,  false, false, DIRECT_ACTIVITY",
-        "true,  false, true,  DIRECT_ACTIVITY",
-        "true,  true,  false, TAP_NOTIFICATION",
-        "true,  true,  true,  ASSISTANT_SESSION",
-        "false, false, false, TAP_NOTIFICATION",
-        "false, false, true,  ASSISTANT_SESSION",
-        "false, true,  false, TAP_NOTIFICATION",
-        "false, true,  true,  ASSISTANT_SESSION",
+        "true,  false, true,  false, DIRECT_ACTIVITY",
+        "true,  false, true,  true,  DIRECT_ACTIVITY",
+        "true,  false, false, false, TAP_NOTIFICATION",
+        "true,  false, false, true,  ASSISTANT_SESSION",
+        "true,  true,  true,  false, TAP_NOTIFICATION",
+        "true,  true,  true,  true,  ASSISTANT_SESSION",
+        "true,  true,  false, false, TAP_NOTIFICATION",
+        "true,  true,  false, true,  ASSISTANT_SESSION",
+        "false, false, true,  false, TAP_NOTIFICATION",
+        "false, false, true,  true,  ASSISTANT_SESSION",
+        "false, false, false, false, TAP_NOTIFICATION",
+        "false, false, false, true,  ASSISTANT_SESSION",
+        "false, true,  true,  false, TAP_NOTIFICATION",
+        "false, true,  true,  true,  ASSISTANT_SESSION",
+        "false, true,  false, false, TAP_NOTIFICATION",
+        "false, true,  false, true,  ASSISTANT_SESSION",
     )
-    fun `route follows interactive, keyguard and assistant session`(
+    fun `route follows interactive, keyguard, visible window and assistant session`(
         interactive: Boolean,
         keyguardLocked: Boolean,
+        jandalVisible: Boolean,
         assistantSessionAvailable: Boolean,
         expected: WakeOverlayRoute,
     ) {
@@ -32,6 +42,7 @@ internal class WakeOverlayRouteTest {
             chooseWakeOverlayRoute(
                 interactive = interactive,
                 keyguardLocked = keyguardLocked,
+                jandalVisible = jandalVisible,
                 assistantSessionAvailable = assistantSessionAvailable,
             ),
         )

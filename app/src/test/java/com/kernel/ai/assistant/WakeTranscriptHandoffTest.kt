@@ -32,7 +32,7 @@ class WakeTranscriptHandoffTest {
         // The screen-off, locked case routes through the assistant session (no keyguard decision involved).
         assertEquals(
             WakeOverlayRoute.ASSISTANT_SESSION,
-            chooseWakeOverlayRoute(interactive = false, keyguardLocked = true, assistantSessionAvailable = true),
+            chooseWakeOverlayRoute(interactive = false, keyguardLocked = true, jandalVisible = false, assistantSessionAvailable = true),
         )
         val token = WakeOverlayChannel.begin()
         WakeOverlayChannel.attachOverlay(token)

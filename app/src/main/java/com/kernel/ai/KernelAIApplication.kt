@@ -65,6 +65,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        com.kernel.ai.assistant.JandalActivityVisibility.register(this)
         // In-app event log (#1870): MagicOS hides app logcat, so the support export reads this instead.
         com.kernel.ai.core.inference.diagnostics.JandalEvents.install(
             java.io.File(filesDir, JANDAL_EVENTS_FILE_NAME),
