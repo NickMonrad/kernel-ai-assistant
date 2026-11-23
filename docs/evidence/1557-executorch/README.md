@@ -41,7 +41,7 @@ notices from the phonemis checkout, listed for provenance. Whether every data se
 - **BOOL input.** The 1.5.1 AAR has no BOOL path in `Tensor.ones/zeros/fromBlob`. The runtime rejects UINT8 for a BOOL input (`Input 1 has unexpected scalar type: expected Bool but was Byte`). Route used: `BoolInputTensor`, a Java subclass of `org.pytorch.executorch.Tensor` that overrides `dtype()` and `getRawDataBuffer()`. No JNI is added to ExecuTorch. A Kotlin subclass does not compile (`Tensor(long[])` is `internal`).
 - **BOOL output.** Removed. The 1.5.1 AAR builds no BOOL output tensor, so a BOOL output would reach `Tensor_unsupported` and throw. Only BOOL input is supported.
 - **Reliance on undocumented behaviour.** `BoolInputTensor` depends on two 1.5.1 JNI reads (dtype via `dtypeJniCode()`, which calls `dtype()`, and `getRawDataBuffer()`). Named in `docs/architecture/executorch-runtime.md` upgrade checklist.
-- **Deadline.** Each debug baseline run has a 20 min deadline. On timeout the failure JSON is written and the lane is *not* closed, because `close()` waits on the stuck run's lock. The service stays foreground and refuses runs until force-stop. Not exercised on device (no run has timed out).
+- **Deadline.** Each debug baseline run has a 20 min deadline. On timeout the failure JSON is written and the lane is *not* closed, because `close()` waits on the stuck run's lock. The service then stops and accepts new runs, but the stuck thread and the unclosed model stay in the process, so a later run in that process is not a clean measurement; force-stop before measuring. Not exercised on device (no run has timed out).
 
 ## PC evidence
 
@@ -57,7 +57,7 @@ notices from the phonemis checkout, listed for provenance. Whether every data se
 - Corpus: 8 samples, 3 repeats = 24 rows per run (sha256 `d3f0422e…`, same as #2088). Raw JSONs in `results/`.
 - Build: the device APK was built from a dirty worktree on top of `03edad83`. Its debug build still had the arm64 filter and the pre-fix `DebugTtsBaselineService` (no close-after-timeout guard). This PR's code differs from that build in the ways listed under "Code changed after the device runs". **Those runs were not repeated after the fixes.**
 
-Run scripts: `scripts/run_cold.sh <label>` (force-stops and relaunches the app before each run), `scripts/run_warm.sh <label>` (does not force-stop, so E4B stays loaded from the chat warm-up). Both use the device lock protocol and paths under `~/.cache/kokoro-et-1557` (not self-contained).
+Run scripts: `scripts/run_cold.sh <label>` (force-stops and relaunches the app before each run), `scripts/run_warm.sh <label>` (does not force-stop, so E4B stays loaded from the chat warm-up). Neither script takes the device lock; any locking during those runs was manual and is not recorded by the scripts. Paths under `~/.cache/kokoro-et-1557` (not self-contained).
 
 ### Kokoro alone (fresh process per run)
 
@@ -69,13 +69,15 @@ Run scripts: `scripts/run_cold.sh <label>` (force-stops and relaunches the app b
 
 Recovery ok in all three. Runner init 17–25 ms. "Cold" is a fresh process; the OS page cache for the `.pte` files was warm.
 
-### Kokoro with E4B loaded (one chat message to load E4B, then runs in that process)
+### Kokoro with E4B loaded, warm (one chat message to load E4B, then runs in that process; `run_warm.sh`)
+
+The result files are named `with-e4b-cold1..3`; the "cold" in those names is historical. These are warm runs, not fresh-process runs.
 
 | Run | RTF median (min–max) | First-chunk median | Cancel return | VmHWM end | RSS start |
 |---|---|---|---|---|---|
-| with-e4b 1 | 0.698 (0.651–0.827) | 2539 ms | 635 ms | 2.33 GB | 1.91 GB |
-| with-e4b 2 | 0.939 (0.700–1.106) | 2833 ms | 789 ms | 2.33 GB (inherited) | 1.24 GB |
-| with-e4b 3 | 0.935 (0.697–1.120) | 2892 ms | 1108 ms | 2.33 GB (inherited) | 0.76 GB |
+| warm 1 | 0.698 (0.651–0.827) | 2539 ms | 635 ms | 2.33 GB | 1.91 GB |
+| warm 2 | 0.939 (0.700–1.106) | 2833 ms | 789 ms | 2.33 GB (inherited) | 1.24 GB |
+| warm 3 | 0.935 (0.697–1.120) | 2892 ms | 1108 ms | 2.33 GB (inherited) | 0.76 GB |
 
 - **VmHWM 2.33 GB is one measurement** (run 1: 1.92 → 2.33 GB). Runs 2–3 start with `VmHWM` equal to run 1's peak, so their end value is inherited, not measured.
 - **E4B residency in runs 2–3 is unverified.** RSS at start falls 1.91 → 1.24 → 0.76 GB, so the model may have been unloaded or partly paged out. The logcat captured for these runs (`results/*.logcat.txt`) is empty, so this cannot be confirmed from the logs. Treat runs 2–3 as "E4B state unknown".

@@ -22,9 +22,11 @@ FetchContent_Declare(verbalis
   GIT_REPOSITORY https://github.com/software-mansion-labs/Verbalis.git
   GIT_TAG ${VERBALIS_GIT_COMMIT}
   SOURCE_SUBDIR cpp)
+# Phonemis' only submodule is Verbalis, which is declared above, so skip submodule clones.
 FetchContent_Declare(phonemis
   GIT_REPOSITORY https://github.com/software-mansion-labs/Phonemis.git
-  GIT_TAG ${PHONEMIS_GIT_COMMIT})
+  GIT_TAG ${PHONEMIS_GIT_COMMIT}
+  GIT_SUBMODULES "")
 FetchContent_MakeAvailable(verbalis phonemis)
 
 set_target_properties(phonemis PROPERTIES POSITION_INDEPENDENT_CODE ON)

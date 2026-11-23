@@ -111,8 +111,9 @@ class DebugTtsBaselineService : Service() {
 
     /**
      * Runs [block] on a daemon thread and fails with [NativeRunTimeoutException] after [deadlineMs]. A native call
-     * stuck past the deadline cannot be interrupted: the thread is left behind, the lane is not closed (close() waits
-     * on the same lock), and the service stays foreground and refuses runs until the process is force-stopped.
+     * stuck past the deadline cannot be interrupted, so the thread is left behind and the lane is not closed (close()
+     * waits on the same lock). The service then stops and accepts new runs, but the stuck thread and the unclosed model
+     * stay in this process: later runs in it are not clean measurements until the process is force-stopped.
      */
     private fun <T> withDeadline(deadlineMs: Long, block: () -> T): T {
         val executor = Executors.newSingleThreadExecutor { runnable ->
