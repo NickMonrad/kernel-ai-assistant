@@ -8,7 +8,7 @@ Refs #1556. Docs-only. No app integration, no Jandal code changes. No audio, x-v
 |---|---|
 | 1. x-vector extraction (PC) | Done. 1024-d float32, L2 10.28, from the 51.95 s owner reference. |
 | 2. Package int8_v2 with a named voice | Done. `owner_xvector` GenericBinaryData section (4096 B) added to the container. |
-| 3. `omni_runner` build, S23U run (RTF, RSS, CPU/GPU, with E4B) | Done. CPU and GPU runs for all 6 sentences; E4B-resident repeat for CPU and GPU. TTFT not measured (runner does not log it). |
+| 3. `omni_runner` build, S23U run (RTF, TTFA, RSS, CPU/GPU, with E4B) | Done. CPU and GPU runs for all 6 sentences alone; E4B-resident repeat for CPU and GPU (RTF/RSS only). TTFA measured alone via a local log patch; not measured with E4B resident. |
 | 4. Listening set (a) LiteRT x-vector, (b) upstream ICL, (c) demo_speaker | Clips produced and kept private. Listening verdict is the owner's; no subjective judgment is recorded here. |
 | 5. MediaPipe tasks-audio `voiceId` mapping | Partly checked, not proven. See Gate 5. |
 
@@ -53,7 +53,16 @@ With E4B resident (Jandal debug app loaded Gemma E4B; app TOTAL PSS about 5.3–
 | CPU, demo_speaker | 2.78–3.59 | 1.57–1.80 GB |
 | GPU, owner x-vector | 2.87–4.15 | 1.41–1.49 GB |
 
-Notes: the E4B run was measured on a phone with the app foreground-loaded. RSS from VmHWM is the runner process only; the app's PSS is reported separately. Single runs per cell; no variance estimate. TTFT is not logged by the runner and was not measured.
+Notes: the E4B run was measured on a phone with the app foreground-loaded. RSS from VmHWM is the runner process only; the app's PSS is reported separately. Single runs per cell; no variance estimate.
+
+Time to first audio (TTFA), alone, owner x-vector, measured from the runner's session-loop start (after model load, includes text prefill) to the first non-empty audio chunk. Added by a one-line log patch in the spike clone (not committed; the upstream runner does not log it). Attribution caveat: for S1 TTFA equals total inference, so the runner appears to emit the first chunk only at end for short inputs.
+
+| Run | TTFA s (range) | Inference s (range) | RTF (range) |
+|---|---|---|---|
+| CPU, owner x-vector | 10.3–11.8 (S1: 8.2) | 15.2–33.5 | 2.22–2.68 |
+| GPU, owner x-vector | 14.0–15.2 (S1: 10.4) | 18.8–41.5 | 2.84–3.24 |
+
+The E4B-resident TTFA was not measured (the Jandal app released its inference session when backgrounded; a re-load was not run).
 
 Side effect: to load E4B I opened a new chat in the Jandal debug app on the S23U (empty conversation remains). Screen was kept on with `svc power stayon usb`; the `stay_on_while_plugged_in` setting is 2, unchanged from the start.
 
