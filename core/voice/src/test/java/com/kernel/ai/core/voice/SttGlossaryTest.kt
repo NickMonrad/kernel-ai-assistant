@@ -22,6 +22,15 @@ class SttGlossaryTest {
     }
 
     @Test
+    fun `corrects Whangārei and Paraparaumu mis-hearings from the owner's report`() {
+        assertEquals("Whangārei", glossary.apply("funga day"))
+        assertEquals("Whangārei", glossary.apply("Funga Day"))
+        assertEquals("Paraparaumu", glossary.apply("pararapr"))
+        assertEquals("Navigate to Paraparaumu", glossary.apply("Navigate to pararapr"))
+        assertEquals("funga days", glossary.apply("funga days"))
+    }
+
+    @Test
     fun `corrects Jandal words inside a sentence`() {
         assertEquals("Kia ora Jandal", glossary.apply("kyotogendo"))
         assertEquals("Can I wear my Jandals to Raglan", glossary.apply("Can I wear my jandles to Raglan"))
