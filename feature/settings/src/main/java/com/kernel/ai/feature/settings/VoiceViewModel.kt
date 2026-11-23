@@ -5,7 +5,7 @@ import android.content.Context
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
-import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
+import com.kernel.ai.core.voice.isLocaleReadyForWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
@@ -22,6 +22,7 @@ import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.SherpaSttModelSpec
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.voice.Asr4allSwitchState
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.kernelModels
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -36,7 +37,10 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
+import com.kernel.ai.core.model.availability.ModelRoleCopy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 
@@ -67,6 +71,8 @@ data class SherpaSttDownloadState(
     val isDownloading: Boolean = false,
     val progress: Float = 0f,
     val issue: SherpaSttDownloadIssue? = null,
+    /** Queued on Wi-Fi only while the phone is on mobile data, and nothing is transferring (#2074). */
+    val waitingForWifi: Boolean = false,
 )
 
 data class SherpaVoiceRowUiState(
@@ -151,7 +157,7 @@ data class VoiceUiState(
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
-): String? = availability.warningMessage
+): String? = availability.blockingReason
 
 /**
  * Maps a [VoicePackDownloadState] to the UI-layer [ModelAvailabilityState].
@@ -257,6 +263,66 @@ internal fun SherpaSttDownloadState.toModelAvailability(): ModelAvailabilityStat
     else -> ModelAvailabilityState.NotDisplayed
 }
 
+/** The one status label for a speech model: the card badge and its row both read it (#2075). */
+internal fun SherpaSttDownloadState.statusLabel(): String = when {
+    isDownloaded -> "Downloaded"
+    waitingForWifi -> ModelRoleCopy.WAITING_FOR_WIFI
+    isDownloading -> ModelRoleCopy.VOICE_DOWNLOADING
+    else -> ModelRoleCopy.VOICE_NOT_DOWNLOADED
+}
+
+/**
+ * Download state of one speech model family from its required files. A queued file reports
+ * [DownloadState.Downloading], so [waitingForWifi] needs queued files and no transferring file; otherwise the row
+ * would show progress that is not moving (#2074).
+ */
+internal fun sherpaSttDownloadState(
+    requiredModels: List<KernelModel>,
+    states: Map<KernelModel, DownloadState>,
+    waitingForWifi: Set<KernelModel>,
+): SherpaSttDownloadState {
+    val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
+    val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
+    val transferring = requiredModels.any { states[it] is DownloadState.Downloading && it !in waitingForWifi }
+    val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
+    val weightedProgress = if (totalBytes > 0f) {
+        requiredModels.map { model ->
+            val weight = model.approxSizeBytes.toFloat()
+            when (val s = states[model]) {
+                is DownloadState.Downloaded -> weight
+                is DownloadState.Downloading -> s.progress * weight
+                else -> 0f
+            }
+        }.sum() / totalBytes
+    } else 0f
+    val issue = requiredModels
+        .mapNotNull { model ->
+            val errorState = states[model] as? DownloadState.Error ?: return@mapNotNull null
+            SherpaSttDownloadIssue(
+                message = errorState.message,
+                licenceRequired = errorState.licenceRequired,
+                licenceUrl = if (errorState.licenceRequired) model.licenceUrl else null,
+            )
+        }
+        .sortedByDescending { it.licenceRequired }
+        .firstOrNull()
+    return SherpaSttDownloadState(
+        isDownloaded = allDownloaded,
+        isDownloading = anyDownloading && !allDownloaded,
+        progress = weightedProgress,
+        issue = issue,
+        waitingForWifi = !allDownloaded && !transferring && requiredModels.any { it in waitingForWifi },
+    )
+}
+
+private data class SttSnapshot(
+    val states: Map<KernelModel, DownloadState>,
+    val waiting: Set<KernelModel>,
+    val asr4allSize: Asr4AllSize,
+    val switchState: Asr4allSwitchState,
+    val termsAccepted: Boolean,
+)
+
 @HiltViewModel
 class VoiceViewModel @Inject constructor(
     private val androidNativeRecognitionSupport: AndroidNativeRecognitionSupport,
@@ -309,7 +375,8 @@ class VoiceViewModel @Inject constructor(
                 it.copy(
                     androidNativeAvailabilityMessage = nativeWarning,
                     androidNativeLanguageName = availability.languageDisplayName,
-                    androidNativeLocaleReady = availability.localeStatus == AndroidNativeRecognitionLocaleStatus.Ready,
+                    // Unknown means the language check could not run, not that the pack is missing (#2086).
+                    androidNativeLocaleReady = availability.localeStatus.isLocaleReadyForWarning(),
                     androidNativeCapabilities = runCatching { readVoiceCapabilities(context) }.getOrNull(),
                 )
             }
@@ -504,16 +571,30 @@ class VoiceViewModel @Inject constructor(
         }
         _uiState.update { it.copy(isWakeWordModelAvailable = wakeWordDetector.isAvailable) }
         viewModelScope.launch {
-            combine(modelDownloadManager.downloadStates, voiceInputPreferences.asr4allSize, asr4allSizeSwitcher.state) { states, stored, switchState ->
-                Triple(states, Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier), switchState)
-            }.collect { (states, asr4allSize, switchState) ->
+            combine(
+                modelDownloadManager.downloadStates,
+                modelDownloadManager.waitingForWifi,
+                voiceInputPreferences.asr4allSize,
+                asr4allSizeSwitcher.state,
+                termsAcceptancePreferences.record,
+            ) { states, waiting, stored, switchState, record ->
+                SttSnapshot(
+                    states = states,
+                    waiting = waiting,
+                    asr4allSize = Asr4AllInstall.effectiveSize(stored, hardwareProfileDetector.profile.tier),
+                    switchState = switchState,
+                    // Same combine as the failure it hides, so no emission order leaves a stale message (#2080).
+                    termsAccepted = record.isAccepted(),
+                )
+            }.collect { (states, waiting, asr4allSize, switchState, termsAccepted) ->
                 val pendingSize = switchState.pendingSize
                 val perFamilyStates = (SherpaSttModelSpec.ALL.mapValues { (_, spec) ->
-                    computeDownloadState(
+                    sherpaSttDownloadState(
                         spec.requiredFileNames.mapNotNull { fileName -> KernelModel.entries.firstOrNull { it.fileName == fileName } },
                         states,
+                        waiting,
                     )
-                }) + (VoiceInputEngine.Asr4all to computeDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states))
+                }) + (VoiceInputEngine.Asr4all to sherpaSttDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states, waiting))
                 val inflectStates = inflectModels.associateWith { model ->
                     states[model] ?: DownloadState.NotDownloaded
                 }
@@ -534,7 +615,9 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         asr4allPendingSize = pendingSize,
-                        asr4allSwitchFailure = switchState.failure?.message,
+                        asr4allSwitchFailure = switchState.failure?.message.takeUnless { m ->
+                            m == TERMS_NOT_ACCEPTED_MESSAGE && termsAccepted
+                        },
                         sherpaSttStates = perFamilyStates,
                     )
                 }
@@ -542,44 +625,6 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Computes a [SherpaSttDownloadState] from the download states of the required models.
-     */
-    private fun computeDownloadState(
-        requiredModels: List<KernelModel>,
-        states: Map<KernelModel, DownloadState>,
-    ): SherpaSttDownloadState {
-        val allDownloaded = requiredModels.all { states[it] is DownloadState.Downloaded }
-        val anyDownloading = requiredModels.any { states[it] is DownloadState.Downloading }
-        val totalBytes = requiredModels.sumOf { it.approxSizeBytes }.toFloat()
-        val weightedProgress = if (totalBytes > 0f) {
-            requiredModels.map { model ->
-                val weight = model.approxSizeBytes.toFloat()
-                when (val s = states[model]) {
-                    is DownloadState.Downloaded -> weight
-                    is DownloadState.Downloading -> s.progress * weight
-                    else -> 0f
-                }
-            }.sum() / totalBytes
-        } else 0f
-        val issue = requiredModels
-            .mapNotNull { model ->
-                val errorState = states[model] as? DownloadState.Error ?: return@mapNotNull null
-                SherpaSttDownloadIssue(
-                    message = errorState.message,
-                    licenceRequired = errorState.licenceRequired,
-                    licenceUrl = if (errorState.licenceRequired) model.licenceUrl else null,
-                )
-            }
-            .sortedByDescending { it.licenceRequired }
-            .firstOrNull()
-        return SherpaSttDownloadState(
-            isDownloaded = allDownloaded,
-            isDownloading = anyDownloading && !allDownloaded,
-            progress = weightedProgress,
-            issue = issue,
-        )
-    }
 
 
     private fun heyJandalDownloadBytes(states: Map<KernelModel, DownloadState>): Long =
@@ -603,6 +648,12 @@ class VoiceViewModel @Inject constructor(
     fun downloadSherpaStt(engine: VoiceInputEngine) {
         if (isReleaseBuild && engine.isSherpaFamily) return
         modelsFor(engine).forEach { modelDownloadManager.startDownload(it) }
+    }
+
+    /** "Use mobile data" for one speech model, for this download only (#2074). Mirrors [downloadSherpaStt]. */
+    fun useMobileDataForSherpaStt(engine: VoiceInputEngine) {
+        if (isReleaseBuild && engine.isSherpaFamily) return
+        modelsFor(engine).forEach { modelDownloadManager.startDownload(it, restartRunning = true, allowMobileData = true) }
     }
 
     fun downloadInflectMicro() {
@@ -827,7 +878,7 @@ class VoiceViewModel @Inject constructor(
 
     /** Ticks or unticks the Terms of Use on the asr4all speech card. Stored at once (#1998). */
     fun onTermsAcceptedChanged(accepted: Boolean) {
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = TermsAcceptanceSource.VOICE_SETTINGS) }
     }
 
     fun setAutoStartAlertVoiceCommandsEnabled(enabled: Boolean) {

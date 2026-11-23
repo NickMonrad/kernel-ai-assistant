@@ -199,6 +199,7 @@ fun ModelCardCompact(
     description: String?,
     state: ModelAvailabilityState,
     showLock: Boolean = false,
+    waitingForWifi: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -237,9 +238,10 @@ fun ModelCardCompact(
                 }
             }
             Spacer(Modifier.width(8.dp))
-            StateBadge(state = state)
+            StateBadge(state = state, waitingForWifi = waitingForWifi)
         }
-        if (state is ModelAvailabilityState.Preparing) {
+        // A queued download that is waiting for Wi-Fi is not moving, so it shows no progress bar (#2074).
+        if (state is ModelAvailabilityState.Preparing && !waitingForWifi) {
             val animatedProgress by animateFloatAsState(
                 targetValue = state.progress.coerceIn(0f, 1f),
                 label = "downloadProgress",

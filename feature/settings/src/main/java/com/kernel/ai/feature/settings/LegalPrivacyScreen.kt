@@ -217,6 +217,7 @@ fun OpenSourceLicensesScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelsVoicesWakeWordScreen(onBack: () -> Unit) {
+    val isReleaseBuild = (LocalContext.current.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
     Scaffold(
         topBar = {
             TopAppBar(
@@ -232,7 +233,7 @@ fun ModelsVoicesWakeWordScreen(onBack: () -> Unit) {
         Column(
             modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()),
         ) {
-            ReleaseAssetAttributionCatalog.entries.forEach { asset ->
+            ReleaseAssetAttributionCatalog.entriesFor(isReleaseBuild).forEach { asset ->
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Text(asset.name, style = MaterialTheme.typography.titleSmall)
                     Text("Purpose / category: ${asset.purposeCategory}", style = MaterialTheme.typography.bodySmall)

@@ -21,12 +21,14 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -105,9 +107,15 @@ class Asr4allVoiceInputControllerTest {
         return 1
     }
 
+    /** Stand-in for the Silero detector: speech is any sample at or above 0.02 of full scale. Silero runs in [SileroVadTest]. */
+    private val amplitudeDetector = SpeechDetector { pcm, n -> (0 until n).any { kotlin.math.abs(pcm[it].toInt()) >= 655 } }
+
     private fun controller(
         captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs,
         termsAccepted: Boolean = true,
+        captureWallLimitMs: Long = 30_000L,
+        cueGuardMs: Long = 0L,
+        vadDetector: SpeechDetector? = amplitudeDetector,
     ): Asr4allVoiceInputController {
         var opened = 0
         val context = mockk<Context>(relaxed = true)
@@ -124,10 +132,11 @@ class Asr4allVoiceInputControllerTest {
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {
             every { profile.tier } answers { tier }
         }
-        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, { termsAccepted }).apply {
+        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, captureWallLimitMs, cueGuardMs, { termsAccepted }).apply {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
+            speechDetectorForTest = { vadDetector }
             engineOpenForTest = { size, threads ->
                 engineEntered.countDown()
                 engineGate?.await(5, TimeUnit.SECONDS)
@@ -674,6 +683,7 @@ class Asr4allVoiceInputControllerTest {
         val collected = Collected(c.events, scope)
         try {
             partialForCall = { "" }
+            amplitude = 0 // silence: no chunk is speech, so the engine never runs
             finalText = ""
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
@@ -764,6 +774,8 @@ class Asr4allVoiceInputControllerTest {
             assertNull(error.category)
             assertEquals("Microphone stopped. Try again.", error.message)
             assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
+            // A read error ends speech without an endpoint; the end-of-speech clock still closes so the decode is timed.
+            assertTrue(exportedAfter(mark).any { " voice stt_decode_done " in it && "endpointed=false" in it })
         } finally {
             collected.job.cancel()
             scope.cancel()
@@ -778,6 +790,8 @@ class Asr4allVoiceInputControllerTest {
             val collected = Collected(c.events, scope)
             try {
                 partialForCall = { "heard" }
+                // Quiet lead-in, then speech at reads 31..40, then silence: the gate needs a quiet floor to classify speech.
+                amplitudeForRead = { read -> if (read in 31..40) 8000 else 0 }
                 finalText = ""
                 firstFrame = CountDownLatch(1)
                 val mark = exportMark()
@@ -798,7 +812,78 @@ class Asr4allVoiceInputControllerTest {
         }
 
     @Test
-    fun `a capture at the 60 s cap with text heard and an empty final is not a microphone failure`() =
+    fun `a start cue inside the guard does not arm the endpoint, so a silent start reports no speech`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(cueGuardMs = START_CUE_GUARD_MS)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                // A 300 ms burst at reads 3..5 (200-500 ms) stands in for the cue's speech-like tail. It starts inside the guard.
+                partialForCall = { "" }
+                amplitudeForRead = { read -> if (read in 3..5) 8000 else 0 }
+                finalText = ""
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("No speech heard. Try again.", error.message)
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `speech that starts after the cue guard still arms the endpoint`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(cueGuardMs = START_CUE_GUARD_MS)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                // The same 300 ms burst at reads 6..8 (600-900 ms) is past the guard: it arms, then ends on silence.
+                partialForCall = { "heard" }
+                amplitudeForRead = { read -> if (read in 6..8) 8000 else 0 }
+                finalText = ""
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("Didn't catch that. Try again.", error.message)
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a capture stalled in the mic read ends at the wall limit with a watchdog error and no transcript`() =
+        runBlocking(Dispatchers.IO) {
+            // A parked read holds the reader join, so the stall ends after this short join bound, not the 30 s default.
+            val c = controller(captureWallLimitMs = 300L, captureJoinTimeoutMs = 200L)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            val hold = CountDownLatch(1)
+            try {
+                // The reader parks in its first read and never returns: nothing reaches the endpointer or the engine.
+                readGate = hold
+                finalText = "" // the engine finishes with nothing: the stall is the only outcome to observe
+                c.startListening(VoiceCaptureMode.Command)
+                withTimeoutOrNull(10_000) {
+                    while (collected.events.none { it is VoiceInputEvent.Error }) delay(10)
+                }
+                assertTrue(collected.events.any { it is VoiceInputEvent.Error }, "no error; events=${collected.events} log=$log")
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("Voice input took too long. Try again.", error.message)
+                hold.countDown() // releases the parked reader so the capture can finish and emit its stop
+                collected.awaitStops(1)
+                assertEquals(emptyList<String>(), collected.transcripts())
+            } finally {
+                hold.countDown()
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a capture at the 20 s cap with text heard and an empty final is not a microphone failure`() =
         runBlocking(Dispatchers.IO) {
             val c = controller()
             val scope = CoroutineScope(Dispatchers.IO)
@@ -806,16 +891,16 @@ class Asr4allVoiceInputControllerTest {
             try {
                 partialForCall = { "heard" }
                 finalText = ""
-                // Speech on every other chunk keeps the endpoint from firing, so only the cap can end the capture.
-                amplitudeForRead = { if (it % 2 == 1) 8000 else 200 }
+                // Continuous speech keeps the endpoint from firing, so only the cap can end the capture.
+                amplitudeForRead = { 8000 }
                 readAhead = 4
                 firstFrame = CountDownLatch(1)
                 val mark = exportMark()
                 c.startListening(VoiceCaptureMode.Command)
                 collected.awaitStops(1)
 
-                // 60 s of 100 ms chunks.
-                assertEquals(600, acceptCalls.get())
+                // 20 s of 100 ms chunks, counted on captured audio by the reader.
+                assertEquals(200, acceptCalls.get())
                 assertEquals(1, log.count { it == "finish#1" })
                 assertEquals(emptyList<String>(), collected.transcripts())
                 val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
@@ -1070,49 +1155,115 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `steady background noise endpoints once it becomes the noise floor instead of running to the cap`() =
-        runBlocking(Dispatchers.IO) {
-            val c = controller()
-            val scope = CoroutineScope(Dispatchers.IO)
-            val collected = Collected(c.events, scope)
-            try {
-                amplitude = 0
-                partialForCall = { calls ->
-                    if (calls == 1) amplitude = 1638 // steady hiss of about 5% full scale from chunk 2 on
-                    "Final"
-                }
-                firstFrame = CountDownLatch(1)
-                c.startListening(VoiceCaptureMode.Command)
-                collected.awaitStops(1)
-
-                // Chunk 1 is the only quiet reference; it leaves the 3 s window at chunk 31, after which the
-                // hiss is the floor and 10 quiet chunks endpoint. The old fixed gate ran to the 600-chunk cap.
-                assertTrue(acceptCalls.get() < 60, "steady noise ran ${acceptCalls.get()} chunks")
-                assertEquals(listOf("Final text"), collected.transcripts())
-            } finally {
-                collected.job.cancel()
-                scope.cancel()
-            }
-        }
-
-    @Test
-    fun `a soft speaker is not cut off mid-utterance by a fixed loudness floor`() = runBlocking(Dispatchers.IO) {
+    fun `steady hiss below the speech threshold never detects speech and ends as no speech`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            // Quiet room, then soft speech at about 1% full scale (under the old 0.02 gate), then silence.
-            amplitudeForRead = { read -> if (read <= 30) 30 else if (read <= 60) 300 else 0 }
-            partialForCall = { calls -> if (calls <= 30) "" else "word$calls" }
-            readAhead = 2
+            // About 1% of full scale: under the detector threshold, so no chunk is speech and no speech is detected.
+            amplitude = 300
+            partialForCall = { "" } // the engine hears nothing in the hiss, so no text counts as speech
+            finalText = "" // the engine decodes nothing, so finish() has no text
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
-            readAhead = null
 
-            assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
-            // 30 lead-in chunks, 30 speech chunks, then the 10-chunk quiet tail. The old gate endpointed during speech.
-            assertTrue(acceptCalls.get() >= 60, "soft speech was cut after ${acceptCalls.get()} chunks")
+            assertTrue(collected.events.none { it is VoiceInputEvent.SpeechDetected })
+            assertEquals(emptyList<String>(), collected.transcripts())
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `endpoint and decode-complete events journal the reason and the captured audio length`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            // Quiet lead-in, speech at reads 11..20, then silence to the 700 ms endpoint.
+            amplitudeForRead = { read -> if (read in 11..20) 8000 else 0 }
+            partialForCall = { "Final" }
+            firstFrame = CountDownLatch(1)
+            val mark = exportMark()
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            val lines = exportedAfter(mark)
+            // 27 reads at 100 ms (10 quiet, 10 speech, 7 silence): the endpoint at read 27 journals 2700 ms.
+            assertTrue(lines.any { " voice stt_endpoint " in it && "reason=VAD" in it && "audio_ms=2700" in it })
+            assertTrue(lines.any { " voice stt_decode_done " in it && "endpointed=true" in it })
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `load-time silence is bounded and the utterance endpoints on silence after speech`() = runBlocking(Dispatchers.IO) {
+        val c = controller()
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        try {
+            // 50 chunks of silence (the engine load), 10 of speech, then silence until the 700 ms endpoint.
+            amplitudeForRead = { read -> if (read in 51..60) 8000 else 0 }
+            partialForCall = { "Final" }
+            firstFrame = CountDownLatch(1)
+            val mark = exportMark()
+            c.startListening(VoiceCaptureMode.Command)
+            collected.awaitStops(1)
+
+            // Speech at 5.1-6.0 s of captured audio, then 700 ms of silence: the VAD endpoint falls near 6.8 s.
+            val endpoint = exportedAfter(mark).filter { " voice stt_endpoint " in it && "reason=VAD" in it }
+            assertEquals(1, endpoint.size, "one VAD endpoint: ${exportedAfter(mark)}")
+            val audioMs = Regex("audio_ms=(\\d+)").find(endpoint.single())!!.groupValues[1].toInt()
+            assertTrue(audioMs in 6_500..7_200, "endpoint at ${audioMs} ms")
+            assertEquals(listOf("Final text"), collected.transcripts())
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a missing Silero model asks for a restart, journals MODEL_UNAVAILABLE and never opens the mic`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(vadDetector = null)
+            val mark = exportMark()
+
+            val result = c.startListening(VoiceCaptureMode.Command)
+
+            assertEquals(
+                "Voice detection could not start. Restart the app; if it keeps failing, reinstall it.",
+                (result as VoiceInputStartResult.Unavailable).message,
+            )
+            assertEquals(0, micOpens.get())
+            assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=MODEL_UNAVAILABLE" in it })
+        }
+
+    @Test
+    fun `a Silero exception ends the capture as a detection failure, not a microphone failure`() = runBlocking(Dispatchers.IO) {
+        val c = controller(vadDetector = SpeechDetector { _, _ -> throw IllegalStateException("onnx session closed") })
+        partialForCall = { "" }
+        finalText = ""
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        val mark = exportMark()
+        try {
+            assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Started)
+            collected.awaitStops(1)
+            // The consumer emits the Error after the stop, so wait for it rather than the stop.
+            val gotError = kotlinx.coroutines.withTimeoutOrNull(10_000) { while (collected.events.none { it is VoiceInputEvent.Error }) kotlinx.coroutines.delay(10) }
+            assertTrue(gotError != null, "no Error event; events=${collected.events}")
+
+            assertEquals(
+                listOf("Voice detection failed. Try again."),
+                collected.events.filterIsInstance<VoiceInputEvent.Error>().map { it.message },
+            )
+            val journal = exportedAfter(mark)
+            assertTrue(journal.any { " voice stt_error " in it && "category=VAD_UNAVAILABLE" in it }, "journal: $journal")
+            assertTrue(journal.none { "category=MIC_UNAVAILABLE" in it }, "journal: $journal")
         } finally {
             collected.job.cancel()
             scope.cancel()
@@ -1146,10 +1297,10 @@ class Asr4allVoiceInputControllerTest {
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            partialForCall = { calls ->
-                if (calls == 5) amplitude = 0
-                if (calls <= 2) "weather" else "Weather, 42."
-            }
+            partialForCall = { calls -> if (calls <= 2) "weather" else "Weather, 42." }
+            // Quiet lead-in, then speech at reads 11..20, then silence to the 700 ms endpoint. The engine only sees
+            // speech-classified audio, so the speech must be above a quiet floor for the gate to classify it.
+            amplitudeForRead = { read -> if (read in 11..20) 8000 else 0 }
             finalText = "Weather, 42."
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)

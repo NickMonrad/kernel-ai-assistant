@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -13,6 +14,8 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,6 +59,7 @@ import com.kernel.ai.core.ui.terms.rememberBundledTerms
 import com.kernel.ai.core.voice.AndroidNativeWarning
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -69,12 +73,12 @@ internal fun speechEngineTestTag(engine: VoiceInputEngine): String = "speech_eng
  * Automatic's card note while the offline asr4all model is not on disk and not downloading: Automatic cannot use
  * it until it is downloaded from the asr4all row. Null when it is downloaded, downloading, or its state is unknown (#2051).
  */
-internal fun automaticOfflineModelNote(asr4all: SherpaSttDownloadState?): String? =
-    if (asr4all != null && !asr4all.isDownloaded && !asr4all.isDownloading) {
-        "The offline speech model isn't downloaded yet. Download it in asr4all streaming below."
-    } else {
-        null
-    }
+internal fun automaticOfflineModelNote(asr4all: SherpaSttDownloadState?): String? = when {
+    asr4all == null || asr4all.isDownloaded -> null
+    asr4all.waitingForWifi -> "The offline speech model is waiting for Wi-Fi. Automatic can use it once it has downloaded."
+    asr4all.isDownloading -> null
+    else -> "The offline speech model isn't downloaded yet. Download it in asr4all streaming below."
+}
 
 /**
  * Settings › Voice "Speech recognition" section (#1937). Stateless apart from the More sheet, so previews
@@ -88,6 +92,7 @@ internal fun SpeechRecognitionSection(
     onDownload: (VoiceInputEngine) -> Unit,
     onCancel: (VoiceInputEngine) -> Unit,
     onDelete: (VoiceInputEngine) -> Unit,
+    onUseMobileData: (VoiceInputEngine) -> Unit,
     onAsr4allSize: (Asr4AllSize) -> Unit,
     onTermsAcceptedChanged: (Boolean) -> Unit = {},
     /** Scrolls the asr4all Terms row into view once it is shown, when Settings › Voice opens from a refusal (#2049). */
@@ -101,6 +106,8 @@ internal fun SpeechRecognitionSection(
     val sttStatesLoaded = uiState.sherpaSttStates.isNotEmpty()
     val accentOutlinedColors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent)
     val accentTextColors = ButtonDefaults.textButtonColors(contentColor = JandalTheme.colors.accent)
+    /** The speech model whose Delete confirmation is open. Null when none is. */
+    var pendingDeleteEngine by rememberSaveable { mutableStateOf<VoiceInputEngine?>(null) }
 
     Column(modifier = modifier.fillMaxWidth()) {
         SectionLabel(
@@ -142,11 +149,10 @@ internal fun SpeechRecognitionSection(
                     { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
                 } else if (sttState != null && engine.hasDownloadableModel) {
                     {
-                        if (sttState.isDownloaded) {
-                            StatusChip(status = ChipStatus.On, label = "Downloaded")
-                        } else {
-                            StatusChip(status = ChipStatus.Off, label = "Not downloaded")
-                        }
+                        StatusChip(
+                            status = if (sttState.isDownloaded) ChipStatus.On else ChipStatus.Off,
+                            label = sttState.statusLabel(),
+                        )
                     }
                 } else {
                     null
@@ -211,7 +217,8 @@ internal fun SpeechRecognitionSection(
                         if (showDownloadCard) {
                             if (engine == VoiceInputEngine.Asr4all) {
                                 Asr4AllSizeRow(
-                                    selected = uiState.asr4allPendingSize ?: uiState.asr4allSize,
+                                    active = uiState.asr4allSize,
+                                    pending = uiState.asr4allPendingSize,
                                     sizes = uiState.asr4allSizes,
                                     onSelect = onAsr4allSize,
                                 )
@@ -221,6 +228,7 @@ internal fun SpeechRecognitionSection(
                                 title = spec?.displayLabel ?: engine.displayName,
                                 description = spec?.subtitle.orEmpty(),
                                 state = sttState.toModelAvailability(),
+                                waitingForWifi = sttState.waitingForWifi,
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
                             if (engine != VoiceInputEngine.Asr4all) {
@@ -241,6 +249,19 @@ internal fun SpeechRecognitionSection(
                             }
                             when {
                                 sttState.isDownloading -> {
+                                    if (sttState.waitingForWifi) {
+                                        Text(
+                                            text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this speech model only.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Button(
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            onClick = { onUseMobileData(engine) },
+                                        ) {
+                                            Text("Use mobile data")
+                                        }
+                                    }
                                     OutlinedButton(
                                         modifier = Modifier.padding(vertical = 2.dp),
                                         colors = accentOutlinedColors,
@@ -253,9 +274,15 @@ internal fun SpeechRecognitionSection(
                                     OutlinedButton(
                                         modifier = Modifier.padding(vertical = 2.dp),
                                         colors = accentOutlinedColors,
-                                        onClick = { onDelete(engine) },
+                                        onClick = { pendingDeleteEngine = engine },
                                     ) {
-                                        Text("Delete")
+                                        Text(
+                                            if (engine == VoiceInputEngine.Asr4all) {
+                                                "Delete ${deleteTarget(engine, uiState.asr4allSize)}"
+                                            } else {
+                                                "Delete"
+                                            },
+                                        )
                                     }
                                 }
                                 sttState.issue != null -> {
@@ -315,26 +342,96 @@ internal fun SpeechRecognitionSection(
             onDismiss = { onlineSheetOpen = false },
         )
     }
+    pendingDeleteEngine?.let { engine ->
+        DeleteSpeechModelDialog(
+            target = deleteTarget(engine, uiState.asr4allSize),
+            selectedEngine = uiState.selectedInputEngine == engine,
+            onConfirm = {
+                pendingDeleteEngine = null
+                onDelete(engine)
+            },
+            onDismiss = { pendingDeleteEngine = null },
+        )
+    }
 }
 
 @Composable
 private fun Asr4AllSizeRow(
-    selected: Asr4AllSize,
+    active: Asr4AllSize,
+    pending: Asr4AllSize?,
     sizes: List<Asr4AllSize>,
     onSelect: (Asr4AllSize) -> Unit,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(vertical = 4.dp),
-    ) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
         sizes.forEach { size ->
             FilterChip(
-                selected = size == selected,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                selected = size == (pending ?: active),
                 onClick = { onSelect(size) },
-                label = { Text(if (size == Asr4AllSize.L) "L · about 101 MB" else "M · about 60 MB") },
+                label = { Text("${size.name} · ${size.approxDownload()}") },
+            )
+            Text(
+                text = size.sizeNote(active, pending),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
             )
         }
     }
+}
+
+private fun Asr4AllSize.approxDownload(): String = if (this == Asr4AllSize.L) "about 101 MB" else "about 60 MB"
+
+/** What the size means in use: the switch state and the trade-off (#2075). */
+private fun Asr4AllSize.sizeNote(active: Asr4AllSize, pending: Asr4AllSize?): String {
+    val state = when {
+        pending == this -> "Switching to $name… Still using ${active.name} until this finishes."
+        this == active && pending != null -> "Using now. ${pending.name} replaces it when its download finishes."
+        this == active -> "Using now."
+        else -> "Downloads $name (${approxDownload()}), then replaces ${active.name}."
+    }
+    return "$state ${plainDescription()}"
+}
+
+private fun Asr4AllSize.plainDescription(): String {
+    val trade = when (this) {
+        Asr4AllSize.L -> "More accurate. Slower on low-end phones."
+        else -> "Faster and smaller. Less accurate."
+    }
+    return if (this == Asr4AllInstall.defaultSize) "$trade Recommended." else trade
+}
+
+/** What Delete removes: the active asr4all size with its download size, or the whole speech model. */
+private fun deleteTarget(engine: VoiceInputEngine, asr4allSize: Asr4AllSize): String =
+    if (engine == VoiceInputEngine.Asr4all) {
+        "${asr4allSize.name} (${asr4allSize.approxDownload()})"
+    } else {
+        SherpaSttModelSpec.forEngine(engine)?.displayLabel ?: engine.displayName
+    }
+
+/** Confirms a delete before files are removed. Says where speech input goes, as the delete does (#2075). */
+@Composable
+private fun DeleteSpeechModelDialog(
+    target: String,
+    selectedEngine: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete $target?") },
+        text = {
+            Text(
+                if (selectedEngine) {
+                    "The downloaded files are removed from this phone. Speech input goes back to Automatic."
+                } else {
+                    "The downloaded files are removed from this phone."
+                },
+            )
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** One-line card descriptions from the Voice settings mockup (05-settings-voice.html), keeping each meaning. */
@@ -433,6 +530,7 @@ private fun SectionPreview(uiState: VoiceUiState) {
                 onDownload = {},
                 onCancel = {},
                 onDelete = {},
+                onUseMobileData = {},
                 onAsr4allSize = {},
             )
         }

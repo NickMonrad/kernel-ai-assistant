@@ -1209,8 +1209,13 @@ only wake-word verifier.
 **VAD (voice activity detection):** Offline engines (SenseVoice, Whisper) use a local
 silence-based endpointing scheme: audio is buffered in 100ms chunks, speech is detected
 via RMS threshold (0.02), and capture stops after 2.5s of sustained trailing silence.
-The 15s timeout remains as a fallback guard. This avoids the need for Silero VAD as a
-dependency while providing usable end-of-speech detection.
+The 15s timeout remains as a fallback guard. The asr4all engine does not use this scheme.
+
+**asr4all VAD (#2078):** the asr4all capture uses the bundled Silero VAD v4 (MIT; `silero_vad.onnx`, see
+`docs/VOICE_MODEL_ATTRIBUTION.md`) on onnxruntime, not RMS. Speech starts at probability 0.5 and ends below 0.35
+(hysteresis). An utterance arms after 300 ms of consecutive speech and ends after 700 ms of trailing silence, so a
+pause of 700 ms or more ends the capture. Without armed speech the capture ends after 10 s (no speech); the cap is 20 s
+of captured audio, and a 30 s wall-clock limit bounds the capture against a stalled mic or decode.
 
 **Transcription normalisation:** All engines pass their raw output through a common
 normalisation pipeline:
