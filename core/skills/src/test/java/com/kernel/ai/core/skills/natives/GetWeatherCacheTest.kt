@@ -305,14 +305,13 @@ class GetWeatherCacheTest {
     // ── Multi-day forecast spoken ─────────────────────────────────────────────
 
     @Test
-    fun `buildMultiDayForecastSpoken caps at 3 days`() {
+    fun `buildMultiDayForecastSpoken speaks every day given, not a cut-down three`() {
         val days = (1..7).map { i ->
             Triple("Day $i", "Clear", Pair(25.0 + i, 18.0 - i))
         }
         val spoken = buildMultiDayForecastSpoken("Sydney", days)
-        assertTrue(spoken.contains("3-day forecast"))
-        // Should only contain 3 days, not 7
-        assertFalse(spoken.contains("Day 4"))
+        assertTrue(spoken.contains("forecast for the next 7 days."))
+        assertTrue(spoken.contains("Day 7"))
     }
 
     @Test
@@ -321,7 +320,7 @@ class GetWeatherCacheTest {
             Triple("Tomorrow", "Rain", Pair(20.0, 14.0)),
         )
         val spoken = buildMultiDayForecastSpoken("Brisbane", days)
-        assertTrue(spoken.contains("1-day forecast"))
+        assertTrue(spoken.contains("forecast for the next 1 day."))
         assertTrue(spoken.contains("Tomorrow"))
     }
 
@@ -349,7 +348,7 @@ class GetWeatherCacheTest {
             high = 22.0,
             low = 15.0,
         )
-        assertEquals("Tomorrow in Brisbane: rain, high 22 degrees, low 15 degrees.", spoken)
+        assertEquals("Tomorrow in Brisbane, rain, high 22 degrees, low 15 degrees.", spoken)
     }
 
     @Test
@@ -361,7 +360,7 @@ class GetWeatherCacheTest {
             high = Double.NaN,
             low = Double.NaN,
         )
-        assertEquals("Friday in Cairns: thunderstorm.", spoken)
+        assertEquals("Friday in Cairns, thunderstorm.", spoken)
     }
 
     @Test

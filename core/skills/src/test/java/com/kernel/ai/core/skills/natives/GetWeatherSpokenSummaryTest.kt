@@ -140,24 +140,26 @@ class GetWeatherSpokenSummaryTest {
     @Test
     fun `buildMultiDayForecastSpoken produces natural forecast sentence`() {
         val days = listOf(
-            Triple("Mon 2 Jun", "Partly cloudy", Pair(25.0, 18.0)),
-            Triple("Tue 3 Jun", "Rain", Pair(22.0, 15.0)),
+            Triple("Monday the 2nd of June", "Partly cloudy", Pair(25.0, 18.0)),
+            Triple("Tuesday the 3rd of June", "Rain", Pair(22.0, 15.0)),
         )
         val spoken = buildMultiDayForecastSpoken("Brisbane, AU", days)
         assertEquals(
-            "Brisbane 2-day forecast. Mon 2 Jun: partly cloudy, high 25 degrees, low 18 degrees. Tue 3 Jun: rain, high 22 degrees, low 15 degrees.",
+            "Brisbane forecast for the next 2 days. Monday the 2nd of June, partly cloudy, high 25 degrees, low 18 degrees. Tuesday the 3rd of June, rain, high 22 degrees, low 15 degrees.",
             spoken,
         )
     }
 
     @Test
-    fun `buildMultiDayForecastSpoken caps output at 3 days`() {
-        val days = (1..7).map { i ->
-            Triple("Day $i", "Clear sky", Pair(25.0, 18.0))
+    fun `buildMultiDayForecastSpoken speaks every day given, not a cut-down three`() {
+        val days = (23..29).map { day ->
+            Triple(formatForecastDateForSpeech("2026-11-$day"), "Clear sky", Pair(25.0, 18.0))
         }
         val spoken = buildMultiDayForecastSpoken("Sydney", days)
-        assertTrue(spoken.contains("3-day forecast"))
-        assertFalse(spoken.contains("Day 4"))
+        assertTrue(spoken.startsWith("Sydney forecast for the next 7 days."))
+        assertTrue(spoken.contains("Sunday the 29th of November, clear sky"))
+        assertFalse(spoken.contains("-day"))
+        assertFalse(spoken.contains(":"))
     }
 
     @Test
@@ -181,8 +183,21 @@ class GetWeatherSpokenSummaryTest {
             low = 15.0,
         )
         assertEquals(
-            "Tomorrow in Brisbane: rain, high 22 degrees, low 15 degrees.",
+            "Tomorrow in Brisbane, rain, high 22 degrees, low 15 degrees.",
             spoken,
         )
+    }
+
+    @Test
+    fun `formatForecastDateForSpeech spells the weekday, ordinal day and month`() {
+        assertEquals("Monday the 23rd of November", formatForecastDateForSpeech("2026-11-23"))
+        assertEquals("Saturday the 21st of November", formatForecastDateForSpeech("2026-11-21"))
+        assertEquals("Thursday the 12th of November", formatForecastDateForSpeech("2026-11-12"))
+        assertEquals("Tuesday the 1st of December", formatForecastDateForSpeech("2026-12-01"))
+    }
+
+    @Test
+    fun `formatForecastDateForSpeech returns unparseable input unchanged`() {
+        assertEquals("Mon 23 Nov", formatForecastDateForSpeech("Mon 23 Nov"))
     }
 }

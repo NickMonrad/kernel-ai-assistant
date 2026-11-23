@@ -1,6 +1,8 @@
 package com.kernel.ai.core.voice
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -15,7 +17,7 @@ class WeatherCardSpeechGoldenTest {
     @Test
     fun `android tts gets the card cleaned and nothing else`() {
         assertEquals(
-            "Oakland, 11°C, Clear sky. Today: high 17, low 10. humidity 92%",
+            "Oakland, 11 degrees, Clear sky. Today: high 17, low 10. humidity 92 percent",
             SpeechCardText.speakable(card),
         )
     }
@@ -23,7 +25,7 @@ class WeatherCardSpeechGoldenTest {
     @Test
     fun `piper and kokoro spell out only what sherpa owns`() {
         assertEquals(
-            "Oakland, 11°C, Clear sky. Today: high seventeen, low ten. humidity 92%.",
+            "Oakland, eleven degrees, Clear sky. Today: high seventeen, low ten. humidity ninety two percent.",
             SherpaSpeechText.prepare(SpeechCardText.speakable(card)),
         )
     }
@@ -31,9 +33,17 @@ class WeatherCardSpeechGoldenTest {
     @Test
     fun `inflect spells out numbers through its own frontend`() {
         assertEquals(
-            "Oakland, eleven°C, Clear sky. Today: high seventeen, low ten. humidity ninety two%",
+            "Oakland, eleven degrees, Clear sky. Today: high seventeen, low ten. humidity ninety two percent",
             InflectMicroTextFrontend.normalize(SpeechCardText.speakable(card)),
         )
+    }
+
+    @Test
+    fun `dated weather day reaches inflect with no digits, symbols or abbreviations`() {
+        val day = "Mon 23 Nov: ☁️ Overcast, high 27°C, low 19°C, 0mm rain | UV max: 9 (Very High) | 🌅 04:46 / 18:22"
+        val spoken = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(day))
+        assertTrue(spoken.startsWith("Monday the twenty third of November: Overcast"), spoken)
+        assertFalse(Regex("[0-9°%|/]").containsMatchIn(spoken), spoken)
     }
 
     @Test

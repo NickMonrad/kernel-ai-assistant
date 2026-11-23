@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 
-/** Only card notation is cleaned here. Numbers and percentages are left to each engine's own prep. */
+/** Card notation is cleaned here and units/dates spelled out (#1901, #2077). Plain numbers are left to each engine's own prep. */
 class SpeakableCardTextTest {
 
     @ParameterizedTest(name = "{0}")
@@ -15,8 +15,8 @@ class SpeakableCardTextTest {
         value = [
             "H:17°C / L:10°C ; high 17, low 10",
             "Today: H:17°C / L:10°C ; Today: high 17, low 10",
-            "💧 Humidity: 92% ; humidity 92%",
-            "Humidity: 92% | 💨 Wind: 1.9 m/s ; humidity 92%, Wind: 1.9 m/s",
+            "💧 Humidity: 92% ; humidity 92 percent",
+            "Humidity: 92% | 💨 Wind: 1.9 m/s ; humidity 92 percent, Wind: 1.9 m/s",
             "☀️ Oakland — Clear sky / 🌡 Today ; Oakland, Clear sky, Today",
             "Mostly sunny ☀️ ; Mostly sunny",
             "Clock 8:31 and 14/03 stay ; Clock 8:31 and 14/03 stay",
