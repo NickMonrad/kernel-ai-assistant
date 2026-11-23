@@ -51,11 +51,6 @@ private const val LEAD_IN_CHUNKS = 5 // 0.5 s of audio kept before speech onset;
 private const val ASR4ALL_TIER = "stream_c16r4"
 /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
 private const val CAPTURE_JOIN_TIMEOUT_MS = 3_000L
-/**
- * Wall-clock limit from mic open to a capture's end: the 20 s audio cap plus 10 s for a cold engine load and the final
- * decode. A stalled mic read or a wedged decode still ends at this bound rather than holding the mic open.
- */
-private const val CAPTURE_WALL_LIMIT_MS = 30_000L
 /** Pause after a zero-length read, so a reader that gets no samples does not spin the CPU. */
 private const val ZERO_READ_PAUSE_MS = 10L
 
@@ -154,8 +149,8 @@ class Asr4allVoiceInputController internal constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
     private val captureJoinTimeoutMs: Long,
-    /** Wall-clock limit from mic open to a capture's end; see [CAPTURE_WALL_LIMIT_MS]. */
-    private val captureWallLimitMs: Long,
+    /** Test override of the wall limit from mic open. Null (production) uses the capture mode's [captureLimitsFor] limit. */
+    private val captureWallLimitMs: Long?,
     /** Captured audio from capture start that cannot arm the endpoint; see [START_CUE_GUARD_MS]. */
     private val cueGuardMs: Long,
     /** Whether the Terms of Use are accepted for the shipped version (#1998). Without it the weights are not used. */
@@ -173,7 +168,7 @@ class Asr4allVoiceInputController internal constructor(
         voiceInputPreferences,
         hardwareProfileDetector,
         CAPTURE_JOIN_TIMEOUT_MS,
-        CAPTURE_WALL_LIMIT_MS,
+        null,
         START_CUE_GUARD_MS,
         { termsAcceptance.record.first().isAccepted() },
     )
@@ -402,7 +397,7 @@ class Asr4allVoiceInputController internal constructor(
      * the caller is released now: the late result is discarded and the session ends with an error.
      */
     private suspend fun watchdog(c: Capture, mode: VoiceCaptureMode, sessionId: Long, discard: AtomicBoolean) {
-        if (withTimeoutOrNull(captureWallLimitMs) { c.consumerDone.await() } != null) return
+        if (withTimeoutOrNull(captureWallLimitMs ?: captureLimitsFor(mode).wallLimitMs) { c.consumerDone.await() } != null) return
         halt(c, CaptureEnd.WATCHDOG)
         if (withTimeoutOrNull(captureJoinTimeoutMs) { c.consumerDone.await() } != null) return
         // A cold load that is still running is left to the start, which ends the capture when the load returns.
@@ -466,7 +461,12 @@ class Asr4allVoiceInputController internal constructor(
     private fun readLoop(c: Capture) {
         val buf = ShortArray(CHUNK_SAMPLES)
         val leadIn = ArrayDeque<ShortArray>() // the last LEAD_IN_CHUNKS chunks before onset, while the engine is not yet attached
-        val endpoint = UtteranceEndpointer(cueGuardSamples = (cueGuardMs * SAMPLE_RATE / 1000).toInt())
+        val limits = captureLimitsFor(c.mode)
+        val endpoint = UtteranceEndpointer(
+            silenceSamples = limits.silenceSamples,
+            capSamples = limits.capSamples,
+            cueGuardSamples = (cueGuardMs * SAMPLE_RATE / 1000).toInt(),
+        )
         try {
             if (!c.buffer.isClosed) c.recorder.startRecording()
             while (!c.buffer.isClosed) {

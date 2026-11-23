@@ -30,6 +30,20 @@ internal const val NO_SPEECH_SAMPLES = 16_000 * 10
 /** 20 s at 16 kHz: the hard cap on one capture, well under the 60 s the old chunk clock allowed. */
 internal const val CAPTURE_CAP_SAMPLES = 16_000 * 20
 
+/** Bounds for one capture mode: the audio cap and end-of-speech silence on the captured-audio clock, and the wall limit. */
+internal data class CaptureLimits(val capSamples: Int, val silenceSamples: Int, val wallLimitMs: Long)
+
+/** Commands, slot replies and alert commands: 20 s cap, 700 ms end silence, 30 s wall limit (20 s + 10 s load and decode). */
+internal val COMMAND_CAPTURE_LIMITS = CaptureLimits(CAPTURE_CAP_SAMPLES, ENDPOINT_SILENCE_SAMPLES, 30_000L)
+
+/** Chat dictation: 60 s cap and 1.5 s end silence, so a pause to think does not end it. Wall limit 70 s (60 s + 10 s). */
+internal val DICTATION_CAPTURE_LIMITS = CaptureLimits(16_000 * 60, 16_000 * 1500 / 1000, 70_000L)
+
+internal fun captureLimitsFor(mode: VoiceCaptureMode): CaptureLimits = when (mode) {
+    VoiceCaptureMode.Dictation -> DICTATION_CAPTURE_LIMITS
+    VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply, VoiceCaptureMode.AlertCommand -> COMMAND_CAPTURE_LIMITS
+}
+
 /**
  * Endpoint decision on captured-audio time. The reader calls [onChunk] for every chunk as it is read, so the
  * decision never waits on the decoder: a slow decode delays the transcript, not the end of the capture.

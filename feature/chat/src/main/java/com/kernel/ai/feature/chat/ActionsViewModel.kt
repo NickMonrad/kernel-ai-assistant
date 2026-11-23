@@ -491,7 +491,8 @@ class ActionsViewModel @Inject constructor(
                                     onSlotReply(normalizedTranscript)
                                 }
                             }
-                            VoiceCaptureMode.AlertCommand -> Unit
+                            // Dictation has no chat surface and nothing starts it; its transcripts are not consumed here.
+                            VoiceCaptureMode.AlertCommand, VoiceCaptureMode.Dictation -> Unit
                         }
                     }
                     is VoiceInputEvent.Error -> {
@@ -572,7 +573,7 @@ class ActionsViewModel @Inject constructor(
                                     _error.value = event.message
                                 }
                             }
-                            VoiceCaptureMode.AlertCommand -> {
+                            VoiceCaptureMode.AlertCommand, VoiceCaptureMode.Dictation -> {
                                 _voiceCaptureState.value = VoiceCaptureState.Idle
                                 _error.value = event.message
                             }
@@ -1409,6 +1410,7 @@ class ActionsViewModel @Inject constructor(
             VoiceCaptureMode.Command -> startVoiceCommand()
             VoiceCaptureMode.SlotReply -> startVoiceSlotReply()
             VoiceCaptureMode.AlertCommand -> Unit
+            VoiceCaptureMode.Dictation -> error("Dictation has no chat start path")
         }
     }
 

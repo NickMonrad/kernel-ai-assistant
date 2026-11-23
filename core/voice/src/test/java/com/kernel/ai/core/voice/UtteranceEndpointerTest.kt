@@ -92,4 +92,46 @@ class UtteranceEndpointerTest {
         repeat(6) { assertNull(e.onChunk(chunk, speech = false, hint = true)) }
         assertEquals(EndpointReason.VAD, e.onChunk(chunk, speech = false, hint = true))
     }
+
+    private fun endpointFor(mode: VoiceCaptureMode): UtteranceEndpointer {
+        val limits = captureLimitsFor(mode)
+        return UtteranceEndpointer(silenceSamples = limits.silenceSamples, capSamples = limits.capSamples)
+    }
+
+    @Test
+    fun `a 1 2 s mid-sentence pause ends a command but not a dictation`() {
+        val command = endpointFor(VoiceCaptureMode.Command)
+        val dictation = endpointFor(VoiceCaptureMode.Dictation)
+        repeat(3) { command.onChunk(chunk, speech = true); dictation.onChunk(chunk, speech = true) }
+        var commandEnd: EndpointReason? = null
+        var dictationEnd: EndpointReason? = null
+        // A 1.2 s pause is twelve 100 ms chunks: past the command's 700 ms, short of the dictation's 1.5 s.
+        repeat(12) {
+            commandEnd = commandEnd ?: command.onChunk(chunk, speech = false)
+            dictationEnd = dictationEnd ?: dictation.onChunk(chunk, speech = false)
+        }
+        assertEquals(EndpointReason.VAD, commandEnd)
+        assertNull(dictationEnd)
+        // The dictation ends once its 1.5 s of silence is complete.
+        repeat(3) { dictationEnd = dictationEnd ?: dictation.onChunk(chunk, speech = false) }
+        assertEquals(EndpointReason.VAD, dictationEnd)
+    }
+
+    @Test
+    fun `a dictation runs past the 20 s command cap and stops at its own 60 s cap`() {
+        val command = endpointFor(VoiceCaptureMode.Command)
+        val dictation = endpointFor(VoiceCaptureMode.Dictation)
+        var commandEnd: EndpointReason? = null
+        var dictationEnd: EndpointReason? = null
+        // Twenty-five seconds of continuous speech: the command reaches its cap, the dictation does not.
+        repeat(250) {
+            commandEnd = commandEnd ?: command.onChunk(chunk, speech = true)
+            dictationEnd = dictationEnd ?: dictation.onChunk(chunk, speech = true)
+        }
+        assertEquals(EndpointReason.CAP, commandEnd)
+        assertNull(dictationEnd)
+        // Sixty seconds in total.
+        repeat(350) { dictationEnd = dictationEnd ?: dictation.onChunk(chunk, speech = true) }
+        assertEquals(EndpointReason.CAP, dictationEnd)
+    }
 }

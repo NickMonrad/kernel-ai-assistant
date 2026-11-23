@@ -341,6 +341,7 @@ fun ActionsScreen(
                 VoiceCaptureMode.Command -> viewModel.startVoiceCommand()
                 VoiceCaptureMode.SlotReply -> viewModel.startVoiceSlotReply()
                 VoiceCaptureMode.AlertCommand -> Unit
+                VoiceCaptureMode.Dictation -> error("Dictation has no chat start path")
             }
             return
         }
@@ -1766,7 +1767,7 @@ private fun VoiceCaptureCard(
         is ActionsViewModel.VoiceCaptureState.Preparing -> "Getting ready…"
         is ActionsViewModel.VoiceCaptureState.Listening -> when (state.mode) {
             VoiceCaptureMode.AlertCommand -> "Listening for alert command…"
-            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply -> "Listening, speak now"
+            VoiceCaptureMode.Command, VoiceCaptureMode.SlotReply, VoiceCaptureMode.Dictation -> "Listening, speak now"
         }
         is ActionsViewModel.VoiceCaptureState.Processing -> "Processing voice input"
         ActionsViewModel.VoiceCaptureState.Idle -> return
