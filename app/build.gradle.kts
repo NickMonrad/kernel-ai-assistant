@@ -205,14 +205,19 @@ val baseVersionName = "0.1.0"
 // Release outputs are "<prefix>.<versionCode>"; the prefix is baseVersionName without its patch.
 val releaseVersionPrefix = baseVersionName.substringBeforeLast('.')
 
+// Debug-only Kokoro phonemis JNI (#1557 spike). Off unless -Pkokoro.phonemis=true, so CI and release never run CMake.
+val kokoroPhonemisEnabled = (project.findProperty("kokoro.phonemis") as String?) == "true"
+
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
     ndkVersion = "28.2.13676358"
-    externalNativeBuild {
-        cmake {
-            path = file("src/debug/cpp/CMakeLists.txt")
-            version = "3.22.1"
+    if (kokoroPhonemisEnabled) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/debug/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 
@@ -269,12 +274,11 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = if (isolatedInflectProbe) ".debug.inflectprobe" else ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
-            ndk {
-                abiFilters += "arm64-v8a"
-            }
-            externalNativeBuild {
-                cmake {
-                    targets += "kokoro_phonemis"
+            if (kokoroPhonemisEnabled) {
+                externalNativeBuild {
+                    cmake {
+                        targets += "kokoro_phonemis"
+                    }
                 }
             }
             buildConfigField("boolean", "IS_INFLECT_PROBE", isolatedInflectProbe.toString())
@@ -338,6 +342,14 @@ android {
             )
         }
     }
+}
+
+// With the property on, keep CMake out of release variants; only the debug lane may build the phonemis JNI.
+if (kokoroPhonemisEnabled) {
+    tasks.matching { task ->
+        !task.name.contains("Debug", ignoreCase = true) &&
+            (task.name.contains("CMake") || task.name.startsWith("externalNativeBuild"))
+    }.configureEach { enabled = false }
 }
 // Release builds (Play bundle and tester APK) report "<major.minor>.<versionCode>", with the
 // prefix taken from defaultConfig.versionName. The mapping is lazy, so it picks up the code

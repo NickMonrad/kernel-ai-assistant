@@ -22,7 +22,7 @@ internal object KokoroTts {
     const val DURATION_FEATURE_DIM = 640
     const val MIN_DURATION_TICKS = 16
 
-    /** Bounds of the exported `.pte` programs (`export_nobool.py --max-tokens 128 --max-duration 296`). */
+    /** Bounds of the shipped `.pte` programs: token axis 128, duration-tick axis 296 (probed on device). */
     const val MIN_TOKENS = 2
     const val MAX_TOKENS = 128
     const val MAX_DURATION_TICKS = 296

@@ -22,6 +22,8 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.kernel.ai.debug.tts.kokoro.KokoroEtDebugLane
+import com.kernel.ai.debug.tts.kokoro.NativeKokoroPhonemizer
 import org.json.JSONObject
 
 /**
@@ -57,6 +59,7 @@ class DebugTtsBaselineService : Service() {
     private fun execute(intent: Intent) {
         var request: DebugTtsBaselineRequest? = null
         var lane: DebugTtsLane? = null
+        var abandoned = false
         try {
             val validated = DebugTtsBaselineRequest.from(intent)
             request = validated
@@ -69,6 +72,8 @@ class DebugTtsBaselineService : Service() {
             Log.i(TAG, "tts baseline done lane=${validated.lane} path=${output.absolutePath}")
         } catch (error: Throwable) {
             Log.e(TAG, "tts baseline failed", error)
+            // The stuck native call still holds the lane's lock; close() would block this thread on it.
+            if (error is NativeRunTimeoutException) abandoned = true
             request?.let { validated ->
                 writeJson(
                     debugTtsBaselineOutput(this, validated.lane, validated.label),
@@ -81,7 +86,7 @@ class DebugTtsBaselineService : Service() {
                 )
             }
         } finally {
-            lane?.close()
+            if (!abandoned) lane?.close()
         }
     }
 
@@ -97,12 +102,17 @@ class DebugTtsBaselineService : Service() {
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
             InflectMicroDebugLane(models, voice.name, espeak)
         }
+        DebugTtsLanes.KOKORO_ET -> {
+            val models = File(filesDir, "kokoro-et")
+            KokoroEtDebugLane(models, KOKORO_ET_VOICE, NativeKokoroPhonemizer(filesDir, "en-us"))
+        }
         else -> error("no lane factory for $laneId")
     }
 
     /**
-     * Runs [block] on a daemon thread and fails after [deadlineMs]. A native call stuck past the deadline cannot be
-     * interrupted; the thread is left behind and the caller writes the failure record.
+     * Runs [block] on a daemon thread and fails with [NativeRunTimeoutException] after [deadlineMs]. A native call
+     * stuck past the deadline cannot be interrupted: the thread is left behind, the lane is not closed (close() waits
+     * on the same lock), and the service stays foreground and refuses runs until the process is force-stopped.
      */
     private fun <T> withDeadline(deadlineMs: Long, block: () -> T): T {
         val executor = Executors.newSingleThreadExecutor { runnable ->
@@ -111,11 +121,14 @@ class DebugTtsBaselineService : Service() {
         try {
             return executor.submit(Callable { block() }).get(deadlineMs, TimeUnit.MILLISECONDS)
         } catch (error: TimeoutException) {
-            throw IllegalStateException("baseline run exceeded ${deadlineMs / 1000} s; a native call did not return", error)
+            throw NativeRunTimeoutException(deadlineMs, error)
         } finally {
             executor.shutdownNow()
         }
     }
+
+    private class NativeRunTimeoutException(deadlineMs: Long, cause: Throwable) :
+        IllegalStateException("baseline run exceeded ${deadlineMs / 1000} s; a native call did not return", cause)
 
     private fun writeJson(file: File, json: JSONObject) {
         file.parentFile?.mkdirs()

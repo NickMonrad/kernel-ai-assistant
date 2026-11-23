@@ -82,10 +82,6 @@ private fun Tensor.toKotlin(method: String, index: Int, spec: TensorSpec?): Exec
         DType.INT64 -> ExecuTorchTensor.Int64(dataAsLongArray, shape)
         DType.INT8 -> ExecuTorchTensor.Int8(dataAsByteArray, shape)
         DType.UINT8 -> ExecuTorchTensor.UInt8(dataAsUnsignedByteArray, shape)
-        DType.BOOL -> ExecuTorchTensor.Bool.fromOutput(
-            BooleanArray(dataAsByteArray.size) { dataAsByteArray[it] != 0.toByte() },
-            shape,
-        )
         else -> throw ExecuTorchException(
             "ExecuTorch method '$method' output $index ('${spec?.name ?: "undeclared"}') has unsupported " +
                 "dtype $dtype; expected ${spec ?: "no declared output"}",

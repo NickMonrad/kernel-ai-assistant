@@ -54,8 +54,8 @@ sealed class ExecuTorchTensor(shape: LongArray, dataSize: Int) {
     }
 
     /**
-     * Boolean elements, one per value. As an input each element is passed as one byte
-     * (`BoolInputTensor`), so any mix of true and false is valid. Outputs are read as `byte != 0`.
+     * Boolean elements, one per value. Each element reaches the runtime as one byte
+     * (`BoolInputTensor`), so any mix of true and false is valid as an input.
      */
     class Bool private constructor(val data: BooleanArray, shape: LongArray) : ExecuTorchTensor(shape, data.size) {
         override val dtype get() = TensorDType.BOOL
@@ -69,9 +69,6 @@ sealed class ExecuTorchTensor(shape: LongArray, dataSize: Int) {
 
             /** A bool tensor of [shape] holding [values] in row-major order. */
             fun of(shape: LongArray, values: BooleanArray): Bool = Bool(values.copyOf(), shape)
-
-            /** Wraps native output values. */
-            internal fun fromOutput(data: BooleanArray, shape: LongArray): Bool = Bool(data, shape)
 
             private fun elementCount(shape: LongArray): Int =
                 Math.toIntExact(shape.fold(1L) { acc, dim -> Math.multiplyExact(acc, dim) })

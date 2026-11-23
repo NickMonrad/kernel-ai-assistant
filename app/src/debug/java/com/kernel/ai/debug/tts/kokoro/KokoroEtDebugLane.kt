@@ -91,7 +91,7 @@ class KokoroEtDebugLane(
         voice: FloatArray,
     ): FloatArray {
         // Exact length: L = phonemes + 2 real tokens (clamped to [MIN, MAX]), no padding. The mask is all true,
-        // built with ExecuTorchTensor.Bool.allTrue (Tensor.ones(shape, DType.BOOL)). RNE's numTokens is L.
+        // built with ExecuTorchTensor.Bool.allTrue (passed as BoolInputTensor). RNE's numTokens is L.
         val phonemes = chunk.trim().codePoints().toArray()
         val numTokens = (phonemes.size + 2).coerceIn(KokoroTts.MIN_TOKENS, KokoroTts.MAX_TOKENS)
         val tokens = KokoroTts.tokenize(phonemes, numTokens)
