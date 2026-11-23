@@ -1,16 +1,31 @@
 package com.kernel.ai.debug.tts
 
 import java.io.Closeable
+import org.json.JSONObject
+
+/** Lane ids. Each id is a `lane` broadcast extra, names the evidence output directory, and maps to one lane. */
+object DebugTtsLanes {
+    const val INFLECT_MICRO_V2 = "inflect-micro-v2"
+
+    val ids: Set<String> = setOf(INFLECT_MICRO_V2)
+}
 
 /**
  * One on-device TTS engine under measurement. Debug-only: lanes wrap production frontends and runners without
  * changing them, so the same harness can run Inflect now and streaming engines (Kokoro, Qwen3-TTS) later.
+ *
+ * Implementer contract:
+ * - [backend] is read after [initialize] returns. A lane may settle its backend there, for example a GPU→CPU
+ *   fallback is only known once the engine has loaded.
+ * - [cancel] must surface as `java.util.concurrent.CancellationException` from [synthesize]. A streaming engine
+ *   that ends early on cancel must translate that into `CancellationException`, or the cancel probe records
+ *   `cancel_observed=false`.
  */
 interface DebugTtsLane : Closeable {
-    /** Stable id written to evidence JSON, e.g. `inflect-micro-v2`. */
+    /** Stable id written to evidence JSON, one of [DebugTtsLanes]. */
     val laneId: String
 
-    /** Runtime and delegate description written to evidence JSON. */
+    /** Runtime and delegate description written to evidence JSON. Read after [initialize]. */
     val backend: String
 
     /** Loads the model or session. Returns elapsed ms of this call (runner init, not device cold start). */
@@ -26,10 +41,17 @@ interface DebugTtsLane : Closeable {
     fun cancel()
 
     fun resetCancellation()
+
+    /**
+     * Lane-specific evidence: runtime, voice and model identities. Called after [initialize]; written to the
+     * evidence JSON as `lane_metadata`.
+     */
+    fun metadata(): JSONObject
 }
 
 data class LaneChunk(
     val index: Int,
+    /** Phoneme string length for lanes with a phoneme stage; null otherwise. */
     val phonemeChars: Int?,
     val synthMs: Long,
     val audioMs: Double,
@@ -45,12 +67,3 @@ data class LaneUtterance(
     val audioMs: Double get() = chunks.sumOf { it.audioMs }
     val finite: Boolean get() = chunks.all { it.finite }
 }
-
-/**
- * ONNX Runtime version read reflectively: `core/voice` consumes onnxruntime as `implementation`, so the app
- * module cannot compile against it, but the AAR is packaged in the APK.
- */
-fun onnxRuntimeVersion(): String =
-    Class.forName("ai.onnxruntime.OrtEnvironment").let { env ->
-        env.getMethod("getVersion").invoke(env.getMethod("getEnvironment").invoke(null)) as String
-    }

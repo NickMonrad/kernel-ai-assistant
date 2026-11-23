@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <!-- #2088: foreground service runs the TTS baseline outside the broadcast window. Started only by
-             InflectBaselineReceiver, which is DUMP-gated. -->
+             DebugTtsBaselineReceiver, which is DUMP-gated. -->
         <service
             android:name="com.kernel.ai.debug.tts.DebugTtsBaselineService"
             android:foregroundServiceType="specialUse"
@@ -74,10 +74,10 @@
             android:name="com.kernel.ai.debug.speech.SpeechProbeReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
-        <!-- #2088: Inflect Micro synthesis baseline over a fixed corpus. Explicit component only; DUMP restricts
+        <!-- #2088: TTS synthesis baseline over a fixed corpus. Explicit component only; DUMP restricts
              senders to adb shell. No intent filter. -->
         <receiver
-            android:name="com.kernel.ai.debug.inflect.InflectBaselineReceiver"
+            android:name="com.kernel.ai.debug.tts.DebugTtsBaselineReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
         <!-- #1942: limits calendar reads to one named test calendar for device evidence. Explicit component
