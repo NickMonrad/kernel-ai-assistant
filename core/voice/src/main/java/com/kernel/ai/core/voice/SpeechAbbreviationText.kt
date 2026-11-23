@@ -27,10 +27,11 @@ internal object SpeechAbbreviationText {
     private val weekdayBeforeDate = Regex(
         """\b(${weekdays.keys.joinToString("|")})\b(?=\.?,?\s+(?:$DAY\b|(?:$monthPattern)\b))""",
     )
-    // Not after a range, slash or decimal point ("5-10 Nov", "2/3 May", "1.5 Mar"), which are not single dates.
-    private val dayBeforeMonth = Regex("""(?<![\d\-–/.] ?)\b$DAY ($monthPattern)\b""")
-    // Not before a range, slash or decimal point ("Nov 5-10").
-    private val monthBeforeDay = Regex("""\b($monthPattern)\b\.? $DAY\b(?![-–/.]\d)""")
+    // Not after a range, slash or decimal point, with or without spaces around the dash ("5-10 Nov", "5 - 10 Nov",
+    // "2/3 May", "1.5 Mar"). A full stop and space before the day ("It closed. 5 Nov") is a new sentence, so it is a date.
+    private val dayBeforeMonth = Regex("""(?<![\d/]|[-–/]\s?|\d\.)\b$DAY ($monthPattern)\b""")
+    // Not before a range, slash or decimal point, with or without spaces around the dash ("Nov 5-10", "Nov 5 - 10").
+    private val monthBeforeDay = Regex("""\b($monthPattern)\b\.? $DAY\b(?!\s*[-–/]\s*\d|\.\d)""")
     private val degreesCelsius = Regex("""(\d)\s*°\s*C(?![A-Za-z])""")
     private val degreesFahrenheit = Regex("""(\d)\s*°\s*F(?![A-Za-z])""")
     // "45°N" → "45 degrees N": keep a space so the following letter is not joined to "degrees".

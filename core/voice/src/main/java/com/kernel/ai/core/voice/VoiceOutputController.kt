@@ -58,6 +58,10 @@ private class BufferedVoiceOutputStreamingSession(
     override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
         if (isClosed) return VoiceOutputResult.Spoken
         if (text.isNotBlank()) {
+            // Chunks arrive without a separator; join with one space so the engine does not read "degrees.Today's" as one run.
+            if (buffer.isNotEmpty() && !buffer.last().isWhitespace() && !text.first().isWhitespace()) {
+                buffer.append(' ')
+            }
             buffer.append(text)
         }
         if (!isFinal) return VoiceOutputResult.Spoken

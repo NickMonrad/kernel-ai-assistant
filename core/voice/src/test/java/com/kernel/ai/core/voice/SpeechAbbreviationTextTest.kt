@@ -34,6 +34,17 @@ class SpeechAbbreviationTextTest {
     }
 
     @Test
+    fun `day number after a sentence full stop is still a date`() {
+        assertEquals("It closed. the 5th of November is due", SpeechAbbreviationText.expand("It closed. 5 Nov is due"))
+    }
+
+    @Test
+    fun `spaced ranges keep the abbreviated month and day`() {
+        assertEquals("Nov 5 - 10 sale", SpeechAbbreviationText.expand("Nov 5 - 10 sale"))
+        assertEquals("5 - 10 Nov sale", SpeechAbbreviationText.expand("5 - 10 Nov sale"))
+    }
+
+    @Test
     fun `weather units and symbols are spoken in words`() {
         assertEquals("11 degrees", SpeechAbbreviationText.expand("11°C"))
         assertEquals("-5 degrees", SpeechAbbreviationText.expand("-5°C"))
