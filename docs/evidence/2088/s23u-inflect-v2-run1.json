@@ -1,0 +1,462 @@
+{
+  "schema": "debug-tts-baseline\/2",
+  "status": "ok",
+  "label": "s23u-inflect-v2-run1",
+  "lane": "inflect-micro-v2",
+  "backend": "onnxruntime 1.24.3 CPU execution provider (default SessionOptions, no NNAPI\/XNNPACK)",
+  "started_utc": "2026-11-23T05:31:29.808013Z",
+  "finished_utc": "2026-11-23T05:32:39.720241Z",
+  "device": {
+    "manufacturer": "samsung",
+    "model": "SM-S918B",
+    "device": "dm3q",
+    "android_release": "16",
+    "sdk_int": 36,
+    "fingerprint": "samsung\/dm3qxxx\/dm3q:16\/BP4A.251205.006\/S918BXXSAFZI1:user\/release-keys"
+  },
+  "build": {
+    "application_id": "ai.jandal.assistant.debug",
+    "version_name": "0.1.0",
+    "version_code": 1,
+    "git_sha": "e675fe8d",
+    "build_timestamp": "2026-11-23T05:31:07.519160918Z"
+  },
+  "runtime": {
+    "onnxruntime_version": "1.24.3",
+    "delegate": "CPU",
+    "intra_op_threads": "ORT default (runner does not set it)",
+    "available_processors": 8
+  },
+  "voice": {
+    "sherpa_voice": "CoriHigh",
+    "espeak_data_dir": "\/data\/user\/0\/ai.jandal.assistant.debug\/files\/sherpa-tts\/vits-piper-en_GB-cori-high\/espeak-ng-data",
+    "espeak_data_files": 355
+  },
+  "models": {
+    "directory": "\/storage\/emulated\/0\/Android\/data\/ai.jandal.assistant.debug\/files\/models",
+    "duration_onnx_sha256": "b728ca2564b9e5b7d6cf5e446f65e02a6fe2f1880ba281466fec93a667dd2388",
+    "decode_onnx_sha256": "7940923add86f76e7fa78d910b0632ca1779f8cc9a2ca2b49236381a9ca77183"
+  },
+  "corpus": {
+    "path": "jandal-2088-corpus.tsv",
+    "sha256": "d3f0422e1aa3be629f708740d4f1498e3b751fe88b2a6ea16571c40c371d3bbc",
+    "samples": 8,
+    "repeats": 3
+  },
+  "timing": {
+    "runner_init_ms": 180
+  },
+  "memory": {
+    "vmhwm_kb_start": 318016,
+    "vmrss_kb_start": 296560,
+    "vmhwm_kb_after_init": 389188,
+    "vmhwm_kb_end": 1017472,
+    "vmrss_kb_end": 1016188
+  },
+  "rows": [
+    {
+      "pass": 1,
+      "id": "01-normal-conversation",
+      "chars": 140,
+      "chunks": 1,
+      "frontend_ms": 8,
+      "first_chunk_ms": 1739,
+      "synth_ms": 1693,
+      "audio_ms": 7797.333,
+      "rtf": 0.2171,
+      "peak_abs": 0.5115940570831299,
+      "finite": true,
+      "chunk_synth_ms": [
+        1693
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "02-short-confirmation",
+      "chars": 30,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 415,
+      "synth_ms": 409,
+      "audio_ms": 1856,
+      "rtf": 0.2204,
+      "peak_abs": 0.5179709792137146,
+      "finite": true,
+      "chunk_synth_ms": [
+        409
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "03-au-nz-names",
+      "chars": 214,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2688,
+      "synth_ms": 2662,
+      "audio_ms": 11722.667,
+      "rtf": 0.2271,
+      "peak_abs": 0.5107243061065674,
+      "finite": true,
+      "chunk_synth_ms": [
+        2662
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "04-date-time",
+      "chars": 79,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 1422,
+      "synth_ms": 1407,
+      "audio_ms": 6112,
+      "rtf": 0.2302,
+      "peak_abs": 0.4396333694458008,
+      "finite": true,
+      "chunk_synth_ms": [
+        1407
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "05-numbers-measurement-currency",
+      "chars": 63,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 1798,
+      "synth_ms": 1781,
+      "audio_ms": 7658.667,
+      "rtf": 0.2325,
+      "peak_abs": 0.5076119899749756,
+      "finite": true,
+      "chunk_synth_ms": [
+        1781
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "06-abbreviations",
+      "chars": 118,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2513,
+      "synth_ms": 2489,
+      "audio_ms": 10645.333,
+      "rtf": 0.2338,
+      "peak_abs": 0.5382580757141113,
+      "finite": true,
+      "chunk_synth_ms": [
+        2489
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "07-punctuation-multi",
+      "chars": 139,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2676,
+      "synth_ms": 2649,
+      "audio_ms": 11253.333,
+      "rtf": 0.2354,
+      "peak_abs": 0.5667394399642944,
+      "finite": true,
+      "chunk_synth_ms": [
+        2649
+      ]
+    },
+    {
+      "pass": 1,
+      "id": "08-long-reply",
+      "chars": 451,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 6572,
+      "synth_ms": 6513,
+      "audio_ms": 27168,
+      "rtf": 0.2397,
+      "peak_abs": 0.5979137420654297,
+      "finite": true,
+      "chunk_synth_ms": [
+        6513
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "01-normal-conversation",
+      "chars": 140,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 1900,
+      "synth_ms": 1881,
+      "audio_ms": 7797.333,
+      "rtf": 0.2412,
+      "peak_abs": 0.5115940570831299,
+      "finite": true,
+      "chunk_synth_ms": [
+        1881
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "02-short-confirmation",
+      "chars": 30,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 449,
+      "synth_ms": 444,
+      "audio_ms": 1856,
+      "rtf": 0.2392,
+      "peak_abs": 0.5179709792137146,
+      "finite": true,
+      "chunk_synth_ms": [
+        444
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "03-au-nz-names",
+      "chars": 214,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2845,
+      "synth_ms": 2818,
+      "audio_ms": 11722.667,
+      "rtf": 0.2404,
+      "peak_abs": 0.5107243061065674,
+      "finite": true,
+      "chunk_synth_ms": [
+        2818
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "04-date-time",
+      "chars": 79,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 1488,
+      "synth_ms": 1473,
+      "audio_ms": 6112,
+      "rtf": 0.241,
+      "peak_abs": 0.4396333694458008,
+      "finite": true,
+      "chunk_synth_ms": [
+        1473
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "05-numbers-measurement-currency",
+      "chars": 63,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 1861,
+      "synth_ms": 1843,
+      "audio_ms": 7658.667,
+      "rtf": 0.2406,
+      "peak_abs": 0.5076119899749756,
+      "finite": true,
+      "chunk_synth_ms": [
+        1843
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "06-abbreviations",
+      "chars": 118,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 2613,
+      "synth_ms": 2585,
+      "audio_ms": 10645.333,
+      "rtf": 0.2428,
+      "peak_abs": 0.5382580757141113,
+      "finite": true,
+      "chunk_synth_ms": [
+        2585
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "07-punctuation-multi",
+      "chars": 139,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2823,
+      "synth_ms": 2793,
+      "audio_ms": 11253.333,
+      "rtf": 0.2482,
+      "peak_abs": 0.5667394399642944,
+      "finite": true,
+      "chunk_synth_ms": [
+        2793
+      ]
+    },
+    {
+      "pass": 2,
+      "id": "08-long-reply",
+      "chars": 451,
+      "chunks": 1,
+      "frontend_ms": 3,
+      "first_chunk_ms": 6862,
+      "synth_ms": 6786,
+      "audio_ms": 27168,
+      "rtf": 0.2498,
+      "peak_abs": 0.5979137420654297,
+      "finite": true,
+      "chunk_synth_ms": [
+        6786
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "01-normal-conversation",
+      "chars": 140,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 1981,
+      "synth_ms": 1957,
+      "audio_ms": 7797.333,
+      "rtf": 0.251,
+      "peak_abs": 0.5115940570831299,
+      "finite": true,
+      "chunk_synth_ms": [
+        1957
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "02-short-confirmation",
+      "chars": 30,
+      "chunks": 1,
+      "frontend_ms": 1,
+      "first_chunk_ms": 467,
+      "synth_ms": 460,
+      "audio_ms": 1856,
+      "rtf": 0.2478,
+      "peak_abs": 0.5179709792137146,
+      "finite": true,
+      "chunk_synth_ms": [
+        460
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "03-au-nz-names",
+      "chars": 214,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2987,
+      "synth_ms": 2952,
+      "audio_ms": 11722.667,
+      "rtf": 0.2518,
+      "peak_abs": 0.5107243061065674,
+      "finite": true,
+      "chunk_synth_ms": [
+        2952
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "04-date-time",
+      "chars": 79,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 1551,
+      "synth_ms": 1532,
+      "audio_ms": 6112,
+      "rtf": 0.2507,
+      "peak_abs": 0.4396333694458008,
+      "finite": true,
+      "chunk_synth_ms": [
+        1532
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "05-numbers-measurement-currency",
+      "chars": 63,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 1941,
+      "synth_ms": 1919,
+      "audio_ms": 7658.667,
+      "rtf": 0.2506,
+      "peak_abs": 0.5076119899749756,
+      "finite": true,
+      "chunk_synth_ms": [
+        1919
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "06-abbreviations",
+      "chars": 118,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2716,
+      "synth_ms": 2684,
+      "audio_ms": 10645.333,
+      "rtf": 0.2521,
+      "peak_abs": 0.5382580757141113,
+      "finite": true,
+      "chunk_synth_ms": [
+        2684
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "07-punctuation-multi",
+      "chars": 139,
+      "chunks": 1,
+      "frontend_ms": 2,
+      "first_chunk_ms": 2928,
+      "synth_ms": 2895,
+      "audio_ms": 11253.333,
+      "rtf": 0.2573,
+      "peak_abs": 0.5667394399642944,
+      "finite": true,
+      "chunk_synth_ms": [
+        2895
+      ]
+    },
+    {
+      "pass": 3,
+      "id": "08-long-reply",
+      "chars": 451,
+      "chunks": 1,
+      "frontend_ms": 3,
+      "first_chunk_ms": 7065,
+      "synth_ms": 6988,
+      "audio_ms": 27168,
+      "rtf": 0.2572,
+      "peak_abs": 0.5979137420654297,
+      "finite": true,
+      "chunk_synth_ms": [
+        6988
+      ]
+    }
+  ],
+  "summary": {
+    "rows": 24,
+    "all_finite": true,
+    "rtf_min": 0.2171,
+    "rtf_median": 0.2412,
+    "rtf_max": 0.2573,
+    "rtf_mean": 0.2416,
+    "first_chunk_ms_median": 2513,
+    "first_chunk_ms_max": 7065
+  },
+  "cancel_probe": {
+    "utterance_id": "08-long-reply",
+    "cancel_after_ms": 1000,
+    "cancel_observed": true,
+    "error": "java.util.concurrent.CancellationException",
+    "cancel_return_ms": 5934.769,
+    "recovery_utterance_id": "02-short-confirmation",
+    "recovery_ok": true,
+    "recovery_rtf": 0.2532
+  }
+}
