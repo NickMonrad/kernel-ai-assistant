@@ -12,5 +12,9 @@ import android.os.PowerManager
 internal fun Context.isScreenOffOrLocked(): Boolean {
     val interactive = (getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive != false
     val locked = (getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager)?.isKeyguardLocked == true
-    return !interactive || locked
+    return screenOffOrLockedState(interactive = interactive, keyguardLocked = locked)
 }
+
+/** Pure rule behind [isScreenOffOrLocked]: any non-interactive or keyguard-locked state counts. */
+internal fun screenOffOrLockedState(interactive: Boolean, keyguardLocked: Boolean): Boolean =
+    !interactive || keyguardLocked
