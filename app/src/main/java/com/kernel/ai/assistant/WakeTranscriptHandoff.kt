@@ -13,11 +13,20 @@ internal sealed interface WakeTranscriptHandoffResult {
 
     /**
      * The overlay did not take it, so the transcript is held for a tap on the notification.
-     * [reason] is `start_refused` (the start threw) or `overlay_not_shown` (the start returned but
-     * the overlay never consumed it, as with a background-activity-launch block, which is silent).
+     * [reason] is `start_skipped` (no start was attempted, because the screen is off or locked),
+     * `start_refused` (the start threw) or `overlay_not_shown` (the start returned but the overlay
+     * never consumed it, as with a background-activity-launch block, which is silent).
      */
     data class Held(val reason: String) : WakeTranscriptHandoffResult
 }
+
+/**
+ * Whether to attempt a direct overlay start for a transcript (#2081). A screen-off or locked device
+ * blocks a background activity start, and each blocked attempt logs a BAL wtf at E level. Those
+ * attempts are skipped: the transcript is held for the tap notification instead.
+ */
+internal fun shouldStartOverlayForTranscript(interactive: Boolean, keyguardLocked: Boolean): Boolean =
+    interactive && !keyguardLocked
 
 /**
  * Hands [transcript] to the overlay activity and checks that it was consumed (#2081).
@@ -25,14 +34,20 @@ internal sealed interface WakeTranscriptHandoffResult {
  * The overlay consumes the transcript by clearing [WakeWordHandoff.pendingTranscript]. A blocked
  * activity start does not throw, so the only signal is that the token stays set. When it does,
  * the transcript is held for [wakeToken] rather than dropped, and the notification tap delivers it.
+ * A null [startOverlay] means no start is attempted, and the transcript is held straight away.
  */
 internal suspend fun handOffWakeTranscript(
     transcript: String,
     wakeToken: Long,
-    startOverlay: () -> Unit,
+    startOverlay: (() -> Unit)?,
     consumeWaitMs: Long = WAKE_TRANSCRIPT_CONSUME_WAIT_MS,
     pollMs: Long = 50L,
 ): WakeTranscriptHandoffResult {
+    if (startOverlay == null) {
+        WakeWordHandoff.pendingTranscript = null
+        WakeWordHandoff.hold(HeldWakeTranscript(wakeToken, transcript))
+        return WakeTranscriptHandoffResult.Held("start_skipped")
+    }
     WakeWordHandoff.pendingTranscript = transcript
     val started = runCatching(startOverlay).isSuccess
     var waited = 0L

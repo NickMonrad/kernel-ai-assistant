@@ -52,6 +52,27 @@ class WakeTranscriptHandoffTest {
     }
 
     @Test
+    fun `screen off or locked skips the start and holds straight away`() = runTest {
+        val result = handOffWakeTranscript(
+            transcript = "what time is it",
+            wakeToken = 7L,
+            startOverlay = null,
+        )
+
+        assertEquals(WakeTranscriptHandoffResult.Held("start_skipped"), result)
+        assertEquals(HeldWakeTranscript(7L, "what time is it"), WakeWordHandoff.heldTranscript)
+        assertNull(WakeWordHandoff.pendingTranscript)
+    }
+
+    @Test
+    fun `start is attempted only on an interactive unlocked device`() {
+        assertTrue(shouldStartOverlayForTranscript(interactive = true, keyguardLocked = false))
+        assertFalse(shouldStartOverlayForTranscript(interactive = false, keyguardLocked = false))
+        assertFalse(shouldStartOverlayForTranscript(interactive = true, keyguardLocked = true))
+        assertFalse(shouldStartOverlayForTranscript(interactive = false, keyguardLocked = true))
+    }
+
+    @Test
     fun `start that throws holds the transcript with start_refused`() = runTest {
         val result = handOffWakeTranscript(
             transcript = "what time is it",

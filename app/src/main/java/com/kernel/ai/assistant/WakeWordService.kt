@@ -1215,16 +1215,27 @@ class WakeWordService : Service() {
      */
     private suspend fun routeTranscript(transcript: String): Boolean {
         val token = WakeOverlayChannel.currentToken()
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         val result = handOffWakeTranscript(
             transcript = transcript,
             wakeToken = token,
-            startOverlay = {
-                startActivity(
-                    Intent(this, VoiceCommandActivity::class.java).apply {
-                        putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
+            // #2081: a locked or screen-off start is blocked by BAL, so it is not attempted.
+            startOverlay = if (shouldStartOverlayForTranscript(
+                    interactive = pm.isInteractive,
+                    keyguardLocked = km.isKeyguardLocked,
                 )
+            ) {
+                {
+                    startActivity(
+                        Intent(this, VoiceCommandActivity::class.java).apply {
+                            putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                }
+            } else {
+                null
             },
         )
         return when (result) {
