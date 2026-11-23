@@ -55,3 +55,13 @@ Line texts are not committed. The set is fixed by the category counts below and 
 
 - Gold: 30 lines; 7 "navigate to", 6 "take me to", 5 "weather in", 12 bare-name slot answers. Non-glossary towns: at least 4 (27 of 30 gold lines name a non-glossary town). Reserved names not used: Whangārei, Tauranga, Taupō, Whakatāne, Porirua, Ōtaki, Kaikōura, Waipukurau, Ōamaru, Ngāruawāhia.
 - False-boost: 31 lines: foreign cities (6), AU competitor cities (6), POIs (4), contact name and street address (3), suburbs/localities that must stay unchanged (4), already-correct NZ places (3), gate traps (5).
+
+## Line-set commitment (committed before synthesis)
+
+Private files, not in git. Sha256 only:
+
+| File | sha256 |
+|---|---|
+| `lines.json` (gold and false-boost texts, ids, categories) | `ee1ef5ba77b58882ff65abd247d4a6d6468dfded40fc8304b278f9e6c242d68a` |
+| `heldout-labels.json` (oracle labels, split `heldout`) | `84c8a9756b6d78d2dfa299b511e1a1258e0d97a232aae354d9873dd350a8c891` |
+| `class-map.json` (id to report class) | `2d29af03d141cebb174064f6253365554290178856e8694f497a9f5aef433ef0` |
