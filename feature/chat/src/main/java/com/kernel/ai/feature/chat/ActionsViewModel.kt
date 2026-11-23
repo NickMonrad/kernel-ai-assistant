@@ -566,6 +566,9 @@ class ActionsViewModel @Inject constructor(
                                         }
                                         // speak() returns when playback ends or is stopped, which may be
                                         // after ON_STOP: the background-paused gate keeps the mic closed.
+                                        // The retry is no longer pending once it reopens the mic; clear it first so
+                                        // the mic's own speech cancel does not journal a skipped re-prompt.
+                                        pendingVoiceRetryJob = null
                                         startVoiceCapture(VoiceCaptureMode.Command, userInitiated = false)
                                     }.also { pendingVoiceRetryJob = it }
                                 } else {

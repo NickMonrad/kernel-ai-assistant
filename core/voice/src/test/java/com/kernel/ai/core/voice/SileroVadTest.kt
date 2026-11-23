@@ -70,7 +70,7 @@ class SileroVadTest {
      * stimulus must arm and end by VAD; that side of the assertion proves the stimulus can fail this test.
      */
     @Test
-    fun `a start cue over a minus 55 dB floor does not arm the endpoint inside the 500 ms guard`() {
+    fun `the shipped start cue over a minus 55 dB floor does not arm the endpoint inside the 500 ms guard`() {
         val rng = java.util.Random(7)
         val sigma = 32_767 * Math.pow(10.0, -55 / 20.0)
         val guardSamples = (START_CUE_GUARD_MS * 16).toInt()
@@ -78,7 +78,7 @@ class SileroVadTest {
         for (cueStartMs in listOf(150, 200, 250, 300)) {
             val pcm = ShortArray(11 * 16_000) { (rng.nextGaussian() * sigma).toInt().toShort() }
             val cueAt = cueStartMs * 16
-            for (i in 0 until 1_600) {
+            for (i in 0 until START_CUE_DURATION_MS * 16) {
                 val t = i / 16_000.0
                 val tone = 0.5 * 32_767 * (sin(2 * PI * 400 * t) + sin(2 * PI * 1_200 * t)) / 2
                 pcm[cueAt + i] = (pcm[cueAt + i] + tone).roundToInt().coerceIn(-32_768, 32_767).toShort()

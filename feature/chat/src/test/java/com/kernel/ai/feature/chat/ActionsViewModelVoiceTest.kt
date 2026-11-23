@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import io.mockk.Runs
 import io.mockk.clearMocks
 import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_VOICE_MESSAGE
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import java.io.File
 import com.kernel.ai.core.voice.VoiceRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -822,6 +824,68 @@ class ActionsViewModelVoiceTest {
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         assertNull(viewModel.speakingActionId.value)
         coVerify(exactly = 0) { voiceInputController.startListening(any()) }
+    }
+
+    @Test
+    fun `a command retry that reopens the mic does not journal a skipped re-prompt`() = runTest(dispatcher) {
+        val mark = startJournalMark()
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertTrue(journalLinesAfter(mark).none { "reprompt_skip" in it })
+    }
+
+    @Test
+    fun `stopping a command retry that is still waiting journals a skipped re-prompt`() = runTest(dispatcher) {
+        val mark = startJournalMark()
+        coEvery {
+            voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
+        } coAnswers { awaitCancellation() }
+        coEvery { voiceInputPreferences.recordMicUseStarted() } returns 1
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.Command)
+        } returns VoiceInputStartResult.Started(1L)
+        viewModel.startVoiceCommand()
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "Didn't hear anything.", captureSessionId = 1L))
+        advanceUntilIdle()
+        viewModel.stopVoiceOutput()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertTrue(
+            journalLinesAfter(mark).any { "reprompt_skip" in it && "PENDING_CANCELLED" in it },
+            "no PENDING_CANCELLED re-prompt skip after stopping the waiting retry: ${journalLinesAfter(mark)}",
+        )
+    }
+
+    /**
+     * Installs the journal and records a numeric marker (the journal redacts string values). Events after the
+     * marker belong to this test. Returns the marker so [journalLinesAfter] can find it.
+     */
+    private fun startJournalMark(): Long {
+        val journal = File.createTempFile("jandal-actions-voice", ".log").apply { deleteOnExit() }
+        JandalEvents.install(journal)
+        val mark = System.nanoTime() % 999_999_999L
+        JandalEvents.record("test", "mark", "id" to mark)
+        JandalEvents.awaitWritesForTest()
+        return mark
+    }
+
+    /** Lines recorded after [mark]. Fails if the marker is missing, so an empty journal cannot pass a negative check. */
+    private fun journalLinesAfter(mark: Long): List<String> {
+        JandalEvents.awaitWritesForTest()
+        val lines = JandalEvents.exportLines()
+        val start = lines.indexOfFirst { it.contains(mark.toString()) }
+        check(start >= 0) { "journal marker $mark missing from export" }
+        return lines.drop(start + 1)
     }
 
     @Test
