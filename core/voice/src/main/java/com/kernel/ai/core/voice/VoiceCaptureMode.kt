@@ -4,4 +4,5 @@ enum class VoiceCaptureMode {
     Command,
     SlotReply,
     AlertCommand,
+    Dictation,
 }
