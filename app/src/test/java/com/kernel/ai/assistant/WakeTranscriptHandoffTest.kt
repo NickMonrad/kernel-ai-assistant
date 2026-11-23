@@ -5,6 +5,8 @@ import com.kernel.ai.core.voice.HeldWakeTranscript
 import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.voice.WakeWordHandoff
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.AfterEach
@@ -38,7 +40,7 @@ class WakeTranscriptHandoffTest {
         WakeOverlayChannel.attachOverlay(token)
         val taken = async { WakeOverlayChannel.awaitTranscript(token) }
 
-        val result = handOffWakeTranscript("what time is it", token, nowMs = 0L, consumeWaitMs = 1_000L, pollMs = 10L)
+        val result = handOffWakeTranscript("what time is it", token, clock = { 0L }, consumeWaitMs = 1_000L, pollMs = 10L)
 
         assertEquals(WakeTranscriptHandoffResult.Consumed, result)
         assertEquals("what time is it", taken.await())
@@ -49,7 +51,7 @@ class WakeTranscriptHandoffTest {
     fun `no attached overlay holds the transcript for a tap with the not-attached reason`() = runTest {
         val token = WakeOverlayChannel.begin()
 
-        val result = handOffWakeTranscript("set a timer", token, nowMs = 100L, consumeWaitMs = 1_000L, pollMs = 10L)
+        val result = handOffWakeTranscript("set a timer", token, clock = { 100L }, consumeWaitMs = 1_000L, pollMs = 10L)
 
         assertEquals(WakeTranscriptHandoffResult.Held("overlay_not_attached", null), result)
         assertEquals(HeldWakeTranscript(token, "set a timer", 100L), WakeWordHandoff.heldTranscript)
@@ -60,7 +62,7 @@ class WakeTranscriptHandoffTest {
         val token = WakeOverlayChannel.begin()
         WakeOverlayChannel.attachOverlay(token)
 
-        val result = handOffWakeTranscript("late", token, nowMs = 0L, consumeWaitMs = 30L, pollMs = 10L)
+        val result = handOffWakeTranscript("late", token, clock = { 0L }, consumeWaitMs = 30L, pollMs = 10L)
 
         assertEquals(WakeTranscriptHandoffResult.Held("overlay_not_taken", null), result)
         assertEquals(HeldWakeTranscript(token, "late", 0L), WakeWordHandoff.heldTranscript)
@@ -70,12 +72,24 @@ class WakeTranscriptHandoffTest {
     }
 
     @Test
+    fun `hold time is read when the transcript is held, after the consume wait`() = runTest {
+        var now = 0L
+        val token = WakeOverlayChannel.begin()
+        WakeOverlayChannel.attachOverlay(token)
+        launch { delay(15L); now = 2_000L }
+
+        handOffWakeTranscript("late", token, clock = { now }, consumeWaitMs = 30L, pollMs = 10L)
+
+        assertEquals(HeldWakeTranscript(token, "late", 2_000L), WakeWordHandoff.heldTranscript)
+    }
+
+    @Test
     fun `holding a second transcript returns the displaced one so the service can journal it`() = runTest {
         val first = WakeOverlayChannel.begin()
-        handOffWakeTranscript("first", first, nowMs = 1L, consumeWaitMs = 0L, pollMs = 10L)
+        handOffWakeTranscript("first", first, clock = { 1L }, consumeWaitMs = 0L, pollMs = 10L)
         val second = WakeOverlayChannel.begin()
 
-        val result = handOffWakeTranscript("second", second, nowMs = 2L, consumeWaitMs = 0L, pollMs = 10L)
+        val result = handOffWakeTranscript("second", second, clock = { 2L }, consumeWaitMs = 0L, pollMs = 10L)
 
         assertEquals(
             WakeTranscriptHandoffResult.Held("overlay_not_attached", HeldWakeTranscript(first, "first", 1L)),

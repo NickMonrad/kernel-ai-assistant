@@ -519,7 +519,9 @@ internal suspend fun runWakeCommandHandoff(
                 AcousticEventType.COMMAND_ROUTING_RESULT,
                 metadata = { mapOf("outcome" to if (handedOff) "handed_off" else "held_for_tap") },
             )
-            completed = true
+            // #2081: a held transcript is not a completed command; it may still expire untapped.
+            completed = handedOff
+            if (!handedOff) cancellationCategory = "held_for_tap"
         }
     } catch (e: WakeAttemptCollectionException) {
         cancellationCategory = e.category
@@ -1148,7 +1150,7 @@ class WakeWordService : Service() {
             delay(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
             if (WakeWordHandoff.expireHeld(token) != null) {
                 cancelWakeOverlayNotification()
-                Log.w(TAG, "WakeWordService: held wake command expired without a tap")
+                Log.w(TAG, "WakeWordService: held wake command expired without a tap (token=$token)")
                 AcousticJournalBridge.record(
                     type = AcousticEventType.COMMAND_ROUTING_RESULT,
                     metadata = { mapOf("outcome" to "failed", "category" to "held_expired_undelivered") },
@@ -1217,14 +1219,14 @@ class WakeWordService : Service() {
      */
     private suspend fun routeTranscript(transcript: String): Boolean {
         val token = WakeOverlayChannel.currentToken()
-        return when (val result = handOffWakeTranscript(transcript, token, nowMs = SystemClock.elapsedRealtime())) {
+        return when (val result = handOffWakeTranscript(transcript, token, clock = SystemClock::elapsedRealtime)) {
             WakeTranscriptHandoffResult.Consumed -> {
                 WakeOverlayChannel.markRouted()
                 cancelWakeOverlayNotification()
                 true
             }
             is WakeTranscriptHandoffResult.Held -> {
-                Log.w(TAG, "WakeWordService: overlay did not take the transcript (${result.reason}); held for a tap")
+                Log.w(TAG, "WakeWordService: overlay did not take the transcript (${result.reason}); held for a tap (token=$token)")
                 if (result.displaced != null) {
                     AcousticJournalBridge.record(
                         type = AcousticEventType.COMMAND_ROUTING_RESULT,

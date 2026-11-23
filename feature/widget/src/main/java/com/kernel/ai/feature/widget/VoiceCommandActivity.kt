@@ -235,12 +235,14 @@ class VoiceCommandActivity : ComponentActivity() {
     internal fun handleHeldTranscriptIntent(intent: Intent): Boolean {
         if (!intent.getBooleanExtra(EXTRA_WAKE_HELD, false)) return false
         getSystemService(NotificationManager::class.java).cancel(WAKE_OVERLAY_NOTIFICATION_ID)
+        val heldToken = intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L)
         when (val take = WakeWordHandoff.takeHeld(
-            intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L),
+            heldToken,
             SystemClock.elapsedRealtime(),
             WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS,
         )) {
             is HeldTake.Delivered -> {
+                Log.i(TAG, "VoiceCommandActivity: delivered held wake transcript (token=$heldToken)")
                 AcousticJournalBridge.record(
                     type = AcousticEventType.COMMAND_ROUTING_RESULT,
                     metadata = { mapOf("outcome" to "handed_off", "category" to "held_delivered_on_tap") },
@@ -248,7 +250,7 @@ class VoiceCommandActivity : ComponentActivity() {
                 routePrefilledTranscript(take.text)
             }
             is HeldTake.Expired -> {
-                Log.w(TAG, "VoiceCommandActivity: held wake command expired before the tap")
+                Log.w(TAG, "VoiceCommandActivity: held wake command expired before the tap (token=$heldToken)")
                 AcousticJournalBridge.record(
                     type = AcousticEventType.COMMAND_ROUTING_RESULT,
                     metadata = { mapOf("outcome" to "failed", "category" to "held_expired_undelivered") },
@@ -333,6 +335,8 @@ class VoiceCommandActivity : ComponentActivity() {
      * that arrives before onDestroy runs cannot be routed. onDestroy stays as a backstop.
      */
     private fun dismissWakeOverlay() {
+        // A transcript offered but not yet routed must not run once the user closed the overlay (#2081).
+        wakeTranscriptJob?.cancel()
         if (wakeIntentSeen) WakeOverlayChannel.requestCancel(wakeToken)
         finish()
     }
