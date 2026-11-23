@@ -208,6 +208,13 @@ val releaseVersionPrefix = baseVersionName.substringBeforeLast('.')
 android {
     namespace = "com.kernel.ai"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    ndkVersion = "28.2.13676358"
+    externalNativeBuild {
+        cmake {
+            path = file("src/debug/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     defaultConfig {
         applicationId = baseApplicationId
@@ -262,6 +269,14 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = if (isolatedInflectProbe) ".debug.inflectprobe" else ".debug"
             signingConfig = signingConfigs.getByName("debugSigning")
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
+            externalNativeBuild {
+                cmake {
+                    targets += "kokoro_phonemis"
+                }
+            }
             buildConfigField("boolean", "IS_INFLECT_PROBE", isolatedInflectProbe.toString())
             buildConfigField("String", "HF_REDIRECT_URI", "\"$debugApplicationId://oauth/callback\"")
         }

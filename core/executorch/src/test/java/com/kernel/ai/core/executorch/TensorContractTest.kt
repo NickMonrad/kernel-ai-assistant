@@ -55,6 +55,29 @@ class TensorContractTest {
     }
 
     @Test
+    fun `bool factories fill every element with one value and report BOOL`() {
+        val ones = ExecuTorchTensor.Bool.allTrue(longArrayOf(1, 5))
+        val zeros = ExecuTorchTensor.Bool.allFalse(longArrayOf(1, 5))
+        assertEquals(TensorDType.BOOL, ones.dtype)
+        assertEquals(listOf(1L, 5L), ones.shape)
+        assertTrue(ones.data.all { it } && ones.data.size == 5)
+        assertTrue(zeros.data.none { it } && zeros.data.size == 5)
+    }
+
+    @Test
+    fun `bool tensor with a zero dim holds no elements`() {
+        val empty = ExecuTorchTensor.Bool.allTrue(longArrayOf(1, 0))
+        assertEquals(0, empty.data.size)
+    }
+
+    @Test
+    fun `bool spec matches only the bool dtype`() {
+        val spec = TensorSpec("textMask", TensorDType.BOOL, TensorDim.exact(1), TensorDim.between(2, 128))
+        assertTrue(spec.matches(ExecuTorchTensor.Bool.allTrue(longArrayOf(1, 16))))
+        assertTrue(!spec.matches(ExecuTorchTensor.Int64(LongArray(16), longArrayOf(1, 16))))
+    }
+
+    @Test
     fun `shape assertion names method, output and both shapes`() {
         val error = assertThrows<OutputShapeMismatchException> {
             assertOutputShapes(

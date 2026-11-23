@@ -70,6 +70,8 @@ crosses C++ runtimes, `std::current_exception()` returns null, and fbjni's `FBJN
 aborts. Upstream pull request [pytorch/executorch#22739](https://github.com/pytorch/executorch/pull/22739)
 (dynamic libc++) describes this failure mode; it is not in 1.5.1.
 
+Not every error aborts. On the S23U (`SM-S918B`, #1557 spike) a `uint8` tensor where the program expects `bool` was rejected with a log line (`Input 1 has unexpected scalar type: expected Bool but was Byte`) and the Java call never returned (about 15 min, no exception). Treat a wrong input dtype as a possible hang: validate dtypes in Kotlin before `run`, and run native calls under a deadline.
+
 Mitigation in this module: reject what Kotlin can check before native code.
 
 - `PteHeader` checks the `ET12` identifier and that the file holds the bytes its extended header

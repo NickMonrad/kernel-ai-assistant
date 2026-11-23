@@ -1,7 +1,7 @@
 package com.kernel.ai.core.executorch
 
 /** Element types this module passes to and from ExecuTorch programs. */
-enum class TensorDType { FLOAT32, INT32, INT64, INT8, UINT8 }
+enum class TensorDType { FLOAT32, INT32, INT64, INT8, UINT8, BOOL }
 
 /**
  * A dense, row-major tensor exchanged with an ExecuTorch method.
@@ -51,5 +51,30 @@ sealed class ExecuTorchTensor(shape: LongArray, dataSize: Int) {
     /** Unsigned 8-bit elements stored in a [ByteArray]; read with `toInt() and 0xFF`. */
     class UInt8(val data: ByteArray, shape: LongArray) : ExecuTorchTensor(shape, data.size) {
         override val dtype get() = TensorDType.UINT8
+    }
+
+    /**
+     * Boolean elements, one per value. As an input each element is passed as one byte
+     * (`BoolInputTensor`), so any mix of true and false is valid. Outputs are read as `byte != 0`.
+     */
+    class Bool private constructor(val data: BooleanArray, shape: LongArray) : ExecuTorchTensor(shape, data.size) {
+        override val dtype get() = TensorDType.BOOL
+
+        companion object {
+            /** A bool tensor of [shape] with every element true. */
+            fun allTrue(shape: LongArray): Bool = Bool(BooleanArray(elementCount(shape)) { true }, shape)
+
+            /** A bool tensor of [shape] with every element false. */
+            fun allFalse(shape: LongArray): Bool = Bool(BooleanArray(elementCount(shape)), shape)
+
+            /** A bool tensor of [shape] holding [values] in row-major order. */
+            fun of(shape: LongArray, values: BooleanArray): Bool = Bool(values.copyOf(), shape)
+
+            /** Wraps native output values. */
+            internal fun fromOutput(data: BooleanArray, shape: LongArray): Bool = Bool(data, shape)
+
+            private fun elementCount(shape: LongArray): Int =
+                Math.toIntExact(shape.fold(1L) { acc, dim -> Math.multiplyExact(acc, dim) })
+        }
     }
 }
