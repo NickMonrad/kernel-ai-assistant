@@ -35,8 +35,16 @@ class GetWeatherHighLowFormatTest {
         unmockkStatic(Log::class)
     }
 
-    private fun dailyJson(dates: List<String>, highs: List<Double>, lows: List<Double>): String = """
-        {"latitude":-13.83,"longitude":-171.76,
+    /** 2026-11-22 12:00 UTC: the place's date is 22 Nov at utc_offset 0 (dailyJson default). */
+    private val NOON_22_NOV_UTC: Long = java.time.Instant.parse("2026-11-22T12:00:00Z").toEpochMilli()
+
+    private fun dailyJson(
+        dates: List<String>,
+        highs: List<Double>,
+        lows: List<Double>,
+        utcOffsetSeconds: Int = 0,
+    ): String = """
+        {"latitude":-13.83,"longitude":-171.76,"utc_offset_seconds":$utcOffsetSeconds,
          "daily":{
             "time":[${dates.joinToString(",") { "\"$it\"" }}],
             "temperature_2m_max":[${highs.joinToString(",")}],
@@ -118,5 +126,188 @@ class GetWeatherHighLowFormatTest {
         )
         assertTrue(direct.content.contains(", high 30°C, low 25°C"), "text=${direct.content}")
         assertTrue(direct.content.contains(", high 29°C, low 23°C"), "text=${direct.content}")
+    }
+
+    /** #2056 — the Wellington repro: today 21/13, tomorrow 18/15. The tool does the arithmetic. */
+    @Test
+    fun `two-day forecast adds a computed comparison of tomorrow against today`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
+        )
+        assertTrue(
+            direct.content.contains(
+                "Comparison, tomorrow vs today: high 18°C vs 21°C, 3°C cooler; low 15°C vs 13°C, 2°C warmer.",
+            ),
+            "text=${direct.content}",
+        )
+        assertTrue(
+            direct.spokenSummary.orEmpty().endsWith(
+                "Tomorrow will be 3 degrees cooler in Wellington, with a high of 18 degrees, down from 21.",
+            ),
+            "spoken=${direct.spokenSummary}",
+        )
+    }
+
+    /** #2033/#2056 — compare=true speaks only the computed sentence; the model never restates these numbers. */
+    @Test
+    fun `comparison request speaks a ready-to-speak sentence only`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(31.0, 30.0),
+            lows = listOf(25.0, 24.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Apia", compare = true, nowMillis = NOON_22_NOV_UTC),
+        )
+        assertEquals(
+            "Tomorrow will be slightly cooler in Apia, with a high of 30 degrees, down from 31.",
+            direct.spokenSummary,
+        )
+    }
+
+    @Test
+    fun `equal temperatures are reported as the same`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(20.0, 20.0),
+            lows = listOf(10.0, 10.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Apia", compare = true, nowMillis = NOON_22_NOV_UTC),
+        )
+        assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
+        assertTrue(
+            direct.spokenSummary.orEmpty().endsWith("Tomorrow will be about the same as today in Apia, with a high of 20 degrees."),
+            "spoken=${direct.spokenSummary}",
+        )
+    }
+
+    @Test
+    fun `comparison is only added for exactly two days`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23", "2026-11-24"),
+            highs = listOf(21.0, 18.0, 19.0),
+            lows = listOf(13.0, 15.0, 14.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2033 — without compare=true a two-day forecast is a plain readback: no computed comparison. */
+    @Test
+    fun `two-day forecast without compare has no comparison`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington"),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2033 — a cached reply from before midnight: its first row is yesterday, so no "today vs tomorrow" is spoken. */
+    @Test
+    fun `comparison is dropped when the first forecast row is already past`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-21", "2026-11-22"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", compare = true, nowMillis = NOON_22_NOV_UTC),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2066 — "tomorrow" plus N days keeps rows 1..N of a body that starts today. */
+    @Test
+    fun `parseForecastRange returns the requested days from tomorrow onward`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25"),
+            highs = listOf(21.0, 18.0, 19.0, 20.0),
+            lows = listOf(13.0, 15.0, 14.0, 12.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastRange(json, "Wellington", fromIndex = 1, count = 2),
+        )
+        assertTrue(direct.content.contains("23 Nov"), "text=${direct.content}")
+        assertTrue(direct.content.contains("24 Nov"), "text=${direct.content}")
+        assertFalse(direct.content.contains("22 Nov"), "text=${direct.content}")
+        assertFalse(direct.content.contains("25 Nov"), "text=${direct.content}")
+    }
+
+    /** The place's date decides "today": London asked from NZ on the morning of 23 Nov still has 22 Nov as its today. */
+    @Test
+    fun `comparison uses the place's date when the phone is ahead of it`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(9.0, 12.0),
+            lows = listOf(4.0, 6.0),
+            utcOffsetSeconds = 0,
+        )
+        val previous = java.util.TimeZone.getDefault()
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Pacific/Auckland"))
+        try {
+            // 09:00 on 23 Nov in Auckland (NZDT, UTC+13) = 20:00 UTC on 22 Nov
+            val nowMillis = java.time.Instant.parse("2026-11-22T20:00:00Z").toEpochMilli()
+            val direct = assertInstanceOf(
+                SkillResult.DirectReply::class.java,
+                skill.parseForecastResponse(json, "London", compare = true, nowMillis = nowMillis),
+            )
+            assertTrue(direct.content.contains("Comparison, tomorrow vs today"), "text=${direct.content}")
+            assertTrue(
+                direct.spokenSummary.orEmpty().startsWith("Tomorrow will be"),
+                "spoken=${direct.spokenSummary}",
+            )
+        } finally {
+            java.util.TimeZone.setDefault(previous)
+        }
+    }
+
+    /** A cached reply from before the place's midnight: its first row is yesterday at the place, so it is dropped. */
+    @Test
+    fun `cached reply from before the place's midnight drops the comparison`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(9.0, 12.0),
+            lows = listOf(4.0, 6.0),
+            utcOffsetSeconds = 0,
+        )
+        // 00:30 on 23 Nov in London (UTC+0)
+        val nowMillis = java.time.Instant.parse("2026-11-23T00:30:00Z").toEpochMilli()
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "London", compare = true, nowMillis = nowMillis),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
     }
 }
