@@ -145,6 +145,10 @@ asr4all speech recognition weights (Asr4All, 56M and 97M sizes)
   activity, and circumvention of those limits. asr4all-l-plus is under a different licence
   and is not covered by this entry.
 
+Silero VAD (silero_vad.onnx, utterance endpointing, #2078)
+  Copyright (c) 2020-present Silero Team
+  Licensed under the MIT License. Full text: https://github.com/snakers4/silero-vad/blob/master/LICENSE
+
 Additional third-party libraries and downloadable model/voice assets
   Jandal AI depends on third-party Android/Kotlin libraries, local inference runtimes,
   optional speech engines, optional voice packs, and gated model downloads. Source

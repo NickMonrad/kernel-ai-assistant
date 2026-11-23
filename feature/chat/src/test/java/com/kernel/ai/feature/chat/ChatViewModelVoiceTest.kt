@@ -174,6 +174,8 @@ class ChatViewModelVoiceTest {
         coEvery { inferenceEngine.updateSystemPrompt(any()) } just runs
         every { slotValidationRegistry.validateParams(any(), any()) } returns null
         every { slotValidationRegistry.validate(any(), any(), any()) } returns SlotValidationResult.valid()
+        // No slot is pending by default: the chat mic captures a dictation. Slot tests stub a pending request.
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
         coEvery { inferenceEngine.resetConversation() } just runs
 
         every { downloadManager.downloadStates } returns MutableStateFlow<Map<KernelModel, DownloadState>>(emptyMap())
@@ -207,7 +209,7 @@ class ChatViewModelVoiceTest {
         every { jandalPersona.currentPersonaMode } returns PersonaMode.FULL
         every { voiceInputController.events } returns voiceInputEvents
         every { voiceInputController.notices } returns voiceInputNotices
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Dictation) } returns
             VoiceInputStartResult.Started(1L)
         every { voiceInputController.stopListening() } just runs
         every { voiceOutputController.events } returns voiceOutputEvents
@@ -250,16 +252,16 @@ class ChatViewModelVoiceTest {
     @Test
     fun `a cancelled stop clears Processing while waiting for a final transcript`() = runTest(dispatcher) {
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set a timer", 1L))
-        voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Command, 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Dictation, 1L))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Dictation, "set a timer", 1L))
+        voiceInputEvents.emit(VoiceInputEvent.SpeechEnded(VoiceCaptureMode.Dictation, 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -267,7 +269,7 @@ class ChatViewModelVoiceTest {
             viewModel.voiceCaptureState.value,
         )
 
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, 1L, cancelled = true))
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -284,7 +286,7 @@ class ChatViewModelVoiceTest {
             emit(GenerationResult.Complete(durationMs = 1L))
         }
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -292,7 +294,7 @@ class ChatViewModelVoiceTest {
         viewModel.startVoiceInput()
         runCurrent()
         voiceInputEvents.emit(
-            VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "submitted turn", captureSessionId = 1L),
+            VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "submitted turn", captureSessionId = 1L),
         )
         runCurrent()
         assertEquals(
@@ -300,7 +302,7 @@ class ChatViewModelVoiceTest {
             viewModel.voiceCaptureState.value,
         )
 
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, 1L, cancelled = true))
         runCurrent()
         assertEquals(
             ChatViewModel.VoiceCaptureState.Processing("submitted turn"),
@@ -314,16 +316,16 @@ class ChatViewModelVoiceTest {
     @Test
     fun `a cancelled stop clears an owned listening capture without submitting its partial`() = runTest(dispatcher) {
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "set a timer", 1L))
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Dictation, 1L))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Dictation, "set a timer", 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, 1L, cancelled = true))
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -332,7 +334,7 @@ class ChatViewModelVoiceTest {
     @Test
     fun `ListeningStarted emits one chat start haptic signal`() = runTest(dispatcher) {
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -341,7 +343,7 @@ class ChatViewModelVoiceTest {
 
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Dictation, 1L))
         advanceUntilIdle()
 
         assertEquals(1, haptics.size)
@@ -350,7 +352,7 @@ class ChatViewModelVoiceTest {
     @Test
     fun `never-admitted cancellation returns chat capture to Idle without retry`() = runTest(dispatcher) {
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Cancelled()
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -359,7 +361,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
 
@@ -367,7 +369,7 @@ class ChatViewModelVoiceTest {
     fun `foreign prior-session events cannot change a preparing or listening replacement`() = runTest(dispatcher) {
         val secondStart = CompletableDeferred<VoiceInputStartResult>()
         var starts = 0
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } coAnswers {
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Dictation) } coAnswers {
             if (starts++ == 0) VoiceInputStartResult.Started(1L) else secondStart.await()
         }
         val viewModel = createViewModel()
@@ -380,21 +382,21 @@ class ChatViewModelVoiceTest {
         runCurrent()
         assertEquals(ChatViewModel.VoiceCaptureState.Preparing, viewModel.voiceCaptureState.value)
 
-        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Command, "A", 1L))
+        voiceInputEvents.emit(VoiceInputEvent.PartialTranscript(VoiceCaptureMode.Dictation, "A", 1L))
         advanceUntilIdle()
         assertEquals(ChatViewModel.VoiceCaptureState.Preparing, viewModel.voiceCaptureState.value)
 
         secondStart.complete(VoiceInputStartResult.Started(2L))
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, 2L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Dictation, 2L))
         advanceUntilIdle()
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
 
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, 1L, cancelled = true))
         advanceUntilIdle()
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
         // A superseded session's final result cannot submit or change the replacement's state.
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stale", 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "stale", 1L))
         advanceUntilIdle()
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
     }
@@ -417,7 +419,7 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
 
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel timer", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "cancel timer", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals("", viewModel.getConversationAsText())
@@ -434,7 +436,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello there", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello there", captureSessionId = 1L))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
         advanceUntilIdle()
@@ -469,7 +471,7 @@ class ChatViewModelVoiceTest {
     @Test
     fun `startVoiceInput surfaces unavailable recognizer state`() = runTest(dispatcher) {
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Unavailable("Voice input is unavailable.")
 
         val viewModel = createViewModel()
@@ -527,7 +529,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Convert 1 gallon to litres", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Convert 1 gallon to litres", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -551,7 +553,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Say hi", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Say hi", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(listOf("Hi there, all good." to true), streamedChunks)
@@ -592,7 +594,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Convert 2 cups to millilitres", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Convert 2 cups to millilitres", captureSessionId = 1L))
         runCurrent()
 
         viewModel.stopVoiceOutput()
@@ -622,7 +624,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         runCurrent()
 
         clearMocks(voiceOutputController, answers = false)
@@ -653,7 +655,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         runCurrent()
         assertEquals(ChatViewModel.VoiceMode.BackAndForth, viewModel.voiceMode.value)
 
@@ -683,7 +685,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceHeldSession.release(any()) }
@@ -717,7 +719,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -750,7 +752,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         advanceUntilIdle()
 
         coVerify(atLeast = 1) { voiceHeldSession.cancel() }
@@ -778,9 +780,9 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "recognizer failed", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Dictation, "recognizer failed", captureSessionId = 1L))
         runCurrent()
 
         coVerify(atLeast = 1) { voiceHeldSession.cancel() }
@@ -809,7 +811,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Check the weather", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Check the weather", captureSessionId = 1L))
         advanceUntilIdle()
         toolGate.complete(Unit)
         advanceUntilIdle()
@@ -836,7 +838,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         advanceUntilIdle()
 
         viewModel.onScreenStopped(screenOff = false)
@@ -867,7 +869,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me a story", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me a story", captureSessionId = 1L))
         advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceHeldSession.release(any()) }
@@ -899,7 +901,7 @@ class ChatViewModelVoiceTest {
         viewModel.startBackAndForthVoiceInput()
         advanceUntilIdle()
         clearMocks(voiceInputController, answers = false)
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Say hi later", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Say hi later", captureSessionId = 1L))
         advanceUntilIdle()
 
         viewModel.onScreenStopped(screenOff = true)
@@ -917,7 +919,7 @@ class ChatViewModelVoiceTest {
         // Speech finishes with the screen off: the back-and-forth loop must not reopen the mic.
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceUntilIdle()
-        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
     @Test
@@ -935,7 +937,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Weather in Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(
@@ -960,7 +962,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me about kiwi birds", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(
@@ -985,7 +987,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about kiwi birds", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me about kiwi birds", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -1016,7 +1018,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Weather in Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(
@@ -1047,7 +1049,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Weather in Apia", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Weather in Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         // Weather wording is tool-shaped (#2058), so the raw-call retry fails and the guard line is spoken.
@@ -1083,7 +1085,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Apia", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me about Apia", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(streamedChunks.isEmpty(), "raw tool-call text was spoken: $streamedChunks")
@@ -1115,7 +1117,7 @@ class ChatViewModelVoiceTest {
 
     private suspend fun TestScope.speakVoiceQuery(viewModel: ChatViewModel, query: String) {
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, query, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, query, captureSessionId = 1L))
         advanceUntilIdle()
     }
 
@@ -1229,7 +1231,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Brisbane", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me about Brisbane", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(streamedChunks.size > 1, "reply was not split by sentence: $streamedChunks")
@@ -1260,7 +1262,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Tell me about Brisbane", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Tell me about Brisbane", captureSessionId = 1L))
         advanceUntilIdle()
         viewModel.stopVoiceOutput()
         gate.complete(Unit)
@@ -1350,7 +1352,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "remember that", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
@@ -1405,7 +1407,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "can you remember that", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "can you remember that", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
@@ -1466,7 +1468,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "remember that", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: I'll remember your birthday is 15 March."))
@@ -1514,7 +1516,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "remember that", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "remember that", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not save memory right now."))
@@ -1550,7 +1552,7 @@ class ChatViewModelVoiceTest {
         )
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "yes", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "yes", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("Jandal: Could not complete the confirmed action."))
@@ -1569,7 +1571,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello there", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello there", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -1586,7 +1588,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello one shot", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello one shot", captureSessionId = 1L))
         advanceUntilIdle()
 
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
@@ -1596,7 +1598,7 @@ class ChatViewModelVoiceTest {
 
         assertEquals("You: Hello one shot\nJandal: Hi back", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
     @Test
@@ -1608,20 +1610,20 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello loop", captureSessionId = 1L))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
 
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceUntilIdle()
 
         assertEquals("You: Hello loop\nJandal: Hi back", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         coVerify(exactly = 1) {
             voiceOutputController.openStreamingSession(any())
         }
@@ -1637,7 +1639,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello silent loop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello silent loop", captureSessionId = 1L))
         advanceUntilIdle()
 
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
@@ -1645,7 +1647,7 @@ class ChatViewModelVoiceTest {
 
         assertEquals("You: Hello silent loop\nJandal: Hi back", viewModel.getConversationAsText())
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
     @Test
@@ -1660,17 +1662,17 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello stop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello stop", captureSessionId = 1L))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
         advanceUntilIdle()
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
 
         assertTrue(coordinator.requestStop())
         advanceUntilIdle()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         assertEquals(ChatViewModel.VoiceCaptureState.Listening(), viewModel.voiceCaptureState.value)
     }
 
@@ -1688,7 +1690,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello generating", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello generating", captureSessionId = 1L))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
         advanceUntilIdle()
@@ -1696,11 +1698,11 @@ class ChatViewModelVoiceTest {
         generating.value = true
         assertTrue(coordinator.requestStop())
         advanceUntilIdle()
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
 
         generating.value = false
         advanceUntilIdle()
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
     @Test
@@ -1720,7 +1722,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         verify(atLeast = 1) { voiceOutputController.stop() }
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
 
     @Test
@@ -1738,7 +1740,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Stop speaking", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Stop speaking", captureSessionId = 1L))
         runCurrent()
 
         viewModel.stopVoiceOutput()
@@ -1747,7 +1749,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         verify(atLeast = 1) { voiceOutputController.stop() }
     }
 
@@ -1835,7 +1837,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Stop listening", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Stop listening", captureSessionId = 1L))
         runCurrent()
 
         viewModel.stopVoiceInput()
@@ -1844,7 +1846,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
@@ -1875,7 +1877,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, input, captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(
@@ -1885,7 +1887,7 @@ class ChatViewModelVoiceTest {
         assertEquals(ChatViewModel.VoiceMode.BackAndForth, viewModel.voiceMode.value)
         assertEquals(ChatViewModel.WeatherLocationState(), viewModel.weatherLocationState.value)
 
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, 1L, cancelled = true))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, 1L, cancelled = true))
         advanceUntilIdle()
         assertEquals(
             ChatViewModel.VoiceCaptureState.Processing(input),
@@ -1900,7 +1902,7 @@ class ChatViewModelVoiceTest {
         assertNull(viewModel.voiceMode.value)
         assertNull(viewModel.weatherLocationState.value)
         assertEquals("You: $input", viewModel.getConversationAsText())
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         verify(exactly = 0) { voiceInputController.stopListening() }
     }
 
@@ -1931,7 +1933,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, input, captureSessionId = 1L))
         advanceUntilIdle()
 
         val errorState = async {
@@ -1979,12 +1981,12 @@ class ChatViewModelVoiceTest {
             }
         }
         voiceInputEvents.emit(
-            VoiceInputEvent.Error(VoiceCaptureMode.Command, "I didn't catch anything", captureSessionId = 1L),
+            VoiceInputEvent.Error(VoiceCaptureMode.Dictation, "I didn't catch anything", captureSessionId = 1L),
         )
         advanceUntilIdle()
         errorState.await()
 
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
@@ -2000,20 +2002,20 @@ class ChatViewModelVoiceTest {
         // First silence re-opens the mic once (#790), like any command capture.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
+                mode = VoiceCaptureMode.Dictation,
                 message = "No speech heard. Try again.",
                 captureSessionId = 1L,
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
             ),
         )
         advanceUntilIdle()
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         coVerify(exactly = 1) {
             voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
         }
         coVerifyOrder {
             voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         }
 
         val errorState = async {
@@ -2024,7 +2026,7 @@ class ChatViewModelVoiceTest {
         // Second silence: the budget is spent, so the error surfaces and the mic stays closed.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
+                mode = VoiceCaptureMode.Dictation,
                 message = "No speech heard. Try again.",
                 captureSessionId = 1L,
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
@@ -2033,7 +2035,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
         errorState.await()
 
-        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 2) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
     }
 
@@ -2044,6 +2046,9 @@ class ChatViewModelVoiceTest {
             existingParams = emptyMap(),
             missingSlot = SlotSpec(name = "duration", promptTemplate = "For how long?"),
         )
+        // A pending slot makes the chat mic start a Command capture (slot replies stay Command).
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
         val reask = "Sorry, I didn't catch that. For how long?"
         val silence = VoiceInputEvent.Error(
             mode = VoiceCaptureMode.Command,
@@ -2099,7 +2104,7 @@ class ChatViewModelVoiceTest {
         // Turn 1: silence spends the one retry.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
+                mode = VoiceCaptureMode.Dictation,
                 message = "No speech heard. Try again.",
                 captureSessionId = 1L,
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
@@ -2107,25 +2112,25 @@ class ChatViewModelVoiceTest {
         )
         advanceUntilIdle()
         // Turn 1 completes: the user speaks, the reply plays, playback stops and the mic re-arms.
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Hello loop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Hello loop", captureSessionId = 1L))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Hi back"))
         advanceUntilIdle()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
         advanceUntilIdle()
-        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
 
         // Turn 2: silence gets its own retry instead of ending with the error.
         voiceInputEvents.emit(
             VoiceInputEvent.Error(
-                mode = VoiceCaptureMode.Command,
+                mode = VoiceCaptureMode.Dictation,
                 message = "No speech heard. Try again.",
                 captureSessionId = 1L,
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
             ),
         )
         advanceUntilIdle()
-        coVerify(exactly = 4) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 4) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
         coVerify(exactly = 2) {
             voiceOutputController.speak(match { it.text == "Sorry, I didn't catch that. Please try again." })
         }
@@ -2139,7 +2144,7 @@ class ChatViewModelVoiceTest {
         viewModel.startBackAndForthVoiceInput()
         advanceUntilIdle()
 
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "stop", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals("", viewModel.getConversationAsText())
@@ -2156,7 +2161,7 @@ class ChatViewModelVoiceTest {
         viewModel.startBackAndForthVoiceInput()
         advanceUntilIdle()
 
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "cancel", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "cancel", captureSessionId = 1L))
         advanceUntilIdle()
         assertEquals("", viewModel.getConversationAsText())
     }
@@ -2164,11 +2169,11 @@ class ChatViewModelVoiceTest {
     fun `ListeningStarted for owned Command session triggers cue player`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Command, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.Dictation, captureSessionId = 1L))
         advanceUntilIdle()
         verify(exactly = 1) { startListeningCuePlayer.playCue(StartListeningCueContext.FOREGROUND) }
     }
@@ -2185,11 +2190,11 @@ class ChatViewModelVoiceTest {
     fun `transcript event does not trigger cue`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "hello", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "hello", captureSessionId = 1L))
         advanceUntilIdle()
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
@@ -2198,11 +2203,11 @@ class ChatViewModelVoiceTest {
     fun `error event does not trigger cue`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Command, "error", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.Dictation, "error", captureSessionId = 1L))
         advanceUntilIdle()
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
@@ -2211,11 +2216,11 @@ class ChatViewModelVoiceTest {
     fun `stopped event does not trigger cue`() = runTest(dispatcher) {
         val viewModel = createViewModel()
         coEvery {
-            voiceInputController.startListening(VoiceCaptureMode.Command)
+            voiceInputController.startListening(VoiceCaptureMode.Dictation)
         } returns VoiceInputStartResult.Started(1L)
         viewModel.startVoiceInput()
         runCurrent()
-        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Command, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.ListeningStopped(VoiceCaptureMode.Dictation, captureSessionId = 1L))
         advanceUntilIdle()
         verify(exactly = 0) { startListeningCuePlayer.playCue(any()) }
     }
@@ -2228,7 +2233,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "stop", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "stop", captureSessionId = 1L))
         advanceUntilIdle()
 
         // In one-shot mode "stop" is treated as a regular message
@@ -2244,7 +2249,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startBackAndForthVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "what time is it", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "what time is it", captureSessionId = 1L))
         advanceUntilIdle()
 
         assertTrue(viewModel.getConversationAsText().contains("You: what time is it"))
@@ -2289,7 +2294,7 @@ class ChatViewModelVoiceTest {
         advanceUntilIdle()
 
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "no protein preferences", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "no protein preferences", captureSessionId = 1L))
         runCurrent()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
@@ -2527,7 +2532,7 @@ class ChatViewModelVoiceTest {
     
     @Test
     fun `mic repair resume with grant restarts one shot voice input`() = runTest(dispatcher) {
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Dictation) } returns
             VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -2542,12 +2547,12 @@ class ChatViewModelVoiceTest {
         viewModel.onChatMicRepairResumeCheck(hasPermission = true)
         advanceUntilIdle()
         
-        coVerify { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
     
     @Test
     fun `mic repair resume with grant restarts back and forth voice`() = runTest(dispatcher) {
-        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Dictation) } returns
             VoiceInputStartResult.Started(1L)
         val viewModel = createViewModel()
         advanceUntilIdle()
@@ -2562,7 +2567,7 @@ class ChatViewModelVoiceTest {
         viewModel.onChatMicRepairResumeCheck(hasPermission = true)
         advanceUntilIdle()
         
-        coVerify { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
     }
     
     @Test
@@ -2669,7 +2674,7 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, input, captureSessionId = 1L))
         advanceUntilIdle()
 
         coVerify {
@@ -2711,7 +2716,7 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "Add dentist to my calendar", captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Add dentist to my calendar", captureSessionId = 1L))
         advanceUntilIdle()
 
         coVerify(exactly = 1) { voiceOutputController.openStreamingSession(any()) }
@@ -2754,7 +2759,7 @@ class ChatViewModelVoiceTest {
         val viewModel = createViewModel()
         advanceUntilIdle()
         viewModel.startVoiceInput()
-        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, input, captureSessionId = 1L))
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, input, captureSessionId = 1L))
         advanceUntilIdle()
 
         assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)

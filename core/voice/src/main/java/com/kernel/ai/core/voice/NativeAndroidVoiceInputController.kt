@@ -201,6 +201,7 @@ internal fun shouldRetryWithPlatformAfterRecognitionError(
                 VoiceCaptureMode.AlertCommand -> !sawPartialTranscript
                 VoiceCaptureMode.Command,
                 VoiceCaptureMode.SlotReply,
+                VoiceCaptureMode.Dictation,
                 -> !heardSpeech && !sawPartialTranscript
             }
             else -> false
