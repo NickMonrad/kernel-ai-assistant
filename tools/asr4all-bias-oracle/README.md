@@ -88,11 +88,13 @@ Candidates: rewritable places, competitor places, impostors. There is no prior: 
    restores macrons and capitals.
 2. The overall top must be a rewritable place with score > 0. A competitor top with score > 0 → abstain
    (`abstain_competitor`); an impostor top → `impostor_top`; otherwise `below_threshold`.
-3. The top must beat the runner-up of any kind (a different entry) by **m = 1.0** → else `margin`.
+3. The top must beat the runner-up of any kind (a different entry) by **m = 1.0**. Otherwise, if the top is
+   rewritable, the outcome is `suggest` (the UI would show "Did you mean X?"), with `reason = margin`.
 4. The matched span must end at a greedy word boundary (the next greedy character is a space or the end of
-   the text) → else `boundary`.
-5. The matched span may cover at most the place's word count + 1 words → else `word_count`.
-6. Otherwise `accept`.
+   the text). Otherwise `suggest` with `reason = boundary`.
+5. The matched span may cover at most the place's word count + 1 words. Otherwise `suggest` with
+   `reason = word_count`.
+6. Otherwise `accept` (rewrite). `suggest` and `accept` both use the same rewritable top; only `accept` rewrites.
 
 rank-1 (reporting only) = the best rewritable entry by score, respelled and canonical. It is reported
 even when a competitor wins, so it measures the rewritable set alone.
@@ -109,9 +111,9 @@ results are not reported here.
 - **Rewritable (the substitution set)**: Town and City from the LINZ export, plus every glossary place
   (`data/glossary_places.txt`, 15 names; matched by folded spelling, so `Pūkekohe` matches LINZ `Pukekohe`).
   167 names.
-- **Competitors**: Village, Suburb and Locality from the same export, excluding the rewritable names.
-  4,147 names after 20 folded duplicates are skipped. They can win and cause an abstain; they are never
-  rewritten to.
+- **Competitors**: Village, Suburb and Locality from the LINZ export, excluding the rewritable names, plus
+  AU populated places from the Composite Gazetteer of Australia (see "AU competitors" below). Competitors can
+  win and cause an abstain; they are never rewritten to.
 - **Impostors**: `lexicon.IMPOSTORS` (hand-written world cities, destinations, frequent words). `kia ora`
   was removed because LINZ lists it as a place. 144 names.
 - **Baseline**: `lexicon.NZ_PLACES`, about 110 hand-written names, all rewritable, no competitors. Used
@@ -122,7 +124,8 @@ results are not reported here.
 - Dev set: 25 clips (M and L dumps of each): 11 non-place clips and 14 place clips. The place clips are
   10 owner clips and 4 cloned clips. Gold names are in the private labels file. Owner clip identifiers,
   transcripts and per-clip results are not recorded in this repository.
-- No held-out set: the Honor set from #2079 is not present in this environment.
+- Held-out clone test: pre-registered in `HELDOUT-PREREG.md` (committed before any held-out audio was
+  synthesised). Lines and audio are private; results are in "Held-out clone test" below.
 
 ### LINZ place list (layer 51681, CC BY 4.0)
 
@@ -174,6 +177,20 @@ Rules came from general letter patterns and the glossary's observed-error classe
 `docs/evidence/2004/CLEANROOM.md`. The respelling rules were fixed before measurement. The gate v2
 phrasings are general, but the transcripts were visible while writing them (see Gate). The rewritable
 set uses the glossary's place names and LINZ feature types, not any clip result.
+
+## AU competitors (Composite Gazetteer of Australia)
+
+- Source: GA Composite Gazetteer, public ArcGIS REST layer 0 (no account). Metadata: ecat record
+  `f91a52b3-26f6-4f2c-bb8e-520f40864d5b` (pid `150710`). 9,499 records, features POPULATION CENTRE,
+  SETTLEMENT, NEIGHBOURHOOD, OUTCAMP. OUTCAMP inclusion is a judgement call; it is kept and flagged.
+- Use: competitors only. AU names are never rewrite targets; there is no country switch. On a name collision
+  the NZ rewritable row is kept.
+- Generated `nz_au_places.json`: 13,176 rows (167 rewritable, 13,009 competitors). The raw download and the
+  derived list are private.
+- **Licence finding:** the request assumed CC BY 4.0. The published record says "© Commonwealth of Australia
+  (Geoscience Australia) 2025", access Open, licence field blank, with no CC BY statement. Do not describe
+  this data as CC BY 4.0 until the owner confirms the terms. Internal use only until then.
+- Dev-set cost: adding AU competitors blocked one correct NZ answer per slot (the same clip, size L).
 
 ## Limits
 
@@ -263,6 +280,57 @@ Gate coverage (greedy text, no audio), place clips fired (of 14) and non-place c
   4. Check β above 5 for false accepts under this rule before any β change.
 - Not done: any ablation of the margin or the boundary check, and any further tuning. The dev set has been
   used for this rule; the next numbers should come from held-out speech.
+
+## Held-out clone test (pre-registered; β 4 primary)
+
+Set: 30 gold place lines and 31 false-boost lines, synthesised in the owner's cloned voice (Qwen3-TTS 1.7B
+Base, x-vector-only reference from `clone_24k.wav`, one take per line, 16 kHz). Frozen decision code, assets and
+criteria: `HELDOUT-PREREG.md`. Audio, line texts, transcripts and per-clip rows are private. Scored on the
+LINZ + AU asset (`nz_au_places.json`) with gate v2. Gold denominators: 30 (full, hint), 13 (trigger; only
+gated lines are scored). Intervals are Wilson 95%.
+
+Gold place lines:
+
+| Slot | Size | Correct accept | Substitution (wrong name) | Suggest (correct name) | Abstain (competitor top) | Other |
+|---|---|---|---|---|---|---|
+| full | M | 23/30 (76.7%, 59.1–88.2) | 0/30 (0–11.4) | 0 | 2 | 5 |
+| full | L | 20/30 (66.7%, 48.8–80.8) | 0/30 (0–11.4) | 3 | 2 | 5 |
+| hint | M | 25/30 (83.3%, 66.4–92.7) | 0/30 (0–11.4) | 0 | 3 | 2 |
+| hint | L | 24/30 (80.0%, 62.7–90.5) | 1/30 (0.6–16.7) | 2 | 2 | 1 |
+| trigger | M | 12/13 (92.3%, 66.7–98.6) | 0/13 (0–22.8) | 0 | 1 | 0 |
+| trigger | L | 11/13 (84.6%, 57.8–95.7) | 1/13 (1.4–33.3) | 1 | 0 | 0 |
+
+All suggestions named the gold place. "Other" is impostor top, veto or below threshold.
+
+False-boost lines (rewrites, same at M and L; trigger column = lines the gate scored):
+
+| Class | n | Rewrites (full / hint) | Trigger scored | Trigger rewrites |
+|---|---|---|---|---|
+| AU competitor city | 6 | 0/6 | 4 | 0/4 |
+| Foreign city | 5 | 0/5 | 4 | 0/4 |
+| Foreign city, homograph of an NZ City | 1 | 1/1 | not gated | – |
+| POI | 4 | 0/4 | 4 | 0/4 |
+| Contact name / street address | 3 | 0/3 | 1 | 0/1 |
+| Suburb / locality (must stay unchanged) | 4 | 0/4 | 3 | 0/3 |
+| NZ place already correct | 3 | 3/3 (rewrite to the same name) | 2 | 2/2 (same name) |
+| Gate trap | 5 | 0/5 | 3 | 0/3 |
+
+Sensitivity: β 3 gives 1 gold substitution in hint L and in trigger L. β 5 gives none. The homograph rewrite
+appears at all three β values in the full and hint slots.
+
+Pre-registered criteria (β 4):
+
+1. Gold substitutions = 0: **fail** (1/30 hint L; 1/13 trigger L).
+2. Foreign-city and POI rewrites = 0: **fail** on the homograph line (1/1, all β, full and hint). Other foreign cities and POIs: 0 rewrites.
+3. Competitor-place rewrites = 0: **pass** (0 in every competitor class). Competitor abstains: 2 distinct gold lines; both had an AU CGA name as top (one in each of full M, full L, hint M, hint L).
+4. NZ already-correct places: **pass**. All rewrites return the spoken name unchanged.
+5. Gate traps: **pass** (0 rewrites; 2 of 5 trap lines were not gated in the trigger slot).
+6. Scoring p95: **not measured**. The oracle is a batch PC run with no per-clip timing, and nothing ran on the S21.
+
+Verdict: the pre-registered test does not pass at β 4. The homograph line is a report-only trap in
+`HELDOUT-PREREG.md`, but its criterion text makes a rewrite a fail, so the literal result is fail. Excluding
+it, the substitution failure in the L size remains. Limits: synthetic (TTS) audio, not the S21 microphone; one
+take per line; 61 lines; zero-count upper bounds are about 11% per class with 30 lines. The flag stays off.
 
 ## Privacy
 
