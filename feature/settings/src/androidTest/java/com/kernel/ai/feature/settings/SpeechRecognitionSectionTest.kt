@@ -21,6 +21,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.KernelAITheme
@@ -122,32 +123,35 @@ class SpeechRecognitionSectionTest {
             DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
                 density = LocalDensity.current
                 KernelAITheme(darkTheme = true, dynamicColor = false) {
-                    SpeechRecognitionSection(
-                        uiState = VoiceUiState(
-                            sherpaVoices = emptyList(),
-                            selectedInputEngine = VoiceInputEngine.Asr4all,
-                            termsAccepted = true,
-                            asr4allSize = Asr4AllSize.M,
-                            asr4allSizes = listOf(Asr4AllSize.M, Asr4AllSize.L),
-                            sherpaSttStates = mapOf(
-                                VoiceInputEngine.Asr4all to SherpaSttDownloadState(isDownloaded = true),
+                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        SpeechRecognitionSection(
+                            uiState = VoiceUiState(
+                                sherpaVoices = emptyList(),
+                                selectedInputEngine = VoiceInputEngine.Asr4all,
+                                termsAccepted = true,
+                                asr4allSize = Asr4AllSize.M,
+                                asr4allSizes = listOf(Asr4AllSize.M, Asr4AllSize.L),
+                                sherpaSttStates = mapOf(
+                                    VoiceInputEngine.Asr4all to SherpaSttDownloadState(isDownloaded = true),
+                                ),
                             ),
-                        ),
-                        onSelect = {},
-                        onAllowOnline = {},
-                        onDownload = {},
-                        onCancel = {},
-                        onDelete = {},
-                        onUseMobileData = {},
-                        onAsr4allSize = {},
-                    )
+                            onSelect = {},
+                            onAllowOnline = {},
+                            onDownload = {},
+                            onCancel = {},
+                            onDelete = {},
+                            onUseMobileData = {},
+                            onAsr4allSize = {},
+                        )
+                    }
                 }
             }
         }
-        val chip = composeTestRule
-            .onNode(hasText("L · about 101 MB") and hasClickAction())
-            .fetchSemanticsNode()
+        val chipNode = composeTestRule.onNode(hasText("L · about 101 MB") and hasClickAction())
+        chipNode.performScrollTo().assertIsDisplayed()
+        val chip = chipNode.fetchSemanticsNode()
         val root = composeTestRule.onRoot().fetchSemanticsNode()
+        assertTrue("root has no layout; test would pass vacuously", root.size.width > 0)
         val minTouchPx = with(requireNotNull(density)) { 48.dp.roundToPx() }
         // Proxy for "not squeezed": the chip spans at least half the root width. Chips size to content, so this is not a full-width check.
         assertTrue("chip ${chip.size} squeezed in root ${root.size}", chip.size.width >= root.size.width / 2)
