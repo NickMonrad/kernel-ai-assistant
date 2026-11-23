@@ -101,7 +101,7 @@ Provenance of the Kotlin engine (#2004, `core/voice/src/main/java/com/kernel/ai/
 |---|---|---|---|---|
 | `core/voice/src/vad/assets/silero_vad.onnx` (643,854 bytes) | Speech/silence decision per 32 ms frame in the asr4all mic reader (`SileroVad.kt`), run on onnxruntime-android | k2-fsa export, `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx`; the model is Silero VAD v4, 16 kHz branch only, from `snakers4/silero-vad` | MIT (`snakers4/silero-vad` LICENSE, Copyright Silero Team). The k2-fsa export carries the same terms; no Sherpa runtime code is used on this path. | sha256 `9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6` |
 
-Release action: ship with the release build; record the licence text in the release notices.
+Release action: the licence entry is in `NOTICE` and `app/src/main/assets/legal/NOTICE.txt` (kept identical), which ships with the release build. Re-check both if the model file changes.
 
 ## Code references
 

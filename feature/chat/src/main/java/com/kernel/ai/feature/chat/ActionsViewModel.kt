@@ -12,6 +12,8 @@ import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.SkillCall
 import com.kernel.ai.core.skills.SkillOutcomeEvents
 import com.kernel.ai.core.inference.diagnostics.IntentRoute
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+import com.kernel.ai.core.inference.diagnostics.RepromptSkipReason
 import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.permissions.DenialOutcome
@@ -2325,6 +2327,7 @@ class ActionsViewModel @Inject constructor(
     ) {
         if (!userInitiated && backgroundPaused) {
             Log.d(TAG, "ActionsViewModel: automatic startVoiceCapture mode=$mode skipped, screen background-paused")
+            JandalEvents.record("voice", "reprompt_skip", "reason" to RepromptSkipReason.BACKGROUND_PAUSED)
             return
         }
         Log.d(
@@ -2452,6 +2455,9 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun cancelPendingVoiceSpeech() {
+        if (pendingVoiceSpeechJob != null) {
+            JandalEvents.record("voice", "reprompt_skip", "reason" to RepromptSkipReason.PENDING_CANCELLED)
+        }
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
         voiceSpeechCancelled = true
