@@ -63,4 +63,33 @@ class UtteranceEndpointerTest {
         e.onChunk(chunk, speech = true)
         assertTrue(e.heardSpeech)
     }
+
+    @Test
+    fun `speech inside the cue guard neither arms the endpoint nor sets the onset flag`() {
+        val e = UtteranceEndpointer(cueGuardSamples = 5 * chunk)
+        repeat(5) { assertNull(e.onChunk(chunk, speech = true)) }
+        assertFalse(e.heardSpeech)
+        assertFalse(e.armed)
+        // The guard hid the cue, so the capture still runs to the no-speech window.
+        repeat(94) { assertNull(e.onChunk(chunk, speech = false)) }
+        assertEquals(EndpointReason.NO_SPEECH, e.onChunk(chunk, speech = false))
+    }
+
+    @Test
+    fun `speech that starts at the cue guard boundary arms the endpoint`() {
+        val e = UtteranceEndpointer(cueGuardSamples = 5 * chunk)
+        repeat(5) { e.onChunk(chunk, speech = true) }
+        repeat(3) { e.onChunk(chunk, speech = true) }
+        assertTrue(e.armed)
+    }
+
+    @Test
+    fun `a decoder hint counts as speech only before the utterance is armed`() {
+        val e = UtteranceEndpointer()
+        repeat(3) { e.onChunk(chunk, speech = false, hint = true) }
+        assertTrue(e.armed)
+        // Armed now: hints no longer keep it open, so 700 ms of VAD silence ends it.
+        repeat(6) { assertNull(e.onChunk(chunk, speech = false, hint = true)) }
+        assertEquals(EndpointReason.VAD, e.onChunk(chunk, speech = false, hint = true))
+    }
 }

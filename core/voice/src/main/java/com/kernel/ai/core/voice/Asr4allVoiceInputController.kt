@@ -56,6 +56,8 @@ private const val CAPTURE_JOIN_TIMEOUT_MS = 3_000L
  * decode. A stalled mic read or a wedged decode still ends at this bound rather than holding the mic open.
  */
 private const val CAPTURE_WALL_LIMIT_MS = 30_000L
+/** Pause after a zero-length read, so a reader that gets no samples does not spin the CPU. */
+private const val ZERO_READ_PAUSE_MS = 10L
 
 /** Audio focus held by one capture. [request] is null before API 26. */
 private class FocusHold(val request: AudioFocusRequest?)
@@ -154,6 +156,8 @@ class Asr4allVoiceInputController internal constructor(
     private val captureJoinTimeoutMs: Long,
     /** Wall-clock limit from mic open to a capture's end; see [CAPTURE_WALL_LIMIT_MS]. */
     private val captureWallLimitMs: Long,
+    /** Captured audio from capture start that cannot arm the endpoint; see [START_CUE_GUARD_MS]. */
+    private val cueGuardMs: Long,
     /** Whether the Terms of Use are accepted for the shipped version (#1998). Without it the weights are not used. */
     private val termsAccepted: suspend () -> Boolean,
 ) : VoiceInputController {
@@ -170,6 +174,7 @@ class Asr4allVoiceInputController internal constructor(
         hardwareProfileDetector,
         CAPTURE_JOIN_TIMEOUT_MS,
         CAPTURE_WALL_LIMIT_MS,
+        START_CUE_GUARD_MS,
         { termsAcceptance.record.first().isAccepted() },
     )
 
@@ -329,6 +334,7 @@ class Asr4allVoiceInputController internal constructor(
                 halt(capture, CaptureEnd.CANCEL)
                 joinReader(capture)
                 clearActive(capture)
+                capture.consumerDone.complete(Unit)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 withContext(NonCancellable) {
                     loading.join()
@@ -340,6 +346,7 @@ class Asr4allVoiceInputController internal constructor(
                 beforeFailedLoadJoinForTest?.invoke()
                 joinReader(capture)
                 clearActive(capture)
+                capture.consumerDone.complete(Unit)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Unavailable(
                     "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
@@ -354,6 +361,7 @@ class Asr4allVoiceInputController internal constructor(
                 beforeCancelledStopJoinForTest?.invoke()
                 joinReader(capture)
                 clearActive(capture)
+                capture.consumerDone.complete(Unit)
                 _events.tryEmit(VoiceInputEvent.ListeningStopped(mode, sessionId, cancelled = true))
                 return@withLock VoiceInputStartResult.Cancelled(sessionId)
             }
@@ -458,7 +466,7 @@ class Asr4allVoiceInputController internal constructor(
     private fun readLoop(c: Capture) {
         val buf = ShortArray(CHUNK_SAMPLES)
         val leadIn = ArrayDeque<ShortArray>() // the last LEAD_IN_CHUNKS chunks before onset, while the engine is not yet attached
-        val endpoint = UtteranceEndpointer()
+        val endpoint = UtteranceEndpointer(cueGuardSamples = (cueGuardMs * SAMPLE_RATE / 1000).toInt())
         try {
             if (!c.buffer.isClosed) c.recorder.startRecording()
             while (!c.buffer.isClosed) {
@@ -469,7 +477,10 @@ class Asr4allVoiceInputController internal constructor(
                     endCapture(c, CaptureEnd.MIC_ERROR)
                     break
                 }
-                if (n == 0) continue
+                if (n == 0) {
+                    Thread.sleep(ZERO_READ_PAUSE_MS)
+                    continue
+                }
                 _inputLevel.value = rmsOf(buf, n).coerceIn(0f, 1f)
                 val vad = try {
                     c.detector.isSpeech(buf, n)
@@ -478,10 +489,10 @@ class Asr4allVoiceInputController internal constructor(
                     endCapture(c, CaptureEnd.VAD_ERROR)
                     break
                 }
-                // Recognised text in the window counts as speech too, so a VAD miss cannot drop what the engine heard.
+                // Recognised text is a hint, not a verdict: the endpointer counts it only before the utterance is armed.
                 val decoded = c.decodedSpeech.getAndSet(false)
                 val wasHeard = endpoint.heardSpeech
-                val reason = endpoint.onChunk(n, vad || decoded)
+                val reason = endpoint.onChunk(n, speech = vad, hint = decoded)
                 c.capturedMs = endpoint.capturedMs
                 if (endpoint.heardSpeech && !wasHeard) {
                     _events.tryEmit(VoiceInputEvent.SpeechDetected(c.mode, c.sessionId))
@@ -703,8 +714,8 @@ class Asr4allVoiceInputController internal constructor(
             val text = eng.acceptAudio(floats).trim()
             if (text.isNotEmpty()) {
                 textHeard = true
-                // Only new words count as speech for the endpointer: a running partial repeated over silence must not
-                // keep the utterance open. A VAD miss on real speech is still covered by the words that changed.
+                // A change of the running text counts as a hint. Before the utterance is armed it can rescue a VAD miss;
+                // after it, the endpoint follows the VAD alone (see UtteranceEndpointer.onChunk).
                 if (text != partial) c.decodedSpeech.set(true)
             }
             if (text.isNotEmpty() && text != partial) {

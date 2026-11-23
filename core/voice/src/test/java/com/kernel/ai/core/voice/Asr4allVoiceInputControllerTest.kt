@@ -21,12 +21,14 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -112,6 +114,7 @@ class Asr4allVoiceInputControllerTest {
         captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs,
         termsAccepted: Boolean = true,
         captureWallLimitMs: Long = 30_000L,
+        cueGuardMs: Long = 0L,
         vadDetector: SpeechDetector? = amplitudeDetector,
     ): Asr4allVoiceInputController {
         var opened = 0
@@ -129,7 +132,7 @@ class Asr4allVoiceInputControllerTest {
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {
             every { profile.tier } answers { tier }
         }
-        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, captureWallLimitMs, { termsAccepted }).apply {
+        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, captureWallLimitMs, cueGuardMs, { termsAccepted }).apply {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
@@ -803,6 +806,77 @@ class Asr4allVoiceInputControllerTest {
                 assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=EMPTY_FINAL" in it })
                 assertFalse(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
             } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a start cue inside the guard does not arm the endpoint, so a silent start reports no speech`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(cueGuardMs = START_CUE_GUARD_MS)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                // A 300 ms burst at reads 3..5 (200-500 ms) stands in for the cue's speech-like tail. It starts inside the guard.
+                partialForCall = { "" }
+                amplitudeForRead = { read -> if (read in 3..5) 8000 else 0 }
+                finalText = ""
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("No speech heard. Try again.", error.message)
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `speech that starts after the cue guard still arms the endpoint`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(cueGuardMs = START_CUE_GUARD_MS)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            try {
+                // The same 300 ms burst at reads 6..8 (600-900 ms) is past the guard: it arms, then ends on silence.
+                partialForCall = { "heard" }
+                amplitudeForRead = { read -> if (read in 6..8) 8000 else 0 }
+                finalText = ""
+                c.startListening(VoiceCaptureMode.Command)
+                collected.awaitStops(1)
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("Didn't catch that. Try again.", error.message)
+            } finally {
+                collected.job.cancel()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun `a capture stalled in the mic read ends at the wall limit with a watchdog error and no transcript`() =
+        runBlocking(Dispatchers.IO) {
+            // A parked read holds the reader join, so the stall ends after this short join bound, not the 30 s default.
+            val c = controller(captureWallLimitMs = 300L, captureJoinTimeoutMs = 200L)
+            val scope = CoroutineScope(Dispatchers.IO)
+            val collected = Collected(c.events, scope)
+            val hold = CountDownLatch(1)
+            try {
+                // The reader parks in its first read and never returns: nothing reaches the endpointer or the engine.
+                readGate = hold
+                finalText = "" // the engine finishes with nothing: the stall is the only outcome to observe
+                c.startListening(VoiceCaptureMode.Command)
+                withTimeoutOrNull(10_000) {
+                    while (collected.events.none { it is VoiceInputEvent.Error }) delay(10)
+                }
+                assertTrue(collected.events.any { it is VoiceInputEvent.Error }, "no error; events=${collected.events} log=$log")
+                val error = collected.events.filterIsInstance<VoiceInputEvent.Error>().single()
+                assertEquals("Voice input took too long. Try again.", error.message)
+                hold.countDown() // releases the parked reader so the capture can finish and emit its stop
+                collected.awaitStops(1)
+                assertEquals(emptyList<String>(), collected.transcripts())
+            } finally {
+                hold.countDown()
                 collected.job.cancel()
                 scope.cancel()
             }

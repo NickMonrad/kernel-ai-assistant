@@ -368,6 +368,7 @@ class ActionsViewModel @Inject constructor(
     private var shouldAutoStartVoiceSlotReply = false
     private var pendingVoiceSlotReplyRestartJob: Job? = null
     private var pendingVoiceSpeechJob: Job? = null
+    private var pendingVoiceRetryJob: Job? = null
     private var chunkedVoiceSpeechJob: Job? = null
     /** Set by [cancelPendingVoiceSpeech]; cleared when the next reply starts speaking. */
     private var voiceSpeechCancelled = false
@@ -565,7 +566,7 @@ class ActionsViewModel @Inject constructor(
                                         // speak() returns when playback ends or is stopped, which may be
                                         // after ON_STOP: the background-paused gate keeps the mic closed.
                                         startVoiceCapture(VoiceCaptureMode.Command, userInitiated = false)
-                                    }
+                                    }.also { pendingVoiceRetryJob = it }
                                 } else {
                                     _voiceCaptureState.value = VoiceCaptureState.Idle
                                     _error.value = event.message
@@ -2455,9 +2456,11 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun cancelPendingVoiceSpeech() {
-        if (pendingVoiceSpeechJob != null) {
+        // Only a retry still waiting to reopen the mic is a skipped re-prompt. A finished reply is not.
+        if (pendingVoiceRetryJob?.isActive == true) {
             JandalEvents.record("voice", "reprompt_skip", "reason" to RepromptSkipReason.PENDING_CANCELLED)
         }
+        pendingVoiceRetryJob = null
         pendingVoiceSpeechJob?.cancel()
         pendingVoiceSpeechJob = null
         voiceSpeechCancelled = true
