@@ -105,6 +105,9 @@ class Asr4allVoiceInputControllerTest {
         return 1
     }
 
+    /** Stand-in for the Silero detector: speech is any sample at or above 0.02 of full scale. Silero runs in [SileroVadTest]. */
+    private val amplitudeDetector = SpeechDetector { pcm, n -> (0 until n).any { kotlin.math.abs(pcm[it].toInt()) >= 655 } }
+
     private fun controller(
         captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs,
         termsAccepted: Boolean = true,
@@ -128,6 +131,7 @@ class Asr4allVoiceInputControllerTest {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
+            speechDetectorForTest = { amplitudeDetector }
             engineOpenForTest = { size, threads ->
                 engineEntered.countDown()
                 engineGate?.await(5, TimeUnit.SECONDS)
@@ -674,6 +678,7 @@ class Asr4allVoiceInputControllerTest {
         val collected = Collected(c.events, scope)
         try {
             partialForCall = { "" }
+            amplitude = 0 // silence: no chunk is speech, so the engine never runs
             finalText = ""
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
@@ -1072,46 +1077,22 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `steady background noise endpoints once it becomes the noise floor instead of running to the cap`() =
-        runBlocking(Dispatchers.IO) {
-            val c = controller()
-            val scope = CoroutineScope(Dispatchers.IO)
-            val collected = Collected(c.events, scope)
-            try {
-                // Chunk 1 is the quiet reference; steady hiss of about 5% full scale from chunk 2 on, keyed by read so
-                // the reader's pace does not move the switch.
-                amplitudeForRead = { read -> if (read == 1) 0 else 1638 }
-                partialForCall = { "Final" }
-                firstFrame = CountDownLatch(1)
-                c.startListening(VoiceCaptureMode.Command)
-                collected.awaitStops(1)
-
-                // Chunk 1 leaves the 3 s window at chunk 31; from then the hiss is the floor, so 7 quiet chunks (700 ms)
-                // endpoint at chunk 37. The old fixed gate ran to the 600-chunk cap.
-                assertTrue(acceptCalls.get() < 60, "steady noise ran ${acceptCalls.get()} chunks")
-                assertEquals(listOf("Final text"), collected.transcripts())
-            } finally {
-                collected.job.cancel()
-                scope.cancel()
-            }
-        }
-
-    @Test
-    fun `a soft speaker is not cut off mid-utterance by a fixed loudness floor`() = runBlocking(Dispatchers.IO) {
+    fun `steady hiss below the speech threshold is never decoded and ends as no speech`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            // Quiet room, then soft speech at about 1% full scale (under the old 0.02 gate), then silence.
-            amplitudeForRead = { read -> if (read <= 30) 30 else if (read <= 60) 300 else 0 }
-            partialForCall = { calls -> if (calls <= 30) "" else "word$calls" }
+            // About 1% of full scale: under the detector threshold, so no chunk is speech and the engine never runs.
+            amplitude = 300
+            partialForCall = { "Final" }
+            finalText = "" // the engine decodes nothing, so finish() has no text
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
 
-            assertTrue(collected.events.any { it is VoiceInputEvent.SpeechDetected })
-            // 5 lead-in chunks, then the 30 speech chunks. The old gate endpointed during speech, so fewer than 35 were decoded.
-            assertTrue(acceptCalls.get() >= 35, "soft speech was cut after ${acceptCalls.get()} chunks")
+            assertEquals(0, acceptCalls.get())
+            assertTrue(collected.events.none { it is VoiceInputEvent.SpeechDetected })
+            assertEquals(emptyList<String>(), collected.transcripts())
         } finally {
             collected.job.cancel()
             scope.cancel()

@@ -33,6 +33,8 @@ android {
     // dir stays cleared. The lexicon (#1852) is added from its own dir below.
     sourceSets.getByName("main").assets.setSrcDirs(emptyList<String>())
     sourceSets.getByName("main").assets.srcDir("src/lexicon/assets")
+    // Silero VAD v4 (MIT; #2078). Endpointing model for the asr4all reader; see docs/VOICE_MODEL_ATTRIBUTION.md.
+    sourceSets.getByName("main").assets.srcDir("src/vad/assets")
 }
 
 // ── Sherpa-ONNX spike (reflection-only — no compile-time dependency on Sherpa) ──────

@@ -95,6 +95,14 @@ Provenance of the Kotlin engine (#2004, `core/voice/src/main/java/com/kernel/ai/
 
 **AC1 parity accepted (gates #1980; tracked in #1999).** The verifier's round-2 run (#2011 comment 7056733835) matched all 504 final texts (S/M/L × six tiers × 28 clips) and differed in partial text on three rows, one event each: `7976-105575-0014` S `stream_c16r4`, `6241-61943-0027` M `stream_c16r4` and `6241-61943-0027` M `stream_c32r8`. The owner accepted these as practical parity on 21 Nov 2026 (#2011 comment 7057135985). Record: `docs/evidence/2004/CLEANROOM.md` ("AC1 round 2 verdict and acceptance") and `docs/evidence/2004/engine-round2/`. The release review for #1980 still applies. A written licence from FUTO covering the reference drivers would also be recorded here if received.
 
+## Silero VAD (utterance endpointing, #2078)
+
+| Asset | App use | Source | Licence position | Checksum |
+|---|---|---|---|---|
+| `core/voice/src/vad/assets/silero_vad.onnx` (643,854 bytes) | Speech/silence decision per 32 ms frame in the asr4all mic reader (`SileroVad.kt`), run on onnxruntime-android | k2-fsa export, `https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx`; the model is Silero VAD v4, 16 kHz branch only, from `snakers4/silero-vad` | MIT (`snakers4/silero-vad` LICENSE, Copyright Silero Team). The k2-fsa export carries the same terms; no Sherpa runtime code is used on this path. | sha256 `9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6` |
+
+Release action: ship with the release build; record the licence text in the release notices.
+
 ## Code references
 
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.

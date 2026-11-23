@@ -46,9 +46,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val TAG = "Asr4allSTT"
 private const val SAMPLE_RATE = 16_000
 private const val CHUNK_SAMPLES = SAMPLE_RATE / 10 // 100 ms
-private const val SPEECH_RMS_MIN = 0.003f // speech floor in a very quiet room
-private const val SPEECH_NOISE_MARGIN = 2f // speech is at least this multiple of the quietest recent chunk
-private const val NOISE_WINDOW_CHUNKS = 30 // 3 s of chunk RMS for the quietest-level estimate
 private const val LEAD_IN_CHUNKS = 5 // 0.5 s of audio kept before speech onset; load-time silence beyond it is never decoded
 private const val ASR4ALL_TIER = "stream_c16r4"
 /** Bound on waiting for a capture's job or reader to end; past it the teardown is treated as wedged. */
@@ -67,6 +64,7 @@ private class Capture(
     val buffer: PreRollAudioBuffer,
     val recorder: AudioRecord,
     val focus: FocusHold?,
+    val detector: SpeechDetector,
 ) {
     lateinit var reader: Job
 
@@ -76,24 +74,6 @@ private class Capture(
 
 /** Engine identity: a change of size or thread count needs a reopen. */
 private data class EngineKey(val size: Asr4AllSize, val threads: Int)
-
-/**
- * Adaptive speech gate: a chunk is speech when it is well above the quietest of the last
- * [NOISE_WINDOW_CHUNKS]. Steady background noise therefore does not hold an utterance open, and a
- * soft speaker in a quiet room still counts. The window needs a quiet reference, which the pre-roll
- * buffer normally supplies.
- */
-private class SpeechGate {
-    private val window = FloatArray(NOISE_WINDOW_CHUNKS) { Float.MAX_VALUE }
-    private var next = 0
-
-    /** Records [rms] and returns whether it is speech. */
-    fun isSpeech(rms: Float): Boolean {
-        window[next] = rms
-        next = (next + 1) % window.size
-        return rms >= maxOf(SPEECH_RMS_MIN, window.min() * SPEECH_NOISE_MARGIN)
-    }
-}
 
 /**
  * Streaming STT with the asr4all model (FUTO), run through [Asr4AllEngine].
@@ -152,6 +132,7 @@ class Asr4allVoiceInputController internal constructor(
     private val startLock = Mutex()
     private var engine: Asr4AllEngine? = null // guarded by startLock
     private var engineKey: EngineKey? = null // guarded by startLock
+    private var sileroVad: SileroVad? = null // guarded by startLock; loaded once, kept for the controller's life
     /** Guards the stop count and the mic-open decision, like Sherpa's captureLock. */
     private val captureLock = Any()
     private var stopCount = 0 // guarded by captureLock
@@ -169,6 +150,7 @@ class Asr4allVoiceInputController internal constructor(
     internal var micGrantedForTest: Boolean? = null
     internal var recorderForTest: (() -> AudioRecord?)? = null
     internal var engineOpenForTest: ((Asr4AllSize, Int) -> Asr4AllEngine)? = null
+    internal var speechDetectorForTest: (() -> SpeechDetector)? = null
     internal var releaseFencedForTest: (() -> Unit)? = null
     /** Runs on the caller just before a failed load joins its reader; lets a test cancel the caller at that point. */
     internal var beforeFailedLoadJoinForTest: (() -> Unit)? = null
@@ -196,6 +178,19 @@ class Asr4allVoiceInputController internal constructor(
         voiceInputPreferences.asr4allSize.first(),
         hardwareProfileDetector.profile.tier,
     )
+
+    /** The capture's speech detector: the test seam, else the Silero model, loaded once and kept (startLock held). */
+    private suspend fun speechDetector(): SpeechDetector? {
+        speechDetectorForTest?.let { return it() }
+        sileroVad?.let { return it }
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching { SileroVad.load(context.assets) }
+                .onFailure { Log.e(TAG, "Silero VAD load failed", it) }
+                .getOrNull()
+        }
+        sileroVad = loaded
+        return loaded
+    }
 
     private fun micGranted(): Boolean = micGrantedForTest
         ?: (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -230,6 +225,9 @@ class Asr4allVoiceInputController internal constructor(
             if (!micGranted()) {
                 return@withLock VoiceInputStartResult.Unavailable("Microphone unavailable — check RECORD_AUDIO permission.")
             }
+            val detector = speechDetector() ?: return@withLock VoiceInputStartResult.Unavailable(
+                "Offline speech model could not be loaded. Re-download it in Settings → Voice.",
+            )
             val sessionId = VoiceCaptureSessionIds.allocate()
             val stop = AtomicBoolean(false)
             val discard = AtomicBoolean(false)
@@ -246,7 +244,7 @@ class Asr4allVoiceInputController internal constructor(
                     // asynchronous (tryEmit, then the main-thread router), so it can land after the mic opens; the
                     // owner fence tolerates that overlap. An announced session ends in exactly one ListeningStopped.
                     _events.tryEmit(VoiceInputEvent.ListeningRequested(mode, sessionId))
-                    openCapture(sessionId, mode)?.also {
+                    openCapture(sessionId, mode, detector)?.also {
                         lastCapture = it
                         activeCapture = it
                         captureActive.value = true
@@ -343,7 +341,8 @@ class Asr4allVoiceInputController internal constructor(
      * capture's focus on every exit path, and nothing else.
      */
     @SuppressLint("MissingPermission")
-    private fun openCapture(sessionId: Long, mode: VoiceCaptureMode): Capture? {
+    private fun openCapture(sessionId: Long, mode: VoiceCaptureMode, detector: SpeechDetector): Capture? {
+        detector.reset()
         var focus: FocusHold? = null
         var recorder: AudioRecord? = null
         return try {
@@ -354,7 +353,7 @@ class Asr4allVoiceInputController internal constructor(
                 releaseAudioFocus(focus)
                 return null
             }
-            val capture = Capture(sessionId, mode, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus)
+            val capture = Capture(sessionId, mode, PreRollAudioBuffer(PreRollAudioBuffer.PRE_ROLL_SAMPLES), recorder, focus, detector)
             capture.reader = scope.launch { readLoop(capture) }
             capture
         } catch (e: Exception) {
@@ -369,7 +368,6 @@ class Asr4allVoiceInputController internal constructor(
 
     private fun readLoop(c: Capture) {
         val buf = ShortArray(CHUNK_SAMPLES)
-        val gate = SpeechGate()
         val leadIn = ArrayDeque<ShortArray>() // the last LEAD_IN_CHUNKS non-speech chunks before onset
         val endpoint = UtteranceEndpointer()
         try {
@@ -380,7 +378,7 @@ class Asr4allVoiceInputController internal constructor(
                 if (n == 0) continue
                 val rms = rmsOf(buf, n)
                 _inputLevel.value = rms.coerceIn(0f, 1f)
-                val speech = gate.isSpeech(rms)
+                val speech = c.detector.isSpeech(buf, n)
                 val wasHeard = endpoint.heardSpeech
                 val reason = endpoint.onChunk(n, speech)
                 if (speech && !wasHeard) {
