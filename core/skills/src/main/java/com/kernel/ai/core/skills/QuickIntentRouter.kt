@@ -2262,7 +2262,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """^(?:(?:is|will)\s+it\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler)(?:\s+(?:in|at|for)\s+(.+?))?\s+tomorrow|(?:is|will)\s+tomorrow\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler))\s+(?:than\s+(?:it\s+(?:is|was)\s+)?today|compared\s+to\s+today)(?:\s+(?:in|at|for)\s+(.+?))?(?:\s*,?\s*and\s+(?:why|by\s+how\s+much))?\s*(?:please\s*)?[.!?]*$""",
+                """^(?:(?:is|will)\s+it\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler)(?:\s+(?:in|at|for)\s+(.+?))?\s+tomorrow|(?:is|will)\s+tomorrow\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler))\s+(?:than\s+(?:it\s+(?:is|was)\s+)?today|compared\s+to\s+today)(?:\s+(?:in|at|for)\s+(.+?))?(?:\s*,?\s*and\s+(?:why|by\s+how\s+much))?\s*,?\s*(?:please\s*)?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -2294,11 +2294,13 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """^(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s| is)\s+(?:the\s+)?weather)(?:\s+(?:in|for|at)\s+(.+?))?\s+(?:over|for|this)\s+(?:the\s+)?weekend[.!?]*$""",
+                """^(?:what(?:'s| is)\s+(?:the\s+)?weather|how(?:'s| is)\s+(?:the\s+)?weather)(?:\s+(?:in|for|at)\s+(.+?))?\s+(?:over|for|this)\s+(?:the\s+)?weekend(?:\s+(?:in|for|at)\s+(.+?))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
-                val location = match.groupValues[1].trim().trimEnd('.').takeIf { it.isNotEmpty() }
+                val location = listOf(match.groupValues[1], match.groupValues[2])
+                    .map { it.trim().trimEnd('.') }
+                    .firstOrNull { it.isNotEmpty() }
                 buildMap<String, String> {
                     if (location != null) put("location", location)
                 }
@@ -2360,7 +2362,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_weather",
             regex = Regex(
-                """^(?:is|will|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:windy|snowing|snowy|sunny|cloudy|foggy|stormy|humid|muggy|overcast|raining)\s+(?:in|at|for)\s+(?!(?:here|there|my|your|the|this|that|night|tonight|morning|afternoon|evening)\b)([A-Za-z][\w'\-]*\.?(?:\s+(?!(?:in|on|at|for|this|the|over|today|tonight|tomorrow|weekend|night|morning|afternoon|evening|now|later)\b)[A-Za-z][\w'\-]*\.?){0,3})(?:\s+(?:(?:this|the|over|for)\s+)*(?:today|tonight|tomorrow|weekend))?[.!?]*$""",
+                """^(?:is|will|was|would)\s+it\s+(?:going\s+to\s+|gonna\s+)?(?:be\s+)?(?:windy|snowing|snowy|sunny|cloudy|foggy|stormy|humid|muggy|overcast|raining)\s+(?:in|at|for)\s+(?!(?:here|there|my|your|the|this|that|night|tonight|morning|afternoon|evening)\b)(\p{L}[\p{L}\p{M}\d'\-]*\.?(?:\s+(?!(?:in|on|at|for|this|the|over|today|tonight|tomorrow|weekend|night|morning|afternoon|evening|now|later)\b)\p{L}[\p{L}\p{M}\d'\-]*\.?){0,3})(?:\s+(?:(?:this|the|over|for)\s+)*(?:today|tonight|tomorrow|weekend))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->

@@ -131,11 +131,11 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Wellington", compare = true),
+            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
         )
         assertTrue(
             direct.content.contains(
-                "Comparison, tomorrow vs today: high 18°C vs 21°C, 3°C colder; low 15°C vs 13°C, 2°C hotter.",
+                "Comparison, tomorrow vs today: high 18°C vs 21°C, 3°C cooler; low 15°C vs 13°C, 2°C warmer.",
             ),
             "text=${direct.content}",
         )
@@ -158,7 +158,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", compare = true),
+            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
         )
         assertEquals(
             "Tomorrow will be slightly cooler in Apia, with a high of 30 degrees, down from 31.",
@@ -176,7 +176,7 @@ class GetWeatherHighLowFormatTest {
         )
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
-            skill.parseForecastResponse(json, "Apia", compare = true),
+            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
         )
         assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
         assertTrue(
@@ -213,6 +213,23 @@ class GetWeatherHighLowFormatTest {
         val direct = assertInstanceOf(
             SkillResult.DirectReply::class.java,
             skill.parseForecastResponse(json, "Wellington"),
+        )
+        assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
+    }
+
+    /** #2033 — a cached reply from before midnight: its first row is yesterday, so no "today vs tomorrow" is spoken. */
+    @Test
+    fun `comparison is dropped when the first forecast row is already past`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-21", "2026-11-22"),
+            highs = listOf(21.0, 18.0),
+            lows = listOf(13.0, 15.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
         )
         assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
         assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")

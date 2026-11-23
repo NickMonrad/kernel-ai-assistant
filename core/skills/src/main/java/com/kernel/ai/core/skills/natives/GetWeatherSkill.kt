@@ -599,7 +599,7 @@ private fun comparisonPart(label: String, earlier: Double, later: Double): Compa
     val to = Math.round(later).toInt()
     val delta = to - from
     if (delta == 0) return ComparisonPart("$label ${to}°C vs ${from}°C, same")
-    val word = if (delta > 0) "hotter" else "colder"
+    val word = if (delta > 0) "warmer" else "cooler"
     return ComparisonPart("$label ${to}°C vs ${from}°C, ${kotlin.math.abs(delta)}°C $word")
 }
 
@@ -1327,6 +1327,7 @@ class GetWeatherSkill @Inject constructor(
         json: String,
         displayName: String?,
         compare: Boolean = false,
+        today: java.time.LocalDate = java.time.LocalDate.now(ZoneId.systemDefault()),
     ): SkillResult {
         val obj = JSONObject(json)
         val daily = obj.getJSONObject("daily")
@@ -1346,7 +1347,10 @@ class GetWeatherSkill @Inject constructor(
             return SkillResult.Failure(name, "Incomplete forecast data (mismatched array lengths).")
         }
 
-        val comparison = if (compare) {
+        // A cached reply from before midnight has a first row that is now yesterday: no "today vs tomorrow" then.
+        val firstRowIsNotPast = dates.length() > 0 &&
+            !java.time.LocalDate.parse(dates.getString(0)).isBefore(today)
+        val comparison = if (compare && firstRowIsNotPast) {
             twoDayComparison(
                 highs = (0 until len).map { maxTemps.optDouble(it, Double.NaN) },
                 lows = (0 until len).map { minTemps.optDouble(it, Double.NaN) },

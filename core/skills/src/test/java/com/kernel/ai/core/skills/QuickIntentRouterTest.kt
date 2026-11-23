@@ -4281,6 +4281,18 @@ class QuickIntentRouterTest {
             Arguments.of("What's the air quality in Sydney?", "Sydney", null, null),
             Arguments.of("When is sunset in Sydney?", "Sydney", null, null),
             Arguments.of("Will it rain in Sydney today?", "Sydney", null, null),
+            // #2079 glossary spellings — the conditions place capture accepts macrons, umlauts and ring letters
+            Arguments.of("Is it raining in Taupō", "Taupō", null, null),
+            Arguments.of("Is it raining in Taupo\u0304", "Taupo\u0304", null, null),
+            Arguments.of("Is it raining in Whakatāne today", "Whakatāne", null, null),
+            Arguments.of("Is it raining in Ōamaru tomorrow", "Ōamaru", null, "tomorrow"),
+            Arguments.of("Is it sunny in Ōtaki", "Ōtaki", null, null),
+            Arguments.of("Is it windy in Pūkekohe", "Pūkekohe", null, null),
+            Arguments.of("Is it raining in Zürich", "Zürich", null, null),
+            Arguments.of("Is it snowing in Åre", "Åre", null, null),
+            // Comparison and weekend tails: comma before "please", place after "over the weekend"
+            Arguments.of("Will it be hotter in Apia tomorrow than today, please?", "Apia", "2", null),
+            Arguments.of("How's the weather over the weekend in Auckland", "Auckland", null, null),
             // #2057 — trailing "for the"/"over the"/"today"/"tomorrow"/"and" never leak into the place
             Arguments.of("What's the weather forecast for Auckland for the next 3 days", "Auckland", "3", null),
             Arguments.of("What is the weather forecast for Auckland over the next 3 days", "Auckland", "3", null),
