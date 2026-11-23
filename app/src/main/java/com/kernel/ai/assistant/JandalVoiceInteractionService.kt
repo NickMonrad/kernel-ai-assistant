@@ -49,18 +49,24 @@ class JandalVoiceInteractionService : VoiceInteractionService() {
 
         /**
          * Opens the Hey Jandal overlay for live wake capture [token] through an assistant session, so it can
-         * start with the screen off or locked (#2081). Returns false when Jandal is not the assistant.
+         * start with the screen off or locked (#2081). Returns false when Jandal is not the assistant, or when
+         * the system refuses the session; the caller then falls back to the tap notification.
          */
         fun showWakeSession(token: Long): Boolean {
             val service = active ?: return false
-            service.showSession(
-                Bundle().apply {
-                    putBoolean(EXTRA_WAKE_OVERLAY, true)
-                    putLong(EXTRA_WAKE_TOKEN, token)
-                },
-                0,
-            )
-            return true
+            return try {
+                service.showSession(
+                    Bundle().apply {
+                        putBoolean(EXTRA_WAKE_OVERLAY, true)
+                        putLong(EXTRA_WAKE_TOKEN, token)
+                    },
+                    0,
+                )
+                true
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "JandalVoiceInteractionService: showSession refused for wake token=$token", e)
+                false
+            }
         }
     }
 }

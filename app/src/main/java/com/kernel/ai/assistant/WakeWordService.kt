@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -43,6 +44,7 @@ import com.kernel.ai.core.voice.latestNoticeFor
 import com.kernel.ai.core.voice.noticesFor
 import com.kernel.ai.core.voice.WakeWordHandoff
 import com.kernel.ai.core.voice.WakeOverlayChannel
+import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS
 import com.kernel.ai.core.voice.WAKE_OVERLAY_CHANNEL_ID
 import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_ID
 import com.kernel.ai.core.inference.download.DownloadSource
@@ -50,7 +52,6 @@ import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.LifecycleOutcome
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.voice.SherpaSttModelSpec
-import com.kernel.ai.feature.widget.EXTRA_PREFILLED_TRANSCRIPT
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
 import com.kernel.ai.feature.widget.EXTRA_WAKE_HELD
 import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
@@ -512,24 +513,13 @@ internal suspend fun runWakeCommandHandoff(
             // #1930: the user closed the overlay after capture; the command must not run.
             cancellationCategory = "wake_overlay_cancelled"
         } else if (transcript != null) {
-            if (routeTranscript(transcript)) {
-                sessionJournal.record(
-                    AcousticEventType.COMMAND_ROUTING_RESULT,
-                    metadata = { mapOf("outcome" to "handed_off") },
-                )
-                completed = true
-            } else {
-                sessionJournal.record(
-                    AcousticEventType.COMMAND_ROUTING_RESULT,
-                    metadata = {
-                        mapOf(
-                            "outcome" to "failed",
-                            "category" to "route_activity_failed",
-                        )
-                    },
-                )
-                cancellationCategory = "route_activity_failed"
-            }
+            // #2081: the overlay took the transcript (handed_off), or it is held for a tap (held_for_tap).
+            val handedOff = routeTranscript(transcript)
+            sessionJournal.record(
+                AcousticEventType.COMMAND_ROUTING_RESULT,
+                metadata = { mapOf("outcome" to if (handedOff) "handed_off" else "held_for_tap") },
+            )
+            completed = true
         }
     } catch (e: WakeAttemptCollectionException) {
         cancellationCategory = e.category
@@ -603,7 +593,6 @@ private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
 private const val NOTIFICATION_TEXT_LISTENING = "Listening for wake word…"
 private const val LEGACY_WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
-private const val WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS = 15_000L
 
 /** How the Hey Jandal overlay opens after a wake (#2081). */
 internal enum class WakeOverlayRoute { DIRECT_ACTIVITY, ASSISTANT_SESSION, TAP_NOTIFICATION }
@@ -722,9 +711,8 @@ internal fun tryPromoteToMicrophoneForeground(
  * On wake word detection:
  * 1. Plays the start-listening cue
  * 2. Starts STT via [VoiceInputController] on [VoiceCaptureMode.AlertCommand]
- * 3. Launches [VoiceCommandActivity] with the transcript pre-filled via
- *    [EXTRA_PREFILLED_TRANSCRIPT] — shows the same bottom-sheet overlay as the long-press
- *    flow, then routes to ActionsScreen for the voice reply.
+ * 3. Opens the Hey Jandal overlay (#2081), which takes the transcript through [WakeOverlayChannel]
+ *    and shows the same listening overlay as the long-press flow, then routes to ActionsScreen.
  *
  * **Security:** [VoiceCommandActivity] is exported=true (required for assistant eligibility).
  * To prevent external apps from injecting arbitrary transcripts, [pendingWakeWordTranscript]
@@ -890,6 +878,14 @@ class WakeWordService : Service() {
         JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STOPPED)
         cameraMonitorJob = null
         wakeWordDetector.stop()
+        // #2081: a transcript still held when the service dies can no longer be tapped; journal it.
+        if (WakeWordHandoff.dropAll() != null) {
+            cancelWakeOverlayNotification()
+            AcousticJournalBridge.record(
+                type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                metadata = { mapOf("outcome" to "failed", "category" to "held_expired_undelivered") },
+            )
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -1033,7 +1029,9 @@ class WakeWordService : Service() {
                     routeTranscript = ::routeTranscript,
                     onSessionTerminal = {
                         isHandlingDetection = false
-                        if (WakeWordHandoff.heldTranscript == null) cancelWakeOverlayNotification()
+                        if (WakeWordHandoff.heldTranscript?.wakeToken != WakeOverlayChannel.currentToken()) {
+                            cancelWakeOverlayNotification()
+                        }
                         rearmDetector()
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
@@ -1139,12 +1137,13 @@ class WakeWordService : Service() {
 
     /**
      * #2081: a held transcript lives as long as its notification. If nothing taps it in time it is
-     * dropped and recorded as a failed route, so no command is lost silently.
+     * dropped and journalled as undelivered, so no command is lost silently. The tap path checks the
+     * same window against the elapsed-realtime clock, so a late timer cannot deliver a stale transcript.
      */
     private fun scheduleHeldExpiry(token: Long) {
         serviceScope.launch {
             delay(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
-            if (WakeWordHandoff.expireHeld(token)) {
+            if (WakeWordHandoff.expireHeld(token) != null) {
                 cancelWakeOverlayNotification()
                 Log.w(TAG, "WakeWordService: held wake command expired without a tap")
                 AcousticJournalBridge.record(
@@ -1209,36 +1208,13 @@ class WakeWordService : Service() {
     }
 
     /**
-     * Hands the final transcript to the overlay (#2081). The overlay takes it only when it is showing.
-     * Otherwise the transcript is held for a tap on the overlay notification and expires with a failure
-     * entry if untapped, so a command is never dropped silently. Returns true when it was consumed or held.
+     * Hands the final transcript to the overlay attached for this capture (#2081). Returns true when the
+     * overlay took it. Otherwise the transcript is held for a tap on the overlay notification (returns false)
+     * and expires with a journal entry if untapped, so a command is never dropped silently.
      */
     private suspend fun routeTranscript(transcript: String): Boolean {
         val token = WakeOverlayChannel.currentToken()
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-        val result = handOffWakeTranscript(
-            transcript = transcript,
-            wakeToken = token,
-            // #2081: a locked or screen-off start is blocked by BAL, so it is not attempted.
-            startOverlay = if (shouldStartOverlayForTranscript(
-                    interactive = pm.isInteractive,
-                    keyguardLocked = km.isKeyguardLocked,
-                )
-            ) {
-                {
-                    startActivity(
-                        Intent(this, VoiceCommandActivity::class.java).apply {
-                            putExtra(EXTRA_PREFILLED_TRANSCRIPT, transcript)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                }
-            } else {
-                null
-            },
-        )
-        return when (result) {
+        return when (val result = handOffWakeTranscript(transcript, token, nowMs = SystemClock.elapsedRealtime())) {
             WakeTranscriptHandoffResult.Consumed -> {
                 WakeOverlayChannel.markRouted()
                 cancelWakeOverlayNotification()
@@ -1246,10 +1222,12 @@ class WakeWordService : Service() {
             }
             is WakeTranscriptHandoffResult.Held -> {
                 Log.w(TAG, "WakeWordService: overlay did not take the transcript (${result.reason}); held for a tap")
-                AcousticJournalBridge.record(
-                    type = AcousticEventType.COMMAND_ROUTING_RESULT,
-                    metadata = { mapOf("outcome" to "held_for_tap", "category" to result.reason) },
-                )
+                if (result.displaced != null) {
+                    AcousticJournalBridge.record(
+                        type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                        metadata = { mapOf("outcome" to "failed", "category" to "held_replaced_undelivered") },
+                    )
+                }
                 WakeOverlayChannel.end()
                 postWakeOverlayNotification(
                     nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
@@ -1257,7 +1235,7 @@ class WakeWordService : Service() {
                     held = true,
                 )
                 scheduleHeldExpiry(token)
-                true
+                false
             }
         }
     }

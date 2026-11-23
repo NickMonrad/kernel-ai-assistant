@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -94,20 +95,13 @@ import androidx.compose.runtime.State
 import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_ID
 import com.kernel.ai.core.voice.WakeOverlayPhase
+import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.AcousticJournalBridge
+import com.kernel.ai.core.voice.HeldTake
+import com.kernel.ai.core.voice.WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS
 import com.kernel.ai.core.voice.WakeOverlayState
 
 private const val TAG = "KernelAI"
-
-/**
- * Intent extra key used by [WakeWordService] to pass a pre-recognised transcript.
- *
- * **Security:** this activity is exported=true (assistant eligibility requirement).
- * External callers cannot inject transcripts via this extra because [WakeWordService]
- * also sets [WakeWordHandoff.pendingTranscript] in process memory immediately
- * before launching this activity. [VoiceCommandActivity] only acts on the extra when
- * the in-process token matches and then clears it — external apps cannot write the token.
- */
-const val EXTRA_PREFILLED_TRANSCRIPT = "prefilled_transcript"
 
 /** Intent extra set by [WakeWordService] when it opens the overlay for a live Hey Jandal capture (#1930). */
 const val EXTRA_WAKE_OVERLAY = "wake_overlay"
@@ -118,21 +112,6 @@ const val EXTRA_WAKE_TOKEN = "wake_token"
 /** #2081: set on a notification-held wake transcript delivered by tap; see [WakeWordHandoff.takeHeld]. */
 const val EXTRA_WAKE_HELD = "wake_held"
 
-/** #1930: delay before a routed wake overlay closes when its prefilled transcript never arrives. */
-internal const val WAKE_ROUTED_FINISH_TIMEOUT_MS = 2_000L
-/**
- * Validates a prefilled transcript extra against the in-process [WakeWordHandoff] token.
- *
- * Returns `true` if the extra matches the token (trusted), `false` otherwise.
- * Does NOT modify [WakeWordHandoff.pendingTranscript] — callers decide whether to clear it.
- *
- * This is extracted as a top-level function so it can be unit-tested without Android dependencies.
- */
-fun validatePrefilledTranscriptToken(extra: String?): Boolean {
-    if (extra == null) return false
-    val token = WakeWordHandoff.pendingTranscript
-    return token == extra
-}
 
 @AndroidEntryPoint
 class VoiceCommandActivity : ComponentActivity() {
@@ -165,6 +144,7 @@ class VoiceCommandActivity : ComponentActivity() {
     private var toneGenerator: ToneGenerator? = null
     /** Observer of [WakeOverlayChannel] while a Hey Jandal overlay is shown (#1930). */
     private var wakeOverlayJob: Job? = null
+    private var wakeTranscriptJob: Job? = null
     /** True when launched as a Hey Jandal wake overlay (#1930); decides cancel-on-destroy. */
     private var wakeIntentSeen = false
     private var cancelledVoiceStart = false
@@ -197,7 +177,6 @@ class VoiceCommandActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, wakeBackCallback)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        if (handlePrefilledTranscript(intent)) return
         if (handleHeldTranscriptIntent(intent)) return
         if (intent.getBooleanExtra(EXTRA_WAKE_OVERLAY, false)) {
             // #1930: a wake intent whose capture already ended must not fall through to a new session.
@@ -224,40 +203,11 @@ class VoiceCommandActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (!handlePrefilledTranscript(intent) && !handleHeldTranscriptIntent(intent)) handleWakeOverlayIntent(intent)
-        // Non-live wake intents and OS assistant re-triggers (no prefilled transcript) are ignored;
+        if (!handleHeldTranscriptIntent(intent)) handleWakeOverlayIntent(intent)
+        // Non-live wake intents and OS assistant re-triggers (no wake overlay extra) are ignored;
         // the existing voice session or overlay is still valid.
     }
 
-    /**
-     * Validates and consumes a prefilled-transcript from [WakeWordService].
-     *
-     * Returns `true` if the transcript was accepted (caller should skip normal STT setup).
-     * Returns `false` if the extra is absent or the in-process token does not match
-     * (external caller or stale delivery — fall through to normal voice session).
-     */
-    internal fun handlePrefilledTranscript(intent: Intent): Boolean {
-        val extra = intent.getStringExtra(EXTRA_PREFILLED_TRANSCRIPT) ?: return false
-        // Validate against the in-process token set by WakeWordService immediately before
-        // startActivity. External apps cannot write this JVM field.
-        val token = WakeWordHandoff.pendingTranscript
-        if (token != extra) {
-            Log.w(TAG, "VoiceCommandActivity: rejected prefilled transcript — token mismatch (external caller?)")
-            // Do NOT clear pendingTranscript — the live token may belong to a legitimate
-            // trigger whose intent arrives next; clearing it here would invalidate it.
-            return false
-        }
-        // Token matched: cancel any in-flight navigation before routing the newer transcript.
-        // Only cancel after validation — an unrecognised re-entry must not cancel a live overlay.
-        prefilledNavJob?.cancel()
-        prefilledNavJob = null
-        WakeWordHandoff.pendingTranscript = null
-        WakeWordHandoff.clearHeld()
-        wakeOverlayJob?.cancel()
-        wakeOverlayJob = null
-        routePrefilledTranscript(extra)
-        return true
-    }
 
     /**
      * #1930: a Hey Jandal wake opens this overlay while [WakeWordService] captures speech. Only a
@@ -273,19 +223,40 @@ class VoiceCommandActivity : ComponentActivity() {
         wakeToken = token
         // #1930: a wake-launched overlay turns the screen on so it is visible with the screen off.
         setTurnScreenOn(true)
+        WakeOverlayChannel.attachOverlay(token)
         startWakeOverlay()
         return true
     }
 
     /**
      * #2081: delivers a transcript held for a tap on the overlay notification. Returns true when the intent is
-     * a held delivery. A stale or already-delivered token delivers nothing and only closes the overlay.
+     * a held delivery. A transcript held past its window, or already delivered, is not routed: the overlay closes.
      */
     internal fun handleHeldTranscriptIntent(intent: Intent): Boolean {
         if (!intent.getBooleanExtra(EXTRA_WAKE_HELD, false)) return false
-        val transcript = WakeWordHandoff.takeHeld(intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L))
         getSystemService(NotificationManager::class.java).cancel(WAKE_OVERLAY_NOTIFICATION_ID)
-        if (transcript == null) finish() else routePrefilledTranscript(transcript)
+        when (val take = WakeWordHandoff.takeHeld(
+            intent.getLongExtra(EXTRA_WAKE_TOKEN, 0L),
+            SystemClock.elapsedRealtime(),
+            WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS,
+        )) {
+            is HeldTake.Delivered -> {
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = { mapOf("outcome" to "handed_off", "category" to "held_delivered_on_tap") },
+                )
+                routePrefilledTranscript(take.text)
+            }
+            is HeldTake.Expired -> {
+                Log.w(TAG, "VoiceCommandActivity: held wake command expired before the tap")
+                AcousticJournalBridge.record(
+                    type = AcousticEventType.COMMAND_ROUTING_RESULT,
+                    metadata = { mapOf("outcome" to "failed", "category" to "held_expired_undelivered") },
+                )
+                finish()
+            }
+            HeldTake.Absent -> finish()
+        }
         return true
     }
 
@@ -332,17 +303,22 @@ class VoiceCommandActivity : ComponentActivity() {
                     }
                     is WakeOverlayState.Ended -> when {
                         isFinishing -> Unit
+                        // Not routed: the capture ended with no transcript, so the overlay closes.
+                        // Routed: the transcript job below owns the overlay from here.
                         !state.routed -> finish()
-                        // Routed: the prefilled transcript cancels this observer. If it never
-                        // arrives, close rather than leave the overlay hanging.
-                        else -> {
-                            delay(WAKE_ROUTED_FINISH_TIMEOUT_MS)
-                            finish()
-                        }
+                        else -> Unit
                     }
                     WakeOverlayState.Idle -> Unit
                 }
             }
+        }
+        wakeTranscriptJob?.cancel()
+        wakeTranscriptJob = lifecycleScope.launch {
+            // The overlay hands over the transcript once its capture ends; routing then replaces the capture UI.
+            val transcript = WakeOverlayChannel.awaitTranscript(wakeToken)
+            wakeOverlayJob?.cancel()
+            wakeOverlayJob = null
+            routePrefilledTranscript(transcript)
         }
     }
 
@@ -628,6 +604,7 @@ class VoiceCommandActivity : ComponentActivity() {
         val ownerSessionId = ownedCaptureSessionId
         ownedCaptureSessionId = null
         voiceStartAttemptId++
+        if (wakeIntentSeen) WakeOverlayChannel.detachOverlay(wakeToken)
         super.onDestroy()
         // #1930: the dismiss paths cancel a wake capture explicitly. onDestroy must not: an OEM stop
         // (noHistory) during a live session would cancel it (#2081, Honor). Configuration changes keep it.

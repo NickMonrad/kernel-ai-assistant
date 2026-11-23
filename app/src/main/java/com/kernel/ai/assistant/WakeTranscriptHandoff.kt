@@ -1,63 +1,53 @@
 package com.kernel.ai.assistant
 
 import com.kernel.ai.core.voice.HeldWakeTranscript
+import com.kernel.ai.core.voice.WakeOverlayChannel
 import com.kernel.ai.core.voice.WakeWordHandoff
 import kotlinx.coroutines.delay
 
-/** How long a routed transcript may take to reach the overlay before it counts as undelivered (#2081). */
+/** How long a delivered transcript may take to be taken by the overlay before it is held (#2081). */
 internal const val WAKE_TRANSCRIPT_CONSUME_WAIT_MS = 2_000L
 
 internal sealed interface WakeTranscriptHandoffResult {
-    /** The overlay activity took the transcript and is now responsible for it. */
+    /** The attached overlay took the transcript and now owns it. */
     data object Consumed : WakeTranscriptHandoffResult
 
     /**
-     * The overlay did not take it, so the transcript is held for a tap on the notification.
-     * [reason] is `start_skipped` (no start was attempted, because the screen is off or locked),
-     * `start_refused` (the start threw) or `overlay_not_shown` (the start returned but the overlay
-     * never consumed it, as with a background-activity-launch block, which is silent).
+     * The transcript is held for a tap on the overlay notification. [reason] is `overlay_not_attached`
+     * (no overlay is showing this capture) or `overlay_not_taken` (an overlay was attached but did not
+     * take it in time). [displaced] is the earlier held transcript this one replaced, if any.
      */
-    data class Held(val reason: String) : WakeTranscriptHandoffResult
+    data class Held(val reason: String, val displaced: HeldWakeTranscript? = null) : WakeTranscriptHandoffResult
 }
 
 /**
- * Whether to attempt a direct overlay start for a transcript (#2081). A screen-off or locked device
- * blocks a background activity start, and each blocked attempt logs a BAL wtf at E level. Those
- * attempts are skipped: the transcript is held for the tap notification instead.
- */
-internal fun shouldStartOverlayForTranscript(interactive: Boolean, keyguardLocked: Boolean): Boolean =
-    interactive && !keyguardLocked
-
-/**
- * Hands [transcript] to the overlay activity and checks that it was consumed (#2081).
- *
- * The overlay consumes the transcript by clearing [WakeWordHandoff.pendingTranscript]. A blocked
- * activity start does not throw, so the only signal is that the token stays set. When it does,
- * the transcript is held for [wakeToken] rather than dropped, and the notification tap delivers it.
- * A null [startOverlay] means no start is attempted, and the transcript is held straight away.
+ * Hands [transcript] to the overlay attached for [wakeToken] (#2081). The decision depends only on
+ * whether that overlay is attached and live, not on the keyguard or screen state: an occluded
+ * keyguard keeps the device "locked" while the overlay is visible, so a keyguard check would hold a
+ * transcript the overlay can show. When nothing takes the transcript it is held for the tap and
+ * [nowMs] is recorded as its hold time.
  */
 internal suspend fun handOffWakeTranscript(
     transcript: String,
     wakeToken: Long,
-    startOverlay: (() -> Unit)?,
+    nowMs: Long,
     consumeWaitMs: Long = WAKE_TRANSCRIPT_CONSUME_WAIT_MS,
     pollMs: Long = 50L,
 ): WakeTranscriptHandoffResult {
-    if (startOverlay == null) {
-        WakeWordHandoff.pendingTranscript = null
-        WakeWordHandoff.hold(HeldWakeTranscript(wakeToken, transcript))
-        return WakeTranscriptHandoffResult.Held("start_skipped")
+    if (!WakeOverlayChannel.deliverTranscript(wakeToken, transcript)) {
+        return hold(transcript, wakeToken, nowMs, "overlay_not_attached")
     }
-    WakeWordHandoff.pendingTranscript = transcript
-    val started = runCatching(startOverlay).isSuccess
     var waited = 0L
-    while (started && WakeWordHandoff.pendingTranscript == transcript && waited < consumeWaitMs) {
+    while (!WakeOverlayChannel.isTranscriptTaken(wakeToken) && waited < consumeWaitMs) {
         delay(pollMs)
         waited += pollMs
     }
-    if (WakeWordHandoff.pendingTranscript != transcript) return WakeTranscriptHandoffResult.Consumed
-    // Clear the in-process authorization: a held transcript is delivered by tap, not by the overlay.
-    WakeWordHandoff.pendingTranscript = null
-    WakeWordHandoff.hold(HeldWakeTranscript(wakeToken, transcript))
-    return WakeTranscriptHandoffResult.Held(if (started) "overlay_not_shown" else "start_refused")
+    if (WakeOverlayChannel.withdrawTranscript(wakeToken)) return WakeTranscriptHandoffResult.Consumed
+    return hold(transcript, wakeToken, nowMs, "overlay_not_taken")
 }
+
+private fun hold(transcript: String, wakeToken: Long, nowMs: Long, reason: String): WakeTranscriptHandoffResult.Held =
+    WakeTranscriptHandoffResult.Held(
+        reason = reason,
+        displaced = WakeWordHandoff.hold(HeldWakeTranscript(wakeToken, transcript, nowMs)),
+    )
