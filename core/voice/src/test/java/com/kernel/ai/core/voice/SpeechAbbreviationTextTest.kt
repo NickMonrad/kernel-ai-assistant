@@ -45,6 +45,28 @@ class SpeechAbbreviationTextTest {
     }
 
     @Test
+    fun `weekday before a comma or a month is expanded`() {
+        assertEquals("Monday, the 23rd of November", SpeechAbbreviationText.expand("Mon, 23 Nov"))
+        assertEquals("Monday November the 23rd", SpeechAbbreviationText.expand("Mon Nov 23"))
+    }
+
+    @Test
+    fun `ranges, slashes and decimals are not read as single dates`() {
+        assertEquals("5-10 Nov", SpeechAbbreviationText.expand("5-10 Nov"))
+        assertEquals("5 - 10 Nov", SpeechAbbreviationText.expand("5 - 10 Nov"))
+        assertEquals("2/3 May", SpeechAbbreviationText.expand("2/3 May"))
+        assertEquals("1.5 Mar", SpeechAbbreviationText.expand("1.5 Mar"))
+        assertEquals("Nov 5-10", SpeechAbbreviationText.expand("Nov 5-10"))
+    }
+
+    @Test
+    fun `degree sign next to a letter keeps a space`() {
+        assertEquals("45 degrees N 170 degrees E", SpeechAbbreviationText.expand("45°N 170°E"))
+        assertEquals("20 degrees Celsius", SpeechAbbreviationText.expand("20°Celsius"))
+        assertEquals("1.9 metres per second", SpeechAbbreviationText.expand("1.9 m/s"))
+    }
+
+    @Test
     fun `words that are not dates are left alone`() {
         assertEquals("Sun is shining in May.", SpeechAbbreviationText.expand("Sun is shining in May."))
         assertEquals("Sunday the 29th of November", SpeechAbbreviationText.expand("Sunday the 29th of November"))

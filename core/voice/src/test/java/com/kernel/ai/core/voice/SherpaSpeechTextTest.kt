@@ -33,6 +33,7 @@ class SherpaSpeechTextTest {
             "Born in 1985, moved in 2020                 | Born in 1985, moved in 2020.",
             "It costs $345                               | It costs three hundred and forty five dollars.",
             "About 50% done                              | About fifty percent done.",
+            "Mon, 23 Nov, 11°C, 92%                      | Monday, the 23rd of November, eleven degrees, ninety two percent.",
             "Version 2.14.1                              | Version 2.14.1.",
             "See https://example.com/page-2 for details   | See for details.",
             "Takes 5-10 minutes                          | Takes five to ten minutes.",

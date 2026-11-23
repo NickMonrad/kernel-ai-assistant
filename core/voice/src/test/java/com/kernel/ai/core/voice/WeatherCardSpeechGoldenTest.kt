@@ -15,7 +15,7 @@ class WeatherCardSpeechGoldenTest {
     private val card = "☀️ Oakland — 11°C · Clear sky\n🌡 Today: H:17°C / L:10°C\n💧 Humidity: 92%"
 
     @Test
-    fun `android tts gets the card cleaned and nothing else`() {
+    fun `android tts gets card cleanup, units and dates spelled out`() {
         assertEquals(
             "Oakland, 11 degrees, Clear sky. Today: high 17, low 10. humidity 92 percent",
             SpeechCardText.speakable(card),

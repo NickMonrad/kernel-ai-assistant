@@ -320,7 +320,7 @@ class GetWeatherCacheTest {
             Triple("Tomorrow", "Rain", Pair(20.0, 14.0)),
         )
         val spoken = buildMultiDayForecastSpoken("Brisbane", days)
-        assertTrue(spoken.contains("forecast for the next 1 day."))
+        assertTrue(spoken.startsWith("Brisbane forecast."), spoken)
         assertTrue(spoken.contains("Tomorrow"))
     }
 
