@@ -59,7 +59,8 @@ Identity counts are reported and are not pass/fail.
 
 ## Line set (to commit before the first recording)
 
-- Gold place lines, false-boost lines and class map: the owner's line list. Commit its sha256 and class counts here before recording. Lines must include at least the v1 classes: gold navigate, take-me, weather, bare; foreign city, foreign homograph, AU competitor city, POI, contact/address, suburb/locality, NZ already-correct, gate trap.
+- **Owner script (committed, fixed):** `owner_script_lines.tsv`, 30 lines, sha256 `efc21aba0403d64d9efa2faa8f1524864aa43434fc9b32e64f37b0e04966a08d` (private; not in git). Class counts: glossary navigate 6, glossary weather 7, glossary bare_name 2 (glossary total 15); non_glossary navigate 7, non_glossary weather 7, non_glossary bare_name 1 (non_glossary total 15). Total 30.
+- **Coverage gap, stated before audio:** the fixed script has no false-boost lines (foreign city, foreign homograph, POI, contact/address, suburb/locality, NZ already-correct, gate trap). The v2 minimum class list above is therefore **not met** by the owner script. Criteria 2–5 (non-identity false-boost rewrites, competitor rewrites, NZ already-correct, gate traps) are **not evaluable** on this script and will be reported as "not evaluated", not as pass. Criterion 1 (gold substitutions) and the gold-class correct-output rates are evaluable. Adding false-boost lines requires an owner decision and a committed amendment before any audio exists.
 - Recording protocol: one complete take per line, read as written. A re-take is allowed only before any output is seen, and every re-take is logged and counted.
 - Real recordings come from the owner's private Drive folder. Nothing in this repository reads that folder.
 
