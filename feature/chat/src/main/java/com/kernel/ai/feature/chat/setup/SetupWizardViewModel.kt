@@ -358,7 +358,7 @@ class SetupWizardViewModel @Inject constructor(
     /** Ticks or unticks "I agree to the Terms of Use" on Welcome. Stored at once so process death keeps it (#1998). */
     fun onTermsAcceptedChanged(accepted: Boolean) {
         _uiState.value = _uiState.value.copy(termsAccepted = accepted)
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = "setup_wizard") }
     }
 
     /**

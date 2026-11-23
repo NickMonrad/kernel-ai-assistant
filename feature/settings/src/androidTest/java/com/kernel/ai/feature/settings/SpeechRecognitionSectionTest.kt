@@ -80,6 +80,7 @@ class SpeechRecognitionSectionTest {
                         onDownload = {},
                         onCancel = {},
                         onDelete = {},
+                        onUseMobileData = {},
                         onAsr4allSize = {},
                         scrollToTermsRow = true,
                     )
@@ -126,6 +127,7 @@ class SpeechRecognitionSectionTest {
                     onDownload = {},
                     onCancel = {},
                     onDelete = {},
+                    onUseMobileData = {},
                     onAsr4allSize = {},
                 )
             }

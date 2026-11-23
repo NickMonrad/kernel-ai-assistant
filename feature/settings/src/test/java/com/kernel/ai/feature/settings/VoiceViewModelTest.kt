@@ -217,6 +217,7 @@ class VoiceViewModelTest {
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns modelDownloadStates
+        every { modelDownloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
         every { hardwareProfileDetector.profile.tier } returns HardwareTier.FLAGSHIP
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs
@@ -365,7 +366,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `android native availability message is exposed when locale support cannot be verified`() = runTest {
+    fun `android native availability message stays empty when locale support cannot be verified`() = runTest {
         coEvery { androidNativeRecognitionSupport.getAvailability() } returns
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
@@ -392,10 +393,7 @@ class VoiceViewModelTest {
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(
-            "Android native speech recognition could not verify on-device support for English (New Zealand) on this device. It may fail unless that language is supported and installed locally.",
-            viewModel.uiState.value.androidNativeAvailabilityMessage,
-        )
+        assertEquals(null, viewModel.uiState.value.androidNativeAvailabilityMessage)
     }
 
     @Test

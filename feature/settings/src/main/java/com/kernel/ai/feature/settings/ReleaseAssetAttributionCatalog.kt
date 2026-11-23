@@ -17,6 +17,10 @@ data class ReleaseAssetAttribution(
     val sourceText: String get() = sourceDisplay ?: ReleaseAssetAttributionCatalog.UNDER_REVIEW
     val licenceText: String get() = licenceDisplay ?: ReleaseAssetAttributionCatalog.UNDER_REVIEW
     val lineageText: String get() = lineageDisplay ?: ReleaseAssetAttributionCatalog.UNDER_REVIEW
+
+    /** Rows for assets that are debug-only or excluded from the v0.1 release; the release screen hides them (#2084). */
+    val isDebugOnly: Boolean
+        get() = releaseStatus.contains("debug", ignoreCase = true) || releaseStatus.contains("excluded", ignoreCase = true)
 }
 
 /** Offline attribution rows sourced from the same catalogues used by model and voice downloads. */
@@ -111,21 +115,21 @@ object ReleaseAssetAttributionCatalog {
         )
     }
 
-    private val sttRows = SherpaSttModelSpec.ALL.values.flatMap { spec ->
-        val model = spec.engine
-        spec.requiredFileNames.map { fileName ->
-            val kernel = KernelModel.entries.firstOrNull { it.fileName == fileName }
-            val row = kernel?.let { modelRows.firstOrNull { entry -> entry.id == "model:${it.name}" } }
-            ReleaseAssetAttribution(
-                id = "stt:$fileName",
-                name = "${spec.displayLabel} · $fileName",
-                purposeCategory = row?.purposeCategory ?: "Speech recognition (STT) model",
-                sourceDisplay = row?.sourceDisplay,
-                licenceDisplay = row?.licenceDisplay,
-                lineageDisplay = row?.lineageDisplay,
-                releaseStatus = if (spec == SherpaSttModelSpec.WHISPER) WHISPER_VERIFIER else STT_DEBUG_ONLY,
-            )
+    /** One row per Sherpa STT engine family, not one per downloaded file (#2084). */
+    private val sttRows = SherpaSttModelSpec.ALL.values.map { spec ->
+        val kernel = spec.requiredFileNames.firstNotNullOfOrNull { file ->
+            KernelModel.entries.firstOrNull { it.fileName == file }
         }
+        val row = kernel?.let { k -> modelRows.firstOrNull { entry -> entry.id == "model:${k.name}" } }
+        ReleaseAssetAttribution(
+            id = "stt:${spec.engine.name}",
+            name = spec.displayLabel,
+            purposeCategory = row?.purposeCategory ?: "Speech recognition (STT) model",
+            sourceDisplay = row?.sourceDisplay,
+            licenceDisplay = row?.licenceDisplay,
+            lineageDisplay = row?.lineageDisplay,
+            releaseStatus = if (spec == SherpaSttModelSpec.WHISPER) WHISPER_VERIFIER else STT_DEBUG_ONLY,
+        )
     }
 
     private val piperRows = SherpaPiperVoice.entries.map { voice ->
@@ -169,5 +173,7 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution("asset:intent-vectors", "Bundled MiniLM intent phrase vectors", "Intent matching vectors", "Jandal-generated from the bundled MiniLM model, vocab.txt and intent_phrases.json", "Apache-2.0 (Jandal project)", "Hash-bound generated vector asset; generation and freshness checks are documented in docs/minilm-intent-phrase-vectors.md", "Bundled in release"),
     )
 
-    val entries: List<ReleaseAssetAttribution> = modelRows + sttRows + piperRows + kokoroRows + engineRows
+    val entries: List<ReleaseAssetAttribution> =
+        (modelRows.filterNot { it.id.startsWith("model:SHERPA_") } + sttRows + piperRows + kokoroRows + engineRows)
+            .filterNot { it.isDebugOnly }
 }

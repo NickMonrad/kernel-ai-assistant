@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -65,6 +66,21 @@ fun termsAllowDownload(
 ): Boolean = !model.requiresTermsAcceptance || record.isAccepted(currentVersion)
 
 /**
+ * Models whose stored Terms refusal (#2080) is stale: the current acceptance is on record, so a refusal left by an
+ * earlier attempt must stop showing. Pure so the rule is unit-tested without a download manager.
+ */
+fun termsRefusalsToClear(
+    states: Map<KernelModel, DownloadState>,
+    record: TermsAcceptanceRecord,
+    currentVersion: String = TERMS_VERSION,
+): List<KernelModel> =
+    if (!record.isAccepted(currentVersion)) {
+        emptyList()
+    } else {
+        states.filter { (model, state) -> model.requiresTermsAcceptance && state.isTermsRefusal() }.keys.toList()
+    }
+
+/**
  * Persists the Terms of Use acceptance (#1998). Acceptance is written as soon as the checkbox is ticked, so a
  * process death or a rotation keeps it, and the stored version decides whether the user is asked again.
  */
@@ -94,8 +110,11 @@ class TermsAcceptancePreferences internal constructor(private val dataStore: Dat
             )
         }
 
-    /** Ticks ([accepted] = true) or unticks the checkbox for [TERMS_VERSION]. Unticking clears the acceptance. */
-    suspend fun setAccepted(accepted: Boolean, nowMillis: Long = System.currentTimeMillis()) {
+    /**
+     * Ticks ([accepted] = true) or unticks the checkbox for [TERMS_VERSION]. Unticking clears the acceptance.
+     * [source] names the screen that changed it; the journal records it so a re-prompt can be traced (#2080).
+     */
+    suspend fun setAccepted(accepted: Boolean, source: String, nowMillis: Long = System.currentTimeMillis()) {
         dataStore.edit { prefs ->
             if (accepted) {
                 prefs[acceptedVersionKey] = TERMS_VERSION
@@ -105,6 +124,7 @@ class TermsAcceptancePreferences internal constructor(private val dataStore: Dat
                 prefs.remove(acceptedAtKey)
             }
         }
+        JandalEvents.record("terms", if (accepted) "accepted" else "cleared", "source" to source, "version" to TERMS_VERSION)
     }
 
     /** Dismisses the update prompt for [TERMS_VERSION]. The prompt does not return for this version. */

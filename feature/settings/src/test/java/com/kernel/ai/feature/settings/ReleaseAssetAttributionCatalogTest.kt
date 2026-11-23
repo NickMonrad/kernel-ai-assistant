@@ -11,16 +11,20 @@ import org.junit.jupiter.api.Test
 
 class ReleaseAssetAttributionCatalogTest {
     @Test
-    fun everyDownloadCatalogueAssetHasAnAttributionEntry() {
+    fun releaseListHasOneEntryPerReleaseAssetAndNoPerFileDuplicates() {
         val entries = ReleaseAssetAttributionCatalog.entries
-        val ids = entries.map { it.id }.toSet()
-        assertEquals(KernelModel.entries.map { "model:${it.name}" }.toSet(), ids.filter { it.startsWith("model:") }.toSet())
+        val ids = entries.map { it.id }
+        assertEquals(ids.distinct(), ids)
         assertEquals(
-            SherpaSttModelSpec.ALL.values.flatMap { it.requiredFileNames }.toSet() + setOf("AndroidNative"),
-            ids.filter { it.startsWith("stt:") }.map { it.removePrefix("stt:") }.toSet(),
+            KernelModel.entries.filterNot { it.name.startsWith("SHERPA_") }.map { "model:${it.name}" }.toSet(),
+            ids.filter { it.startsWith("model:") }.toSet(),
         )
-        assertEquals(SherpaPiperVoice.entries.map { "piper:${it.name}" }.toSet(), ids.filter { it.startsWith("piper:") }.toSet())
-        assertEquals(SherpaKokoroVoice.entries.map { "kokoro:${it.name}" }.toSet(), ids.filter { it.startsWith("kokoro:") }.toSet())
+        assertEquals(
+            setOf("stt:${SherpaSttModelSpec.WHISPER.engine.name}", "stt:AndroidNative"),
+            ids.filter { it.startsWith("stt:") }.toSet(),
+        )
+        assertEquals(setOf("piper:${SherpaPiperVoice.CoriHigh.name}"), ids.filter { it.startsWith("piper:") }.toSet())
+        assertEquals(emptySet<String>(), ids.filter { it.startsWith("kokoro:") }.toSet())
         assertFalse("stt:Vosk" in ids)
     }
 
@@ -55,31 +59,23 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun whisperVerifierFilesAreReleaseVisibleAndDownloadedWithHeyJandal() {
-        val whisperIds = SherpaSttModelSpec.WHISPER.requiredFileNames.map { "stt:$it" }.toSet()
-        val whisper = ReleaseAssetAttributionCatalog.entries.filter { it.id in whisperIds }
-        assertEquals(whisperIds.size, whisper.size)
+    fun whisperVerifierFamilyIsReleaseVisibleAndDownloadedWithHeyJandal() {
+        val whisper = ReleaseAssetAttributionCatalog.entries.filter {
+            it.id == "stt:${SherpaSttModelSpec.WHISPER.engine.name}"
+        }
+        assertEquals(1, whisper.size)
         assertTrue(whisper.all { it.releaseStatus == "Downloaded with Hey Jandal · release-visible" })
         assertTrue(whisper.all { it.licenceText.contains("Apache-2.0") })
     }
 
-
     @Test
-    fun sherpaSttNonCoriPiperAndKokoroStayExcludedWhileCoriAndSherpaEnginesAreReleaseVisible() {
-        val whisperIds = SherpaSttModelSpec.WHISPER.requiredFileNames.map { "stt:$it" }.toSet()
-        val excluded = ReleaseAssetAttributionCatalog.entries.filter {
-            (it.id.startsWith("stt:") && it.id != "stt:AndroidNative" && it.id !in whisperIds) ||
-                (it.id.startsWith("piper:") && it.id != "piper:CoriHigh") ||
-                it.id.startsWith("kokoro:") ||
-                it.id == "tts:KokoroExperimental"
-        }
-        assertTrue(excluded.isNotEmpty())
-        assertTrue(excluded.all {
-            it.releaseStatus.contains("excluded", ignoreCase = true) ||
-                it.releaseStatus.contains("post-launch", ignoreCase = true)
-        })
+    fun sherpaSttNonCoriPiperAndKokoroAreHiddenWhileCoriAndSherpaEnginesAreReleaseVisible() {
+        val entries = ReleaseAssetAttributionCatalog.entries
+        assertTrue(entries.none { it.isDebugOnly })
+        assertTrue(entries.none { it.id.startsWith("kokoro:") || it.id == "tts:KokoroExperimental" })
+        assertTrue(entries.none { it.id.startsWith("piper:") && it.id != "piper:CoriHigh" })
 
-        val released = ReleaseAssetAttributionCatalog.entries.filter {
+        val released = entries.filter {
             it.id == "piper:CoriHigh" || it.id == "tts:SherpaExperimental" || it.id == "tts:InflectMicroExperimental"
         }
         assertEquals(3, released.size)

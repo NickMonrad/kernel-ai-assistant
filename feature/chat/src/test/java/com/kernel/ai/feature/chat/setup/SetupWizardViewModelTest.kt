@@ -1004,6 +1004,6 @@ class SetupWizardViewModelTest {
         vm.onTermsAcceptedChanged(true)
         dispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.termsAccepted)
-        coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, any()) }
+        coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, "setup_wizard", any()) }
     }
 }

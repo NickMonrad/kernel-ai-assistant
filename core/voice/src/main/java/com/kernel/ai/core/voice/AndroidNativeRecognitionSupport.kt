@@ -50,14 +50,6 @@ data class AndroidNativeRecognitionAvailability(
             else -> null
         }
 
-    val warningMessage: String?
-        get() = when {
-            blockingReason != null -> blockingReason
-            localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown ->
-                "Android native speech recognition could not verify on-device support for $languageDisplayName on this device. It may fail unless that language is supported and installed locally."
-            else -> null
-        }
-
     val languageSummary: String
         get() = "$languageDisplayName ($languageTag)"
 }

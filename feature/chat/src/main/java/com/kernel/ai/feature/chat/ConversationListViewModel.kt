@@ -72,7 +72,7 @@ class ConversationListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun onTermsPromptAccepted(accepted: Boolean) {
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = "chat_banner") }
     }
 
     fun onTermsPromptDismissed() {
