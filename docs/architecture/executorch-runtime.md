@@ -28,7 +28,11 @@ the LLM work in #1755 must reuse the same runtime. Related: #1977 (asr4all epic)
 Change the version in one place, then re-check everything this document states about 1.5.1:
 the AAR contents (`Module`, `LlmModule`), the thread-pool behaviour, the native error path,
 `PteHeader.PROGRAM_IDENTIFIER`, the 16 KB checks and the APK size table. Regenerate the smoke
-program with `core/executorch/tools/generate_smoke_pte.py` and run the instrumented test.
+program with `core/executorch/tools/generate_smoke_pte.py` and run the instrumented test. Regenerate
+`core/executorch/tools/generate_bool_smoke_pte.py` (`bool_smoke.pte`) and run `BoolInputSmokeTest` too:
+`BoolInputTensor` (a Java `Tensor` subclass) depends on two 1.5.1 JNI reads, the overridden `dtype()`
+(reached through `dtypeJniCode()`) and `getRawDataBuffer()`. A change shows as a compile error, an
+"Unknown Tensor jdtype" error, or a native failure; the instrumented test is the check.
 
 ## API
 
@@ -51,7 +55,7 @@ ExecuTorchModel.load(file, threads = 4).use { model ->
   states what the program must return; a mismatch throws `OutputShapeMismatchException` (or
   `InputShapeMismatchException`) naming the method, the tensor and both shapes. `assertOutputShapes`
   and `requireInputShapes` are public for callers that hold tensors from elsewhere.
-- Tensors: `ExecuTorchTensor.Float32`, `Int32`, `Int64`, `Int8`, `UInt8`. Construction fails if
+- Tensors: `ExecuTorchTensor.Float32`, `Int32`, `Int64`, `Int8`, `UInt8`, `Bool`. Construction fails if
   the data does not fill the shape.
 - Lifecycle: `close()` is idempotent and waits for an in-flight `run`; `run` after `close`
   throws `IllegalStateException` and never reaches freed native memory. Calls are serialised per
@@ -59,16 +63,19 @@ ExecuTorchModel.load(file, threads = 4).use { model ->
 
 ## Runtime constraints (1.5.1)
 
-### Native errors abort the process
+### Native error paths: abort or hang
 
-On Android, every runtime error path in the 1.5.1 AAR (an invalid or truncated program at load,
-an input the program rejects at run) aborts the process with `F log: ptr` / SIGABRT instead of
-throwing `ExecutorchRuntimeException`. Observed on the S21 (`R5CR605B71K`) with this module's
-instrumented test. Cause: `libexecutorch.so` links libc++ statically and hides it (12 exported
-dynamic symbols, no `__cxa_*`), while fbjni throws through `libc++_shared.so`. The exception
-crosses C++ runtimes, `std::current_exception()` returns null, and fbjni's `FBJNI_ASSERT(ptr)`
-aborts. Upstream pull request [pytorch/executorch#22739](https://github.com/pytorch/executorch/pull/22739)
-(dynamic libc++) describes this failure mode; it is not in 1.5.1.
+Observed, not characterised exhaustively. On the S21 (`R5CR605B71K`), an invalid or truncated program at load
+aborted the process (`F log: ptr` / SIGABRT) instead of throwing `ExecutorchRuntimeException`, in this module's
+instrumented test. On the S23U (`SM-S918B`, #1557 spike), a `uint8` input where the program expects `bool` logged
+`Input 1 has unexpected scalar type: expected Bool but was Byte` and the Java call never returned (about 15 min,
+no exception). A runtime error can therefore abort or hang; do not assume either.
+
+Hypothesis for the abort (not verified on device): `libexecutorch.so` links libc++ statically and hides it (12
+exported dynamic symbols, no `__cxa_*`), while fbjni throws through `libc++_shared.so`. The exception crosses C++
+runtimes, `std::current_exception()` returns null, and fbjni's `FBJNI_ASSERT(ptr)` aborts. Upstream pull request
+[pytorch/executorch#22739](https://github.com/pytorch/executorch/pull/22739) (dynamic libc++) describes this
+failure mode; it is not in 1.5.1.
 
 Mitigation in this module: reject what Kotlin can check before native code.
 

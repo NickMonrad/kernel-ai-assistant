@@ -70,6 +70,7 @@ private fun ExecuTorchTensor.toNative(): Tensor {
         is ExecuTorchTensor.Int64 -> Tensor.fromBlob(data, shape)
         is ExecuTorchTensor.Int8 -> Tensor.fromBlob(data, shape)
         is ExecuTorchTensor.UInt8 -> Tensor.fromBlobUnsigned(data, shape)
+        is ExecuTorchTensor.Bool -> BoolInputTensor(shape, data)
     }
 }
 

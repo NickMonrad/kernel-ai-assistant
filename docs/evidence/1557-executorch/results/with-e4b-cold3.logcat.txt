@@ -1,0 +1,2 @@
+--------- beginning of main
+11-23 19:59:33.391 14580 14580 W KernelAI: UserProfileRepository.getName(): both paths returned null (profileText length=0). Profile may not contain a recognisable name field.

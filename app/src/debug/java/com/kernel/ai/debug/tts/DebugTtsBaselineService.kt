@@ -15,9 +15,15 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.kernel.ai.debug.tts.kokoro.KokoroEtDebugLane
+import com.kernel.ai.debug.tts.kokoro.NativeKokoroPhonemizer
 import org.json.JSONObject
 
 /**
@@ -53,17 +59,21 @@ class DebugTtsBaselineService : Service() {
     private fun execute(intent: Intent) {
         var request: DebugTtsBaselineRequest? = null
         var lane: DebugTtsLane? = null
+        var abandoned = false
         try {
             val validated = DebugTtsBaselineRequest.from(intent)
             request = validated
             val output = debugTtsBaselineOutput(this, validated.lane, validated.label)
             val created = createLane(validated.lane)
             lane = created
-            val json = DebugTtsBaselineRun(this, created).execute(validated)
+            // A native call that never returns (seen on ExecuTorch 1.5.1 after a rejected input) would leave no JSON.
+            val json = withDeadline(RUN_DEADLINE_MS) { DebugTtsBaselineRun(this, created).execute(validated) }
             writeJson(output, json)
             Log.i(TAG, "tts baseline done lane=${validated.lane} path=${output.absolutePath}")
         } catch (error: Throwable) {
             Log.e(TAG, "tts baseline failed", error)
+            // The stuck native call still holds the lane's lock; close() would block this thread on it.
+            if (error is NativeRunTimeoutException) abandoned = true
             request?.let { validated ->
                 writeJson(
                     debugTtsBaselineOutput(this, validated.lane, validated.label),
@@ -76,7 +86,7 @@ class DebugTtsBaselineService : Service() {
                 )
             }
         } finally {
-            lane?.close()
+            if (!abandoned) lane?.close()
         }
     }
 
@@ -92,8 +102,34 @@ class DebugTtsBaselineService : Service() {
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
             InflectMicroDebugLane(models, voice.name, espeak)
         }
+        DebugTtsLanes.KOKORO_ET -> {
+            val models = File(filesDir, "kokoro-et")
+            KokoroEtDebugLane(models, KOKORO_ET_VOICE, NativeKokoroPhonemizer(filesDir, "en-us"))
+        }
         else -> error("no lane factory for $laneId")
     }
+
+    /**
+     * Runs [block] on a daemon thread and fails with [NativeRunTimeoutException] after [deadlineMs]. A native call
+     * stuck past the deadline cannot be interrupted, so the thread is left behind and the lane is not closed (close()
+     * waits on the same lock). The service then stops and accepts new runs, but the stuck thread and the unclosed model
+     * stay in this process: later runs in it are not clean measurements until the process is force-stopped.
+     */
+    private fun <T> withDeadline(deadlineMs: Long, block: () -> T): T {
+        val executor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "debug-tts-run").apply { isDaemon = true }
+        }
+        try {
+            return executor.submit(Callable { block() }).get(deadlineMs, TimeUnit.MILLISECONDS)
+        } catch (error: TimeoutException) {
+            throw NativeRunTimeoutException(deadlineMs, error)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    private class NativeRunTimeoutException(deadlineMs: Long, cause: Throwable) :
+        IllegalStateException("baseline run exceeded ${deadlineMs / 1000} s; a native call did not return", cause)
 
     private fun writeJson(file: File, json: JSONObject) {
         file.parentFile?.mkdirs()
@@ -117,6 +153,8 @@ class DebugTtsBaselineService : Service() {
         .build()
 
     companion object {
+        private const val KOKORO_ET_VOICE = "af_heart"
+
         /** True while a run owns the service. The receiver refuses overlapping runs using this. */
         private val running = AtomicBoolean(false)
 
@@ -126,6 +164,7 @@ class DebugTtsBaselineService : Service() {
         private const val CHANNEL_ID = "debug_tts_baseline"
         private const val NOTIFICATION_ID = 2088
         private const val ESPEAK_DATA_DIR = "espeak-ng-data"
+        private const val RUN_DEADLINE_MS = 20L * 60 * 1000
     }
 }
 
