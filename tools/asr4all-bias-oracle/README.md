@@ -1,0 +1,271 @@
+# asr4all bias oracle (#2093 step 1)
+
+**Dev-set results only.** No held-out set exists in this environment. β, m and the gate were chosen on the
+same clips they are reported on, so every figure is optimistic.
+
+Offline go/no-go for decoder-side biasing of place names. It answers one question: when the encoder
+logits already contain the spoken place, does a biased CTC span score put the true place first among the
+rewritable places, and does the decision rule rewrite only correct places? No production code is involved.
+The tool reads logits that the host harness dumps.
+
+## Pipeline
+
+1. **Dump logits** (test source, `core/voice`). `Asr4AllHostHarnessTest` accepts the config key
+   `dump_logits_dir`. When set, `LogitsTapBackend` (test-only wrapper) copies the output of every
+   `stream_*` call, and for repeat 1 the harness writes `<clip>.<size>.<tier>.logits.f32`
+   (float32 LE, `[frames, vocab]`, frames = `floor(samples / 640)`) plus a `.json` sidecar.
+   Dumps are private; they are not committed.
+2. **Score** (`oracle.py`). Greedy CTC gives the text; the slot is chosen by `--slot`:
+   - `trigger`: the gate (`--gate v1|v2`) fires on the greedy text; the slot starts after the anchor.
+   - `hint`: caller slot-fill hint. If the gate does not fire, the whole utterance is the slot.
+   - `full`: whole utterance (diagnostic).
+3. **Test** (`python3 -m unittest -v test_oracle`).
+
+```bash
+# 1. dump (from the worktree root; Android SDK required for Gradle)
+ANDROID_HOME=$HOME/Android/Sdk ASR4ALL_HARNESS_CONFIG=/abs/path/bias-oracle-dump.json \
+  ./gradlew :core:voice:testDebugUnitTest --tests 'com.kernel.ai.core.voice.asr4all.host.Asr4AllHostHarnessTest'
+
+# 2. score (labels and place list are private; see Data). The step-2 rule: β 4.0, margin 1.0.
+python3 tools/asr4all-bias-oracle/oracle.py \
+  --dumps /abs/out/bias-oracle-dump \
+  --model M=/abs/models/asr4all-m --model L=/abs/models/asr4all-l \
+  --labels /abs/private/bias-oracle-labels.json \
+  --places /abs/private/nz_places_rw.json --betas 4 \
+  --slot full --gate v2 --out /abs/private/oracle-out
+
+# 3. checks (fixture check needs the M model dir with config.json and merges.txt)
+ASR4ALL_MODEL_M=/abs/models/asr4all-m python3 -m unittest -v tools/asr4all-bias-oracle/test_oracle.py
+```
+
+Harness config keys used: `python`, `bridge`, `models`, `sizes`, `tiers`, `chunk_ms`, `repeat`,
+`clips`, `output`, plus `dump_logits_dir`. Input WAVs must be 16-bit mono at 16 kHz; resample
+48 kHz clips with ffmpeg first.
+
+Labels file (private): `{"<clip id>": {"split": "owner-dev" | "clone", "gold": ["<display name>", ...]}}`.
+`gold` is empty for non-place clips and must match a candidate's display name. The oracle stops with an
+error if a gold name is missing from the candidate list.
+
+## Gate
+
+- **v1** (before step 2): exact phrasings `navigate to`, `directions to`, `take me to`,
+  `weather in|at`.
+- **v2** (step 2): generic travel and weather phrasings, fuzzy on words of 4+ letters (edit distance 1,
+  which covers greedy-CTC garbling), except `long` and `take`, which must match exactly (fuzzy matching makes
+  "along" a "long" and "make" a "take"). A travel verb (`navigate`, `directions`, `drive`, `route`,
+  `travel`, `trip`, `far`, `long`, `take`, `get`, `go`) followed by `to` or `too` within 7 words; `two` is not
+  accepted as `to` after `take`, `get` or `go` (the numeral: "take two tablets"). Or a weather word
+  (`weather`, `forecast`, `raining`, `rain`, `temperature`) followed by `in`, `at` or `for` within 3 words.
+  The slot starts after the anchor.
+
+  Provenance: the v2 phrasings were written after the owner's transcripts were read, so the gate is not
+  independent of the dev set. The `take`/`long`/`two` exclusions were added after an independent review
+  found false triggers in the phrasings; they changed no gated place count (10 of 14 per size, before and
+  after). The gate has not been checked against held-out speech, and the exclusions are not pre-registered
+  for step 2.
+
+## Scoring
+
+- **Segmentation: merges-rank BPE** (`merges.txt` from the model directory). `' ' + phrase` with the
+  SentencePiece space marker; the lowest-rank adjacent pair is merged repeatedly until none applies.
+  Every final symbol is checked against the 256-piece vocab; a miss raises. One canonical segmentation
+  per variant.
+- Span score: `Δ_raw = max over spans [a,b) in the slot of Σ_t (logp[t, path_t] − M_t)`, where `path` is the
+  best CTC path collapsing to the segmentation (Viterbi, max not sum), `M_t` the frame max. Start and end
+  are free; outside frames contribute nothing. `Δ_raw ≤ 0`. The Viterbi also returns the frames `[a, b)` of
+  the best span, which the word-boundary check uses.
+- Score `Δ_raw + β·n` (n = pieces). The step-2 rule fixes **β = 4.0**; the runs below use only that value.
+- Respellings (`lexicon.py`, fixed before measurement): macron vowel → `vowel + r` (ā → ar); `r → d|t`,
+  `wh → f|w`, `au → o|ow`, `ei → ay`, `u → oo`. Each rule applies to one occurrence, then all. At most 12
+  variants per name. Impostors get the same variants. Each entry is scored by its best variant.
+
+### Decision rule (step 2, fixed)
+
+Candidates: rewritable places, competitor places, impostors. There is no prior: ranking is by score only.
+
+1. **Exact veto.** The folded greedy slot text equals a competitor or impostor name → no rewrite
+   (`veto`). Equals a rewritable name → rewrite to that name's canonical spelling (`accept`); this only
+   restores macrons and capitals.
+2. The overall top must be a rewritable place with score > 0. A competitor top with score > 0 → abstain
+   (`abstain_competitor`); an impostor top → `impostor_top`; otherwise `below_threshold`.
+3. The top must beat the runner-up of any kind (a different entry) by **m = 1.0** → else `margin`.
+4. The matched span must end at a greedy word boundary (the next greedy character is a space or the end of
+   the text) → else `boundary`.
+5. The matched span may cover at most the place's word count + 1 words → else `word_count`.
+6. Otherwise `accept`.
+
+rank-1 (reporting only) = the best rewritable entry by score, respelled and canonical. It is reported
+even when a competitor wins, so it measures the rewritable set alone.
+
+Folded-spelling collisions keep the first entry, in the order rewritable, competitor, impostor; the
+skipped names are reported on stderr.
+
+The earlier prior-based policy (City > Town tie-break within a band) is withdrawn. Its ties were resolved
+across entry kinds, so an impostor or competitor within the band could lose to a rewritable place; its
+results are not reported here.
+
+## Candidates
+
+- **Rewritable (the substitution set)**: Town and City from the LINZ export, plus every glossary place
+  (`data/glossary_places.txt`, 15 names; matched by folded spelling, so `Pūkekohe` matches LINZ `Pukekohe`).
+  167 names.
+- **Competitors**: Village, Suburb and Locality from the same export, excluding the rewritable names.
+  4,147 names after 20 folded duplicates are skipped. They can win and cause an abstain; they are never
+  rewritten to.
+- **Impostors**: `lexicon.IMPOSTORS` (hand-written world cities, destinations, frequent words). `kia ora`
+  was removed because LINZ lists it as a place. 144 names.
+- **Baseline**: `lexicon.NZ_PLACES`, about 110 hand-written names, all rewritable, no competitors. Used
+  only for the comparison rows; the default when `--places` is not given.
+
+## Data (private, not in git)
+
+- Dev set: 25 clips (M and L dumps of each): 11 non-place clips and 14 place clips. The place clips are
+  10 owner clips and 4 cloned clips. Gold names are in the private labels file. Owner clip identifiers,
+  transcripts and per-clip results are not recorded in this repository.
+- No held-out set: the Honor set from #2079 is not present in this environment.
+
+### LINZ place list (layer 51681, CC BY 4.0)
+
+Licence (LINZ's required wording): *Contains data sourced from the LINZ Data Service and licensed for reuse
+under CC BY 4.0*. Licence URL: https://creativecommons.org/licenses/by/4.0/
+
+Source: owner's download `nz-place-names-nzgb.csv`, NZ Place Names layer 51681, LINZ export dated
+23 Nov 2026 (the date is owner-stated; the file does not carry it). Source sha256
+`3e99508b32e5c39ea5767328882f0d859b16d44f54c15e72dd1eb1ed1b64402c`. The export parses to 54,401
+records; the owner's note said 54,752, which this export does not reproduce (the file has 54,416 physical
+lines because of multi-line fields). Columns used: `name`, `feat_type`, `status`, `crd_latitude`,
+`crd_longitude`. The CSV is private; only the recipe is committed.
+
+Filter (populated places): types `Town, City, Village, Suburb, Locality`; excluded status substrings
+`Replaced, Discontinued, Original`. Roles: rewritable = Town/City or a glossary name; competitor = the rest.
+Pinned command:
+
+```bash
+python3 tools/asr4all-bias-oracle/build_place_candidates.py \
+  --from-file /abs/private/nz-place-names-nzgb.csv --name-field name --type-field feat_type \
+  --status-field status --types "Town,City,Village,Suburb,Locality" \
+  --exclude-status "Replaced,Discontinued,Original" \
+  --glossary-places tools/asr4all-bias-oracle/data/glossary_places.txt \
+  --out /abs/private/nz_places_rw.json
+```
+
+The output is `{"header": {...}, "places": [...]}`. The header records the licence text and URL, the layer,
+the export date, the source sha256 (computed from the file read), and what was changed: filtered by feature
+type and status; reduced to name, type, role, priority, coordinates and a per-row attribution; names stored as
+exported with macrons. Folding to ASCII and respelling are applied at scoring time, not in the list.
+
+Result: **4,334 places** in the file: 167 rewritable (Town 147, City 18, plus Petone (Suburb), Waikato
+(Locality) and the glossary's own Suburb/Locality entries), 4,167 competitor rows, of which 20 folded
+duplicates are skipped at scoring (leaving 4,147). Output sha256
+`69be8242052b09d77e709c373944ba475a4185b21475f0e81cf65dafd80ac602`. All 15 glossary places matched a LINZ
+row; the generator reports any that do not.
+
+Other sources, checked without an account:
+- `gazetteer.linz.govt.nz`: JS app; no unauthenticated CSV export found in its bundles; two guessed CSV
+  paths returned HTTP 500.
+- `data.linz.govt.nz` layer page: an embedded token in its page source is not used.
+- WFS endpoint: HTTP 401 without a key. `--api` reads `LINZ_API_KEY` from the environment and sends it in
+  the `X-API-Key` header, never in the URL. The header name is unverified; no key was available to test it.
+
+## Clean-room
+
+Rules came from general letter patterns and the glossary's observed-error classes
+(`core/voice/src/lexicon/assets/stt_glossary.json`), not from any source excluded by
+`docs/evidence/2004/CLEANROOM.md`. The respelling rules were fixed before measurement. The gate v2
+phrasings are general, but the transcripts were visible while writing them (see Gate). The rewritable
+set uses the glossary's place names and LINZ feature types, not any clip result.
+
+## Limits
+
+- Dev set only. β = 4.0, m = 1.0 and the gate are not validated on held-out speech.
+- The gate was written after reading the transcripts and changed after the review; its coverage is
+  optimistic. Gate misses remain: clips whose greedy text has no travel verb or weather word.
+- The rewritable set is 167 names, not the full place list. A place outside it is never rewritten to; it can
+  only win as a competitor (abstain). The set was partly chosen from the glossary, which came from the same
+  error observations, so whether every promoted name is a true gold place is not checked.
+- Non-place false accepts: 0 of 11 clips. The 95% Wilson upper bound for 0 of 11 is about 26%. In the
+  full-utterance runs every non-place clip ended with an impostor on top, so the zero depends on the impostor
+  list. No clip in the set is a foreign city or POI after a trigger, and the trigger slot gated no non-place
+  clip, so trigger-slot false accepts are untested.
+- Substitutions: 0 in every cell, but a cell has only 2–6 accepts. With 0 of 4 accepts, the 95% upper bound is
+  about 49%; with 0 of 2, about 66%.
+- Respellings did not improve rank-1 in this run: canonical rank-1 was equal to or higher than respelled in
+  all six full/hint/trigger cells. Their value for acceptance is not shown; no canonical-only accept run was
+  done.
+- The audio came from WAV files through the host harness, not played through the S21 microphone.
+- β above 5 was not run under this rule. Its false-accept behaviour is unknown.
+- BPE is one canonical segmentation per variant.
+- Gold labels are 16 instances over 14 clips; each count can move by one clip.
+
+## Results (dev set, step-2 rule, β 4.0, gate v2)
+
+One run per slot, both sizes, 25 clips each (14 place, 11 non-place). Counts are clips. For the trigger slot
+only the 10 gated place clips are scored (12 gold instances among them); no non-place clip was gated.
+rank-1 is shown as respelled / canonical.
+
+Full utterance (diagnostic):
+
+| Size | rank-1 (resp / canon, of 14) | accepted (of 14) | substituted | impostor top | margin | abstain (competitor won) | FA (of 11) |
+|---|---|---|---|---|---|---|---|
+| L | 13 / 14 | 4 | 0 | 5 | 3 | 2 | 0 |
+| M | 12 / 12 | 2 | 0 | 7 | 3 | 2 | 0 |
+
+Slot-fill hint:
+
+| Size | rank-1 (resp / canon, of 14) | accepted (of 14) | substituted | impostor top | margin | abstain (competitor won) | FA (of 11) |
+|---|---|---|---|---|---|---|---|
+| L | 13 / 14 | 6 | 0 | 4 | 2 | 2 | 0 |
+| M | 12 / 13 | 4 | 0 | 3 | 5 | 2 | 0 |
+
+Trigger slot, gate v2 (of 10 gated place clips):
+
+| Size | rank-1 (resp / canon, of 10) | accepted (of 10) | substituted | impostor top | margin | abstain (competitor won) | FA |
+|---|---|---|---|---|---|---|---|
+| L | 10 / 10 | 4 | 0 | 2 | 2 | 2 | not tested (0 non-place clips gated) |
+| M | 9 / 9 | 2 | 0 | 2 | 5 | 1 | not tested (0 non-place clips gated) |
+
+Each place row sums to the clip count: accepted + impostor top + margin + abstain (+ boundary, word_count, veto,
+below_threshold, all 0 here). Every non-place clip ended with an impostor on top in the full and hint runs.
+
+Comparison, not directly comparable:
+- Earlier run, every LINZ place rewritable (no competitors, prior-free, β 5): full L accepted 7 with 3
+  substitutions; full M accepted 5 with 5 substitutions. The substitutions were Localities that are
+  near-homophones of gold names. Making Localities competitors removes that failure mode.
+- Hand-written baseline (about 110 rewritable names, no competitors, β 5, full): L accepted 8, M 7; 0
+  substitutions; 0 FA. Its rewritable set differs from the 167-name set, so no run separates the set change
+  from the competitor change.
+
+Gate coverage (greedy text, no audio), place clips fired (of 14) and non-place clips fired (of 11):
+
+| Gate | M place | L place | M non-place | L non-place |
+|---|---|---|---|---|
+| v1 | 6/14 | 5/14 | 0/11 | 0/11 |
+| v2 | 10/14 | 10/14 | 0/11 | 0/11 |
+
+## Go/no-go (revised, step-2 rule)
+
+- **Safety on the dev set:** 0 substitutions and 0 non-place accepts in all six full/hint/trigger cells.
+  Impostors or margin failures block most gold clips: accepted gold is 2–6 of 14 clips (4 of 10 at best on
+  the trigger slot).
+- **Rank-1 among rewritable:** 12–13 of 14 clips (respelled), 12–14 (canonical). It depends least on the
+  decision rule and is the measure the design review set.
+- **Verdict: go for step 2 only behind a flag that is off by default**, with β 4.0, m 1.0, no prior, the
+  gate above, and the decision rule above. Auto-rewriting for users waits for the held-out test. The
+  conditions are:
+  1. Pre-register in a commit, before any held-out audio is decoded: β, m, the gate code, the asset sha256,
+     the respelling rules, the decision code and the pass criteria.
+  2. Run the held-out test: gold places through the S23U into the S21 microphone, 10 places × 3 tries, both
+     sizes, including at least 3 Towns outside the glossary; and at least 30 false-boost trigger utterances
+     (foreign cities, POIs, names and addresses, near-homophones of rewritable places, already-correct NZ
+     places, and gate traps such as "take two …" and "how long to …").
+  3. Pass needs 0 substitutions, 0 rewrites of foreign cities or POIs, 0 rewrites of competitor places, and
+     scoring p95 ≤ 50 ms on the S21. Even then, 0 of 30 only bounds the error rate at about 11%.
+  4. Check β above 5 for false accepts under this rule before any β change.
+- Not done: any ablation of the margin or the boundary check, and any further tuning. The dev set has been
+  used for this rule; the next numbers should come from held-out speech.
+
+## Privacy
+
+Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
+place list are private and stay out of the repository. This README and the PR body carry aggregate counts,
+the glossary names (public repository data) and LINZ place names with their attribution only.

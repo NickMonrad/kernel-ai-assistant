@@ -1,0 +1,17 @@
+# Place names from core/voice/src/lexicon/assets/stt_glossary.json, field "correct",
+# excluding the Jandal entries. Matched to LINZ rows by folded spelling (macrons stripped).
+Matamata
+Paraparaumu
+Paraparaumu Beach
+Petone
+Porirua
+Pūkekohe
+Raglan
+Rotorua
+Taihape
+Taupō
+Tauranga
+Te Awamutu
+Waikato
+Whakatāne
+Whanganui
