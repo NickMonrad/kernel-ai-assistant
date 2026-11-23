@@ -21,21 +21,19 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
 /**
- * Debug-only foreground service that runs one TTS baseline off the broadcast thread (a broadcast's
- * `goAsync` window is about 60 s, too short for a multi-pass run). Started by [InflectBaselineReceiver].
- * Writes `files/inflect_baseline/<label>.json` and logs `inflect baseline done` or `inflect baseline failed`.
+ * Debug-only foreground service that runs one TTS baseline off the broadcast thread (a broadcast's `goAsync`
+ * window is about 60 s, too short for a multi-pass run). Started by [DebugTtsBaselineReceiver].
+ * Writes `files/tts_baseline/<lane>/<label>.json` and logs `tts baseline done` or `tts baseline failed`.
  */
 class DebugTtsBaselineService : Service() {
-    private val running = AtomicBoolean(false)
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         ensureChannel()
         startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         if (!running.compareAndSet(false, true)) {
-            Log.w(TAG, "inflect baseline already running; ignoring start")
-            stopSelf(startId)
+            // The active run owns the foreground state; a duplicate start must not stop the service.
+            Log.w(TAG, "tts baseline already running; ignoring duplicate start")
             return START_NOT_STICKY
         }
         val extras = Intent(intent ?: Intent())
@@ -45,18 +43,46 @@ class DebugTtsBaselineService : Service() {
             } finally {
                 running.set(false)
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(startId)
+                // Unconditional: the single active run is the only reason this service is alive.
+                stopSelf()
             }
         }, "debug-tts-baseline").start()
         return START_NOT_STICKY
     }
 
     private fun execute(intent: Intent) {
-        val label = intent.getStringExtra(DebugTtsBaselineRequest.EXTRA_LABEL)?.takeIf { it.isNotBlank() } ?: "run"
-        val output = debugTtsBaselineOutput(this, label)
+        var request: DebugTtsBaselineRequest? = null
         var lane: DebugTtsLane? = null
         try {
-            val request = DebugTtsBaselineRequest.from(intent)
+            val validated = DebugTtsBaselineRequest.from(intent)
+            request = validated
+            val output = debugTtsBaselineOutput(this, validated.lane, validated.label)
+            val created = createLane(validated.lane)
+            lane = created
+            val json = DebugTtsBaselineRun(this, created).execute(validated)
+            writeJson(output, json)
+            Log.i(TAG, "tts baseline done lane=${validated.lane} path=${output.absolutePath}")
+        } catch (error: Throwable) {
+            Log.e(TAG, "tts baseline failed", error)
+            request?.let { validated ->
+                writeJson(
+                    debugTtsBaselineOutput(this, validated.lane, validated.label),
+                    JSONObject()
+                        .put("schema", DEBUG_TTS_BASELINE_SCHEMA)
+                        .put("status", "failed")
+                        .put("label", validated.label)
+                        .put("lane", validated.lane)
+                        .put("error", "${error::class.java.simpleName}: ${error.message}"),
+                )
+            }
+        } finally {
+            lane?.close()
+        }
+    }
+
+    /** Lane factory. Each lane resolves its own voice and model inputs; unknown ids fail before any work. */
+    private fun createLane(laneId: String): DebugTtsLane = when (laneId) {
+        DebugTtsLanes.INFLECT_MICRO_V2 -> {
             val entryPoint = EntryPointAccessors.fromApplication(applicationContext, DebugTtsBaselineEntryPoint::class.java)
             val voice = runBlocking { entryPoint.voiceOutputPreferences().selectedSherpaVoice.first() }
             val espeak = File(voice.voiceDir(this), ESPEAK_DATA_DIR)
@@ -64,25 +90,9 @@ class DebugTtsBaselineService : Service() {
             val models = InflectMicroModelSpec.modelDirectory(this)
             val missing = InflectMicroModelSpec.requiredModels.firstOrNull { !File(models, it.fileName).isFile }
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
-
-            val created = InflectMicroDebugLane(models, espeak)
-            lane = created
-            val json = DebugTtsBaselineRun(this, created, voice, espeak).execute(request)
-            writeJson(output, json)
-            Log.i(TAG, "inflect baseline done path=${output.absolutePath}")
-        } catch (error: Throwable) {
-            Log.e(TAG, "inflect baseline failed", error)
-            writeJson(
-                output,
-                JSONObject()
-                    .put("schema", "debug-tts-baseline/2")
-                    .put("status", "failed")
-                    .put("label", label)
-                    .put("error", "${error::class.java.simpleName}: ${error.message}"),
-            )
-        } finally {
-            lane?.close()
+            InflectMicroDebugLane(models, voice.name, espeak)
         }
+        else -> error("no lane factory for $laneId")
     }
 
     private fun writeJson(file: File, json: JSONObject) {
@@ -107,6 +117,11 @@ class DebugTtsBaselineService : Service() {
         .build()
 
     companion object {
+        /** True while a run owns the service. The receiver refuses overlapping runs using this. */
+        private val running = AtomicBoolean(false)
+
+        fun isRunning(): Boolean = running.get()
+
         private const val TAG = "KernelAI"
         private const val CHANNEL_ID = "debug_tts_baseline"
         private const val NOTIFICATION_ID = 2088

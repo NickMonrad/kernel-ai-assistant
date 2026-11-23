@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.kernel.ai.BuildConfig
-import com.kernel.ai.core.voice.InflectMicroModelSpec
-import com.kernel.ai.core.voice.SherpaPiperVoice
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
@@ -13,13 +11,18 @@ import java.util.concurrent.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Evidence JSON schema. `/3` moved lane-specific runtime, voice and model fields under `lane_metadata`. */
+const val DEBUG_TTS_BASELINE_SCHEMA = "debug-tts-baseline/3"
+
 /** One baseline request, parsed from broadcast extras. Debug-only. */
 data class DebugTtsBaselineRequest(
+    val lane: String,
     val corpusPath: File,
     val label: String,
     val repeats: Int,
 ) {
     companion object {
+        const val EXTRA_LANE = "lane"
         const val EXTRA_CORPUS = "corpus_path"
         const val EXTRA_LABEL = "label"
         const val EXTRA_REPEATS = "repeats"
@@ -27,6 +30,8 @@ data class DebugTtsBaselineRequest(
         const val MAX_REPEATS = 10
 
         fun from(intent: Intent): DebugTtsBaselineRequest {
+            val lane = intent.getStringExtra(EXTRA_LANE)?.takeIf { it.isNotBlank() } ?: DebugTtsLanes.INFLECT_MICRO_V2
+            require(lane in DebugTtsLanes.ids) { "unknown lane $lane; known: ${DebugTtsLanes.ids.sorted()}" }
             val corpus = File(requireNotNull(intent.getStringExtra(EXTRA_CORPUS)) { "missing corpus_path" })
             require(corpus.isFile) { "corpus file missing: ${corpus.path}" }
             val label = intent.getStringExtra(EXTRA_LABEL)?.takeIf { it.isNotBlank() } ?: "run"
@@ -35,7 +40,7 @@ data class DebugTtsBaselineRequest(
             }
             val repeats = intent.getIntExtra(EXTRA_REPEATS, DEFAULT_REPEATS)
             require(repeats in 1..MAX_REPEATS) { "repeats must be 1..$MAX_REPEATS" }
-            return DebugTtsBaselineRequest(corpus, label, repeats)
+            return DebugTtsBaselineRequest(lane, corpus, label, repeats)
         }
     }
 }
@@ -56,14 +61,12 @@ object DebugTtsCorpus {
 }
 
 /**
- * Runs one lane over a corpus and returns the evidence JSON. Pure logic: no Android service or receiver
- * types, so the service owns lifecycle and this owns measurement.
+ * Runs one lane over a corpus and returns the evidence JSON. Lane-specific runtime, voice and model identity come
+ * from [DebugTtsLane.metadata]; this owns the measurement and the lane-agnostic device and build fields.
  */
 class DebugTtsBaselineRun(
     private val context: Context,
     private val lane: DebugTtsLane,
-    private val voice: SherpaPiperVoice,
-    private val espeakDataDirectory: File,
 ) {
     fun execute(request: DebugTtsBaselineRequest): JSONObject {
         val started = Instant.now()
@@ -100,7 +103,7 @@ class DebugTtsBaselineRun(
         memory.put("vmhwm_kb_end", vmKb("VmHWM")).put("vmrss_kb_end", vmKb("VmRSS"))
 
         return JSONObject()
-            .put("schema", "debug-tts-baseline/2")
+            .put("schema", DEBUG_TTS_BASELINE_SCHEMA)
             .put("status", "ok")
             .put("label", request.label)
             .put("lane", lane.laneId)
@@ -109,16 +112,7 @@ class DebugTtsBaselineRun(
             .put("finished_utc", Instant.now().toString())
             .put("device", deviceJson())
             .put("build", buildJson())
-            .put("runtime", JSONObject()
-                .put("onnxruntime_version", onnxRuntimeVersion())
-                .put("delegate", "CPU")
-                .put("intra_op_threads", "ORT default (runner does not set it)")
-                .put("available_processors", Runtime.getRuntime().availableProcessors()))
-            .put("voice", JSONObject()
-                .put("sherpa_voice", voice.name)
-                .put("espeak_data_dir", espeakDataDirectory.absolutePath)
-                .put("espeak_data_files", espeakDataDirectory.walkTopDown().count { it.isFile }))
-            .put("models", modelsJson())
+            .put("lane_metadata", lane.metadata())
             .put("corpus", JSONObject()
                 .put("path", request.corpusPath.name)
                 .put("sha256", DebugTtsCorpus.sha256(request.corpusPath))
@@ -202,14 +196,6 @@ class DebugTtsBaselineRun(
         .put("git_sha", BuildConfig.GIT_SHA)
         .put("build_timestamp", BuildConfig.BUILD_TIMESTAMP)
 
-    private fun modelsJson(): JSONObject {
-        val dir = InflectMicroModelSpec.modelDirectory(context)
-        return JSONObject()
-            .put("directory", dir.absolutePath)
-            .put("duration_onnx_sha256", sha256Of(File(dir, "duration.onnx")))
-            .put("decode_onnx_sha256", sha256Of(File(dir, "decode.onnx")))
-    }
-
     private companion object {
         const val CANCEL_AFTER_MS = 1000L
         fun vmKb(key: String): Long = File("/proc/self/status").readLines()
@@ -222,7 +208,7 @@ class DebugTtsBaselineRun(
     }
 }
 
-private fun sha256Of(file: File): String {
+internal fun sha256Of(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(1 shl 16)
@@ -235,6 +221,6 @@ private fun sha256Of(file: File): String {
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
-/** Output path for a label, under app-private storage. */
-fun debugTtsBaselineOutput(context: Context, label: String): File =
-    File(context.filesDir, "inflect_baseline/$label.json")
+/** Output path for a lane and label, under app-private storage: `files/tts_baseline/<lane>/<label>.json`. */
+fun debugTtsBaselineOutput(context: Context, lane: String, label: String): File =
+    File(context.filesDir, "tts_baseline/$lane/$label.json")
