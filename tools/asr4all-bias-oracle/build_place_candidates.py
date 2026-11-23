@@ -1,4 +1,4 @@
-"""Build the place candidate list: NZ from LINZ NZ Place Names (layer 51681), CC BY 4.0; optionally AU competitors from the Composite Gazetteer of Australia (see AU_* constants).
+"""Build the place candidate list: NZ from LINZ NZ Place Names (layer 51681), CC BY 4.0; optionally AU competitors and homograph names from GeoNames (CC BY 4.0; see the GEONAMES_* constants).
 
 Attribution: "NZ Place Names (layer 51681), LINZ, CC BY 4.0". Every output row carries it.
 
@@ -41,18 +41,17 @@ LICENCE_URL = "https://creativecommons.org/licenses/by/4.0/"
 EXPORT_DATE = "2026-11-23"  # stated by the owner for the CSV download; not read from the file
 PAGE = 1000
 
-# Australian source: Composite Gazetteer of Australia (Geoscience Australia). Competitors only; never
-# rewritten to. The owner asked for CC BY 4.0; the published record says "© Commonwealth of Australia
-# (Geoscience Australia) 2025", access Open, and no CC BY 4.0 statement. The header carries the published
-# text and a note; do not change the licence fields without that confirmation.
-AU_RECORD = "https://ecat.ga.gov.au/geonetwork/srv/api/records/f91a52b3-26f6-4f2c-bb8e-520f40864d5b"
-AU_SERVICE = "https://services.ga.gov.au/gis/rest/services/Composite_Gazetteer_of_Australia/MapServer/0"
-AU_CATEGORY = "POPULATED PLACE"
-AU_FEATURES = ("POPULATION CENTRE", "SETTLEMENT", "NEIGHBOURHOOD", "OUTCAMP")  # NEIGHBOURHOOD = suburbs
-AU_ATTRIBUTION = "Composite Gazetteer of Australia (Geoscience Australia), © Commonwealth of Australia 2025"
-AU_LICENCE_TEXT = "© Commonwealth of Australia (Geoscience Australia) 2025; access: Open (as published)"
-AU_LICENCE_NOTE = ("owner requested CC BY 4.0; published metadata does not state it; "
-                   "confirm before changing the licence text")
+# GeoNames (CC BY 4.0, https://www.geonames.org/; readme in the dump). Used for two purposes only:
+#   AU competitors: populated places of Australia (feature class P, codes below). Never rewritten to.
+#   Homograph names: GeoNames cities15000 names outside NZ and AU. Used only to flag NZ rewritable rows.
+GEONAMES_ATTRIBUTION = "GeoNames (geonames.org), CC BY 4.0"
+GEONAMES_LICENCE_URL = "https://creativecommons.org/licenses/by/4.0/"
+GEONAMES_URL_AU = "https://download.geonames.org/export/dump/AU.zip"
+GEONAMES_URL_CITIES = "https://download.geonames.org/export/dump/cities15000.zip"
+GEONAMES_URL_README = "https://download.geonames.org/export/dump/readme.txt"
+# PPLQ (abandoned), PPLW (destroyed), PPLH (historical) and PPLF (farm) are excluded.
+GEONAMES_AU_CODES = ("PPL", "PPLX", "PPLL", "PPLA", "PPLA2", "PPLC", "PPLS", "STLMT")
+GEONAMES_COL = {"name": 1, "lat": 4, "lon": 5, "class": 6, "code": 7, "country": 8}
 
 
 # ---------------------------------------------------------------- sources
@@ -164,43 +163,47 @@ def build(features: list[dict], name_field: str, type_field: str, types: set[str
     return merge(rows)
 
 
-def merge(rows: list[dict]) -> list[dict]:
+def merge(rows: list[dict], foreign_keys: set[str] = frozenset()) -> list[dict]:
     """One row per name. A name keeps its rewritable row if it has one, so NZ rewritable wins over AU.
-    A kept rewritable row whose folded name also appears as an AU row is flagged au_homograph (v2 veto)."""
-    au_keys = {lexicon.fold(r["name"]) for r in rows if r.get("attribution") == AU_ATTRIBUTION}
+    A kept rewritable row whose folded name is a GeoNames AU competitor name, or in foreign_keys, is flagged
+    homograph (exact-match veto)."""
+    homo = {lexicon.fold(r["name"]) for r in rows if r.get("attribution") == GEONAMES_ATTRIBUTION} | set(foreign_keys)
     rows = sorted(rows, key=lambda r: r["role"] != "rewritable")
     seen: dict[str, dict] = {}
     for r in rows:
         seen.setdefault(r["name"], r)
     out = []
     for r in seen.values():
-        if r["role"] == "rewritable" and lexicon.fold(r["name"]) in au_keys:
-            r = {**r, "au_homograph": True}
+        if r["role"] == "rewritable" and lexicon.fold(r["name"]) in homo:
+            r = {**r, "homograph": True}
         out.append(r)
     return sorted(out, key=lambda r: (r["role"], r["name"]))
 
 
-def au_features(path: str) -> list[dict]:
-    """CGA attribute records: a saved ArcGIS query response ({"features": [{"attributes": ...}]}) or a JSON list
-    of attribute dicts (the saved form). Geometry is not used; latitude/longitude are attributes."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if isinstance(data, dict):
-        data = [f["attributes"] for f in data.get("features", [])]
-    return data
+def geonames_rows(path: Path):
+    with path.open(encoding="utf-8") as fh:
+        yield from csv.reader(fh, delimiter="\t", quoting=csv.QUOTE_NONE)
 
 
-def au_rows(records: list[dict]) -> list[dict]:
-    """Populated places and suburbs from the CGA. Always competitors: they can win and abstain, never rewritten to."""
+def geonames_au_rows(path: Path) -> list[dict]:
+    """GeoNames AU populated places (class P, codes in GEONAMES_AU_CODES). Always competitors."""
+    c_ = GEONAMES_COL
     rows = []
-    for a in records:
-        if a.get("category") not in (None, AU_CATEGORY) or a.get("feature") not in AU_FEATURES:
+    for c in geonames_rows(path):
+        if len(c) <= c_["country"] or c[c_["country"]] != "AU" or c[c_["class"]] != "P":
             continue
-        name = a.get("name")
-        if not name:
+        if c[c_["code"]] not in GEONAMES_AU_CODES or not c[c_["name"]]:
             continue
-        rows.append({"name": str(name), "type": a["feature"], "role": "competitor", "prio": 0,
-                     "lat": a.get("latitude"), "lon": a.get("longitude"), "attribution": AU_ATTRIBUTION})
+        rows.append({"name": c[c_["name"]], "type": c[c_["code"]], "role": "competitor", "prio": 0,
+                     "lat": float(c[c_["lat"]]), "lon": float(c[c_["lon"]]), "attribution": GEONAMES_ATTRIBUTION})
     return rows
+
+
+def geonames_foreign_keys(path: Path) -> set[str]:
+    """Folded names of GeoNames cities outside NZ and AU. Used only to flag NZ rewritable rows (homograph veto)."""
+    c_ = GEONAMES_COL
+    return {lexicon.fold(c[c_["name"]]) for c in geonames_rows(path)
+            if len(c) > c_["country"] and c[c_["country"]] not in ("NZ", "AU") and c[c_["name"]]}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -218,8 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--glossary-places", type=Path,
                     help="text file, one glossary place per line; these names are rewritable")
     ap.add_argument("--out", help="output JSON path (required for a build)")
-    ap.add_argument("--au-file", help="saved CGA query (populated places, see README); adds AU competitors")
-    ap.add_argument("--au-retrieved", help="UTC retrieval time of --au-file, recorded in the header")
+    ap.add_argument("--geonames-au", type=Path, help="GeoNames AU.txt: AU populated places as competitors")
+    ap.add_argument("--geonames-foreign", type=Path, help="GeoNames cities15000.txt: foreign names for the homograph flag")
+    ap.add_argument("--geonames-retrieved", help="UTC retrieval time of the GeoNames dumps, recorded in the header")
     args = ap.parse_args(argv)
 
     if args.from_file:
@@ -261,24 +265,23 @@ def main(argv: list[str] | None = None) -> int:
                     "names stored as exported (macrons kept); folding to ASCII and respellings applied at scoring time, not here"),
         "generator": "build_place_candidates.py",
     }
-    if args.au_file:
-        au_records = au_features(args.au_file)
-        au = au_rows(au_records)
-        rows = merge(rows + au)
-        header["au_source"] = {
-            "source": "Composite Gazetteer of Australia (CGA), Geoscience Australia",
-            "metadata_record": AU_RECORD,
-            "service_layer": AU_SERVICE,
-            "category": AU_CATEGORY,
-            "features": list(AU_FEATURES),
-            "licence": AU_LICENCE_TEXT,
-            "licence_note": AU_LICENCE_NOTE,
-            "retrieved_utc": args.au_retrieved,
-            "source_sha256": hashlib.sha256(Path(args.au_file).read_bytes()).hexdigest(),
-            "records_in_file": len(au_records),
+    homograph_extra = geonames_foreign_keys(args.geonames_foreign) if args.geonames_foreign else set()
+    au = geonames_au_rows(args.geonames_au) if args.geonames_au else []
+    rows = merge(rows + au, homograph_extra)
+    if args.geonames_au or args.geonames_foreign:
+        header["geonames"] = {
+            "attribution": GEONAMES_ATTRIBUTION,
+            "licence_url": GEONAMES_LICENCE_URL,
+            "source_urls": {"AU": GEONAMES_URL_AU, "cities15000": GEONAMES_URL_CITIES, "readme": GEONAMES_URL_README},
+            "retrieved_utc": args.geonames_retrieved,
+            "au_file_sha256": hashlib.sha256(args.geonames_au.read_bytes()).hexdigest() if args.geonames_au else None,
+            "foreign_file_sha256": (hashlib.sha256(args.geonames_foreign.read_bytes()).hexdigest()
+                                    if args.geonames_foreign else None),
+            "au_codes": list(GEONAMES_AU_CODES),
             "competitor_rows": len(au),
-            "changes": ("populated places and suburbs only (the four features above); all competitors; "
-                        "names stored as exported; per-row attribution; coordinates taken from attributes"),
+            "homograph_names": len(homograph_extra),
+            "changes": ("AU: class P, country AU, codes above; competitors only. Foreign: names outside NZ and AU; "
+                        "used only to flag NZ rewritable rows (homograph); not written to places."),
         }
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump({"header": header, "places": rows}, fh, ensure_ascii=False, indent=1)

@@ -112,7 +112,7 @@ results are not reported here.
   (`data/glossary_places.txt`, 15 names; matched by folded spelling, so `Pūkekohe` matches LINZ `Pukekohe`).
   167 names.
 - **Competitors**: Village, Suburb and Locality from the LINZ export, excluding the rewritable names, plus
-  AU populated places from the Composite Gazetteer of Australia (see "AU competitors" below). Competitors can
+  AU populated places from GeoNames (see "AU competitors and homograph names" below). Competitors can
   win and cause an abstain; they are never rewritten to.
 - **Impostors**: `lexicon.IMPOSTORS` (hand-written world cities, destinations, frequent words). `kia ora`
   was removed because LINZ lists it as a place. 144 names.
@@ -178,19 +178,23 @@ Rules came from general letter patterns and the glossary's observed-error classe
 phrasings are general, but the transcripts were visible while writing them (see Gate). The rewritable
 set uses the glossary's place names and LINZ feature types, not any clip result.
 
-## AU competitors (Composite Gazetteer of Australia)
+## AU competitors and homograph names (GeoNames, CC BY 4.0)
 
-- Source: GA Composite Gazetteer, public ArcGIS REST layer 0 (no account). Metadata: ecat record
-  `f91a52b3-26f6-4f2c-bb8e-520f40864d5b` (pid `150710`). 9,499 records, features POPULATION CENTRE,
-  SETTLEMENT, NEIGHBOURHOOD, OUTCAMP. OUTCAMP inclusion is a judgement call; it is kept and flagged.
-- Use: competitors only. AU names are never rewrite targets; there is no country switch. On a name collision
-  the NZ rewritable row is kept.
-- Generated `nz_au_places.json`: 13,176 rows (167 rewritable, 13,009 competitors). The raw download and the
-  derived list are private.
-- **Licence finding:** the request assumed CC BY 4.0. The published record says "© Commonwealth of Australia
-  (Geoscience Australia) 2025", access Open, licence field blank, with no CC BY statement. Do not describe
-  this data as CC BY 4.0 until the owner confirms the terms. Internal use only until then.
-- Dev-set cost: adding AU competitors blocked one correct NZ answer per slot (the same clip, size L).
+- Source: GeoNames public dump, `https://download.geonames.org/export/dump/` (no account). Retrieved
+  2026-11-23T12:00Z. Files `AU.zip` and `cities15000.zip`, readme `readme.txt`; sha256 and licence in
+  `HELDOUT-PREREG-v3.md`. Licence: CC BY 4.0 (readme). Attribution required in any published artefact:
+  "GeoNames (geonames.org), CC BY 4.0".
+- AU competitors: feature class P, country AU, codes PPL, PPLX, PPLL, PPLA, PPLA2, PPLC, PPLS, STLMT
+  (19,202 rows). PPLQ, PPLW, PPLH and PPLF are excluded. AU names are never rewrite targets.
+- Homograph veto: a rewritable NZ row whose folded name is an AU competitor name, or a name of a GeoNames
+  `cities15000` city outside NZ and AU (31,854 distinct folded names), is flagged `homograph`. Exact slot
+  match only; the reason is `homograph`. Flagged rows: 35 (no macrons, so no restoration is lost).
+- Limits: `cities15000` covers cities of 15,000 population or more; smaller foreign places are not covered.
+- Generated `nz_geonames_places.json` (private): 21,140 rows (167 rewritable, 20,973 competitors).
+- The Composite Gazetteer of Australia is dropped. Its licence is not CC BY 4.0 per the public record.
+  Its download is local and is not used by any shipped artefact.
+- Dev-set cost: the earlier CGA competitor set blocked one correct NZ answer per slot (size L). The
+  GeoNames set changed the held-out outcomes (see `HELDOUT-PREREG-v3.md`, post-hoc section).
 
 ## Limits
 
