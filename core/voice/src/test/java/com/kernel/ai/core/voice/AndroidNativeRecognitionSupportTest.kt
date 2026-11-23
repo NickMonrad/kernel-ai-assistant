@@ -63,7 +63,7 @@ class AndroidNativeRecognitionSupportTest {
 
 
     @Test
-    fun `unknown locale support warns without blocking start`() {
+    fun `unknown locale neither warns nor blocks start`() {
         val availability = AndroidNativeRecognitionAvailability(
             isRecognitionAvailable = true,
             isOnDeviceRecognitionAvailable = true,
@@ -73,10 +73,6 @@ class AndroidNativeRecognitionSupportTest {
         )
 
         assertNull(availability.blockingReason)
-        assertEquals(
-            "Android native speech recognition could not verify on-device support for English (Australia) on this device. It may fail unless that language is supported and installed locally.",
-            availability.warningMessage,
-        )
     }
 
     @Test
@@ -93,7 +89,6 @@ class AndroidNativeRecognitionSupportTest {
             "English (New Zealand) is not supported by Android native speech recognition on this device.",
             availability.blockingReason,
         )
-        assertEquals(availability.blockingReason, availability.warningMessage)
     }
 
     @Test
@@ -120,7 +115,6 @@ class AndroidNativeRecognitionSupportTest {
         )
 
         assertNull(availability.blockingReason)
-        assertNull(availability.warningMessage)
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.kernel.ai.core.inference.download.DownloadNetworkChoice
 import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
 import com.kernel.ai.core.memory.prefs.ChatPreferences
 import com.kernel.ai.core.model.availability.ConversationModelReadiness
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -72,7 +73,7 @@ class ConversationListViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun onTermsPromptAccepted(accepted: Boolean) {
-        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted) }
+        viewModelScope.launch { termsAcceptancePreferences.setAccepted(accepted, source = TermsAcceptanceSource.CHAT_BANNER) }
     }
 
     fun onTermsPromptDismissed() {
