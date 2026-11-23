@@ -36,7 +36,10 @@ import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import io.mockk.Runs
 import com.kernel.ai.core.inference.download.localFile
+import com.kernel.ai.core.inference.terms.TERMS_NOT_ACCEPTED_MESSAGE
+import com.kernel.ai.core.inference.terms.TERMS_VERSION
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
+import com.kernel.ai.core.inference.terms.TermsAcceptanceRecord
  import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -113,6 +116,7 @@ class VoiceViewModelTest {
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
+    private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
     private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
@@ -217,6 +221,8 @@ class VoiceViewModelTest {
         every { wakeWordDetector.isAvailable } returns false
         every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns modelDownloadStates
+        every { modelDownloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
+        every { termsAcceptancePreferences.record } returns termsRecord
         every { hardwareProfileDetector.profile.tier } returns HardwareTier.FLAGSHIP
         every { modelDownloadManager.startDownload(any()) } just Runs
         every { modelDownloadManager.cancelDownload(any()) } just Runs
@@ -365,7 +371,7 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `android native availability message is exposed when locale support cannot be verified`() = runTest {
+    fun `android native availability message stays empty when locale support cannot be verified`() = runTest {
         coEvery { androidNativeRecognitionSupport.getAvailability() } returns
             AndroidNativeRecognitionAvailability(
                 isRecognitionAvailable = true,
@@ -392,10 +398,7 @@ class VoiceViewModelTest {
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(
-            "Android native speech recognition could not verify on-device support for English (New Zealand) on this device. It may fail unless that language is supported and installed locally.",
-            viewModel.uiState.value.androidNativeAvailabilityMessage,
-        )
+        assertEquals(null, viewModel.uiState.value.androidNativeAvailabilityMessage)
     }
 
     @Test
@@ -1257,5 +1260,25 @@ class VoiceViewModelTest {
         viewModel.uiState.first { it.selectedInputEngine == VoiceInputEngine.Auto }
         testDispatcher.scheduler.advanceUntilIdle() // the Auto preference write is launched on Main after the state flip
         coVerify(exactly = 1) { voiceInputPreferences.setSelectedEngine(VoiceInputEngine.Auto) }
+    }
+
+    @Test
+    fun `a stale Terms refusal is hidden once Terms are accepted, even if it arrives first`() = runTest {
+        asr4allSwitchState.value = Asr4allSwitchState(
+            failure = Asr4allSwitchFailure(Asr4AllSize.L, TERMS_NOT_ACCEPTED_MESSAGE),
+        )
+        viewModel.uiState.first { it.asr4allSwitchFailure == TERMS_NOT_ACCEPTED_MESSAGE }
+
+        termsRecord.value = TermsAcceptanceRecord(acceptedVersion = TERMS_VERSION)
+        viewModel.uiState.first { it.termsAccepted == true && it.asr4allSwitchFailure == null }
+    }
+
+    @Test
+    fun `a Terms refusal stays visible while Terms are not accepted`() = runTest {
+        asr4allSwitchState.value = Asr4allSwitchState(
+            failure = Asr4allSwitchFailure(Asr4AllSize.L, TERMS_NOT_ACCEPTED_MESSAGE),
+        )
+        viewModel.uiState.first { it.asr4allSwitchFailure == TERMS_NOT_ACCEPTED_MESSAGE }
+        assertEquals(false, viewModel.uiState.value.termsAccepted)
     }
 }

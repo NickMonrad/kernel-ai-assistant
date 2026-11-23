@@ -50,14 +50,6 @@ data class AndroidNativeRecognitionAvailability(
             else -> null
         }
 
-    val warningMessage: String?
-        get() = when {
-            blockingReason != null -> blockingReason
-            localeStatus == AndroidNativeRecognitionLocaleStatus.Unknown ->
-                "Android native speech recognition could not verify on-device support for $languageDisplayName on this device. It may fail unless that language is supported and installed locally."
-            else -> null
-        }
-
     val languageSummary: String
         get() = "$languageDisplayName ($languageTag)"
 }
@@ -68,6 +60,13 @@ enum class AndroidNativeRecognitionLocaleStatus {
     Unavailable,
     Unknown,
 }
+
+/**
+ * Whether the locale check lets the native recognizer warn-free start. Unknown means the platform could not say,
+ * so it is not treated as missing (#2086). NotSupported and Unavailable are not ready.
+ */
+fun AndroidNativeRecognitionLocaleStatus.isLocaleReadyForWarning(): Boolean =
+    this == AndroidNativeRecognitionLocaleStatus.Ready || this == AndroidNativeRecognitionLocaleStatus.Unknown
 
 private data class ParsedRecognitionComponent(
     val packageName: String,
