@@ -116,7 +116,7 @@ class SpeechRecognitionSectionTest {
 
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun asr4allSizeChipsStayFullWidthAndTouchableAtLargeFont() {
+    fun asr4allSizeChipIsAtLeastHalfRootWidthAndAtLeast48dpAtLargeFont() {
         var density: Density? = null
         composeTestRule.setContent {
             DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(2f)) {
@@ -149,7 +149,7 @@ class SpeechRecognitionSectionTest {
             .fetchSemanticsNode()
         val root = composeTestRule.onRoot().fetchSemanticsNode()
         val minTouchPx = with(requireNotNull(density)) { 48.dp.roundToPx() }
-        // Squeezed chips measured ~50px wide at font 2.0; a full-width chip is well over half the root.
+        // Proxy for "not squeezed": the chip spans at least half the root width. Chips size to content, so this is not a full-width check.
         assertTrue("chip ${chip.size} squeezed in root ${root.size}", chip.size.width >= root.size.width / 2)
         assertTrue("chip height ${chip.size.height}px below 48dp (${minTouchPx}px)", chip.size.height >= minTouchPx)
     }

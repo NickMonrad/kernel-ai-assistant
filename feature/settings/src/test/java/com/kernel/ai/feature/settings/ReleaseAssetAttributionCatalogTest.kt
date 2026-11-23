@@ -82,6 +82,17 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
+    fun releaseVisibleRowsCarryNoUnresolvedLicenceWording() {
+        val pendingWording = listOf("under review", "unresolved")
+        val offending = release.flatMap { row ->
+            listOf(row.sourceText, row.licenceText, row.lineageText, row.releaseStatus)
+                .filter { text -> pendingWording.any { text.contains(it, ignoreCase = true) } }
+                .map { "${row.id}: $it" }
+        }
+        assertEquals(emptyList<String>(), offending)
+    }
+
+    @Test
     fun whisperVerifierFamilyIsReleaseVisibleAndDownloadedWithHeyJandal() {
         val whisper = release.filter { it.id == "stt:${SherpaSttModelSpec.WHISPER.engine.name}" }
         assertEquals(1, whisper.size)
