@@ -92,6 +92,11 @@ class DebugTtsBaselineService : Service() {
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
             InflectMicroDebugLane(models, voice.name, espeak)
         }
+        DebugTtsLanes.KOKORO_TASKS_AUDIO -> {
+            // #1557: model lives in the debug app's external files dir, never in the APK.
+            val model = File(getExternalFilesDir(null), "models/kokoro/kokoro_int8_gpu_fp16.litertlm")
+            KokoroTasksAudioDebugLane(model, cacheDirectory = File(filesDir, "kokoro_cache"))
+        }
         else -> error("no lane factory for $laneId")
     }
 
