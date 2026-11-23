@@ -29,7 +29,6 @@ class PlaceSlotResolverTest {
         // Short words are never snapped, however close they are to a name.
         assertEquals(mapOf("destination" to "home"), PlaceSlotResolver.resolve("navigate_to", mapOf("destination" to "home")))
         assertEquals(mapOf("destination" to "Nelsn"), PlaceSlotResolver.resolve("navigate_to", mapOf("destination" to "Nelsn")))
-        // Ordinary phrases and near-misses that are not one name stay as heard.
         assertEquals(mapOf("destination" to "the beach"), PlaceSlotResolver.resolve("navigate_to", mapOf("destination" to "the beach")))
         assertEquals(mapOf("destination" to "Christchurch hospital"), PlaceSlotResolver.resolve("navigate_to", mapOf("destination" to "Christchurch hospital")))
         assertEquals(mapOf("location" to "Porter"), PlaceSlotResolver.resolve("get_weather", mapOf("location" to "Porter")))
@@ -39,6 +38,33 @@ class PlaceSlotResolverTest {
     fun `touches only the place slots of place intents`() {
         assertEquals(mapOf("destination" to "Hamiltn"), PlaceSlotResolver.resolve("play_music", mapOf("destination" to "Hamiltn")))
         assertEquals(mapOf("query" to "Hamiltn"), PlaceSlotResolver.resolve("navigate_to", mapOf("query" to "Hamiltn")))
+    }
+
+    @Test
+    fun `resolves NZ sound-alikes from the owner report without glossary entries`() {
+        assertEquals("Whangārei", PlaceSlotResolver.snap("funga day"))
+        assertEquals("Paraparaumu", PlaceSlotResolver.snap("pararapr"))
+    }
+
+    @Test
+    fun `phonetic key applies NZ and Maori sound rules`() {
+        assertEquals(PlaceSlotResolver.phoneticKey("Whangārei"), PlaceSlotResolver.phoneticKey("Fangarei"))
+        assertEquals(PlaceSlotResolver.phoneticKey("Whangarei"), PlaceSlotResolver.phoneticKey("Fungaday"))
+        // Repeated consonants collapse: "rr" counts once.
+        assertEquals("prpr", PlaceSlotResolver.phoneticKey("pararapr"))
+    }
+
+    @Test
+    fun `common non-place words are never snapped to a place`() {
+        val nonPlaces = listOf(
+            "airport", "hospital", "pharmacy", "supermarket", "dinner", "library", "station",
+            "school", "office", "hotel", "the beach", "the office", "my place", "home", "work",
+            "petrol station", "post office", "the dentist", "tomorrow", "this afternoon",
+            "the lake", "Mum's house", "the gym", "the bank", "a cafe", "the mall",
+        )
+        for (word in nonPlaces) {
+            assertEquals(null, PlaceSlotResolver.snap(word), "'$word' must not snap")
+        }
     }
 
     @Test
