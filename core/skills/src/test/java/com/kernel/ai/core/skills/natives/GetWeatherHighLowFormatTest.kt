@@ -141,9 +141,28 @@ class GetWeatherHighLowFormatTest {
         )
         assertTrue(
             direct.spokenSummary.orEmpty().endsWith(
-                "Tomorrow compared with today: 3 degrees colder on the high and 2 degrees hotter on the low.",
+                "Tomorrow will be 3 degrees cooler in Wellington: a high of 18 degrees, down from 21.",
             ),
             "spoken=${direct.spokenSummary}",
+        )
+    }
+
+    /** #2033/#2056 — compare=true speaks only the computed sentence; the model never restates these numbers. */
+    @Test
+    fun `comparison request speaks a ready-to-speak sentence only`() {
+        val skill = GetWeatherSkill(context, OkHttpClient())
+        val json = dailyJson(
+            dates = listOf("2026-11-22", "2026-11-23"),
+            highs = listOf(31.0, 30.0),
+            lows = listOf(25.0, 24.0),
+        )
+        val direct = assertInstanceOf(
+            SkillResult.DirectReply::class.java,
+            skill.parseForecastResponse(json, "Apia", today = java.time.LocalDate.of(2026, 11, 22), compare = true),
+        )
+        assertEquals(
+            "Tomorrow will be slightly cooler in Apia: a high of 30 degrees, down from 31.",
+            direct.spokenSummary,
         )
     }
 
@@ -161,7 +180,7 @@ class GetWeatherHighLowFormatTest {
         )
         assertTrue(direct.content.contains("high 20°C vs 20°C, same; low 10°C vs 10°C, same."), "text=${direct.content}")
         assertTrue(
-            direct.spokenSummary.orEmpty().endsWith("the same on the high and the same on the low."),
+            direct.spokenSummary.orEmpty().endsWith("Tomorrow will be about the same as today in Apia: a high of 20 degrees."),
             "spoken=${direct.spokenSummary}",
         )
     }
@@ -179,7 +198,7 @@ class GetWeatherHighLowFormatTest {
             skill.parseForecastResponse(json, "Wellington", today = java.time.LocalDate.of(2026, 11, 22)),
         )
         assertFalse(direct.content.contains("Comparison,"), "text=${direct.content}")
-        assertFalse(direct.spokenSummary.orEmpty().contains("compared with"), "spoken=${direct.spokenSummary}")
+        assertFalse(direct.spokenSummary.orEmpty().contains("Tomorrow will be"), "spoken=${direct.spokenSummary}")
     }
 
     /** #2066 — "tomorrow" plus N days keeps rows 1..N of a body that starts today. */

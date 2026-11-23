@@ -546,14 +546,16 @@ internal fun sliceDailyRows(json: String, from: Int, count: Int): String {
 internal data class TwoDayComparison(val content: String, val spoken: String)
 
 /**
- * Compares the second of two days with the first, per temperature. Null unless both days are present; a
- * missing high or low drops only that part. Compared after rounding to whole degrees, matching the text shown.
+ * Compares the second of two days with the first, per temperature. Null unless both days are present.
+ * `content` keeps high and low for the model. `spoken` is the ready-to-speak high sentence (#2033).
+ * Compared after rounding to whole degrees, matching the text shown.
  */
 internal fun twoDayComparison(
     dates: List<java.time.LocalDate>,
     highs: List<Double>,
     lows: List<Double>,
     today: java.time.LocalDate,
+    place: String,
 ): TwoDayComparison? {
     if (dates.size != 2 || highs.size != 2 || lows.size != 2) return null
     val parts = listOfNotNull(
@@ -563,25 +565,52 @@ internal fun twoDayComparison(
     if (parts.isEmpty()) return null
     val earlierLabel = relativeDayLabel(dates[0], today)
     val laterLabel = relativeDayLabel(dates[1], today)
+    val spoken = comparisonSpoken(
+        subject = laterLabel.replaceFirstChar { it.uppercase() },
+        place = place,
+        earlierLabel = earlierLabel,
+        earlier = highs[0],
+        later = highs[1],
+    ) ?: return null
     return TwoDayComparison(
         content = "Comparison, $laterLabel vs $earlierLabel: " + parts.joinToString("; ") { it.content } + ".",
-        spoken = laterLabel.replaceFirstChar { it.uppercase() } + " compared with $earlierLabel: " +
-            parts.joinToString(" and ") { it.spoken } + ".",
+        spoken = spoken,
     )
 }
 
-private class ComparisonPart(val content: String, val spoken: String)
+/**
+ * "Tomorrow will be slightly cooler in Apia: a high of 30 degrees, down from 31." Whole degrees; a change of
+ * 1–2 degrees is "slightly".
+ */
+private fun comparisonSpoken(
+    subject: String,
+    place: String,
+    earlierLabel: String,
+    earlier: Double,
+    later: Double,
+): String? {
+    if (earlier.isNaN() || later.isNaN()) return null
+    val from = Math.round(earlier).toInt()
+    val to = Math.round(later).toInt()
+    val delta = to - from
+    if (delta == 0) return "$subject will be about the same as $earlierLabel in $place: a high of $to degrees."
+    val size = kotlin.math.abs(delta)
+    val word = if (delta > 0) "warmer" else "cooler"
+    val change = if (size <= 2) "slightly $word" else "$size degrees $word"
+    val direction = if (delta > 0) "up from" else "down from"
+    return "$subject will be $change in $place: a high of $to degrees, $direction $from."
+}
+
+private class ComparisonPart(val content: String)
 
 private fun comparisonPart(label: String, earlier: Double, later: Double): ComparisonPart? {
     if (earlier.isNaN() || later.isNaN()) return null
     val from = Math.round(earlier).toInt()
     val to = Math.round(later).toInt()
     val delta = to - from
-    if (delta == 0) return ComparisonPart("$label ${to}°C vs ${from}°C, same", "the same on the $label")
+    if (delta == 0) return ComparisonPart("$label ${to}°C vs ${from}°C, same")
     val word = if (delta > 0) "hotter" else "colder"
-    val size = kotlin.math.abs(delta)
-    val unit = if (size == 1) "degree" else "degrees"
-    return ComparisonPart("$label ${to}°C vs ${from}°C, ${size}°C $word", "$size $unit $word on the $label")
+    return ComparisonPart("$label ${to}°C vs ${from}°C, ${kotlin.math.abs(delta)}°C $word")
 }
 
 private fun relativeDayLabel(date: java.time.LocalDate, today: java.time.LocalDate): String =
@@ -885,6 +914,7 @@ class GetWeatherSkill @Inject constructor(
         val forecastDays = call.arguments["forecast_days"]?.trim()?.toIntOrNull()?.coerceIn(1, 7) ?: 0
         val dayParam = call.arguments["day"]?.trim()?.lowercase()
         val weekendRequest = call.arguments["period"]?.trim()?.lowercase() == "weekend"
+        val compare = call.arguments["compare"]?.trim()?.lowercase() == "true"
         val lookupMode = weatherLookupMode(location)
 
         val cacheKey = weatherCacheKey(
@@ -917,9 +947,9 @@ class GetWeatherSkill @Inject constructor(
                         }
                     }
                     lookupMode == WeatherLookupMode.NAMED_LOCATION ->
-                        fetchByLocationName(location.orEmpty(), forecastDays, cacheKey = cacheKey)
+                        fetchByLocationName(location.orEmpty(), forecastDays, compare = compare, cacheKey = cacheKey)
                     else ->
-                        fetchByDeviceLocation(forecastDays, cacheKey = cacheKey)
+                        fetchByDeviceLocation(forecastDays, compare = compare, cacheKey = cacheKey)
                 }
             } } ?: run {
                 Log.w(TAG, "Live weather fetch exceeded the ${WEATHER_LIVE_BUDGET_MS} ms budget")
@@ -955,7 +985,7 @@ class GetWeatherSkill @Inject constructor(
             (failureReason == WeatherLookupFailureReason.API_UNAVAILABLE ||
                 failureReason == WeatherLookupFailureReason.GEOCODE_UNAVAILABLE)
         ) {
-            staleWeatherReply(cacheKey, failureReason, weekendRequest, dayParam, forecastDays)?.let { return it }
+            staleWeatherReply(cacheKey, failureReason, weekendRequest, dayParam, forecastDays, compare)?.let { return it }
         }
 
         Log.i(TAG, "Weather cache miss after ${failureReason.name}")
@@ -977,6 +1007,7 @@ class GetWeatherSkill @Inject constructor(
         weekendRequest: Boolean,
         dayParam: String?,
         forecastDays: Int,
+        compare: Boolean,
     ): SkillResult? {
         val now = weatherClockMillis()
         val entry = readWeatherEntry(cacheKey)
@@ -993,7 +1024,7 @@ class GetWeatherSkill @Inject constructor(
             when {
                 weekendRequest -> parseWeekendResponse(dailyBody, entry.displayName)
                 dayParam == "tomorrow" -> parseForecastRange(dailyBody, entry.displayName, fromIndex = 1, count = forecastDays.coerceAtLeast(1))
-                forecastDays > 0 -> parseForecastResponse(dailyBody, entry.displayName)
+                forecastDays > 0 -> parseForecastResponse(dailyBody, entry.displayName, compare = compare)
                 else -> parseWeatherResponse(dailyBody, entry.displayName, airQuality = null)
             }
         } catch (e: Exception) {
@@ -1016,6 +1047,7 @@ class GetWeatherSkill @Inject constructor(
         forecastDays: Int = 0,
         targetDay: Boolean = false,
         targetWeekend: Boolean = false,
+        compare: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
         val query = resolveIndirectLocationReference(locationName) ?: locationName
@@ -1055,6 +1087,7 @@ class GetWeatherSkill @Inject constructor(
                 displayName = resolvedLocationName,
                 days = forecastDays,
                 cacheKey = cacheKey,
+                compare = compare,
             ).toLiveFetchResult()
             else -> fetchWeather(
                 lat = coordinates.first,
@@ -1147,6 +1180,7 @@ class GetWeatherSkill @Inject constructor(
         forecastDays: Int = 0,
         targetDay: Boolean = false,
         targetWeekend: Boolean = false,
+        compare: Boolean = false,
         cacheKey: String,
     ): LiveFetchResult {
         if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -1186,6 +1220,7 @@ class GetWeatherSkill @Inject constructor(
                 displayName = displayName,
                 days = forecastDays,
                 cacheKey = cacheKey,
+                compare = compare,
             ).toLiveFetchResult()
             else -> fetchWeather(
                 lat = requestLatitude,
@@ -1285,11 +1320,12 @@ class GetWeatherSkill @Inject constructor(
         displayName: String?,
         days: Int,
         cacheKey: String,
+        compare: Boolean,
     ): SkillResult? =
         withContext(Dispatchers.IO) {
             // Check cache first
             getCachedWeatherJson(cacheKey)?.let { cachedJson ->
-                return@withContext parseForecastResponse(cachedJson, displayName)
+                return@withContext parseForecastResponse(cachedJson, displayName, compare = compare)
             }
 
             val url = "https://api.open-meteo.com/v1/forecast" +
@@ -1301,13 +1337,14 @@ class GetWeatherSkill @Inject constructor(
                 metNoDailyJson(it, days = days, zone = ZoneId.systemDefault(), nowMillis = weatherClockMillis())
             } ?: return@withContext null
 
-            cacheParsedForecast(cacheKey, displayName, weather) { parseForecastResponse(it, displayName) }
+            cacheParsedForecast(cacheKey, displayName, weather) { parseForecastResponse(it, displayName, compare = compare) }
         }
 
     internal fun parseForecastResponse(
         json: String,
         displayName: String?,
         today: java.time.LocalDate = java.time.LocalDate.now(ZoneId.systemDefault()),
+        compare: Boolean = false,
     ): SkillResult {
         val obj = JSONObject(json)
         val daily = obj.getJSONObject("daily")
@@ -1332,6 +1369,7 @@ class GetWeatherSkill @Inject constructor(
             highs = (0 until len).map { maxTemps.optDouble(it, Double.NaN) },
             lows = (0 until len).map { minTemps.optDouble(it, Double.NaN) },
             today = today,
+            place = locationForSpeech(displayName ?: UNRESOLVED_LOCATION_LABEL),
         )
         val locationLabel = displayName ?: UNRESOLVED_LOCATION_LABEL
         val text = buildString {
@@ -1453,11 +1491,15 @@ class GetWeatherSkill @Inject constructor(
                 forecast = forecastDays,
                 attributionText = weatherAttributionFor(obj),
             ),
-            spokenSummary = buildMultiDayForecastSpoken(
-                locationLabel = locationLabel,
-                days = spokenDays,
-                comparison = comparison?.spoken,
-            ),
+            spokenSummary = if (compare && comparison != null) {
+                comparison.spoken
+            } else {
+                buildMultiDayForecastSpoken(
+                    locationLabel = locationLabel,
+                    days = spokenDays,
+                    comparison = comparison?.spoken,
+                )
+            },
         )
     }
 

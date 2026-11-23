@@ -2257,6 +2257,20 @@ class QuickIntentRouter(
             ),
             paramExtractor = { _, _ -> emptyMap() },
         ),
+        // "Will it be hotter in Apia tomorrow than today and why" — the tool speaks a computed comparison (#2033, #2056).
+        IntentPattern(
+            intentName = "get_weather",
+            regex = Regex(
+                """^(?:is|will)\s+it\s+(?:be\s+|going\s+to\s+be\s+|gonna\s+be\s+)?(?:hotter|warmer|colder|cooler)\s+(?:in|at|for)\s+(.+?)\s+tomorrow\s+than\s+today(?:\s+and\s+why)?[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, _ ->
+                val location = match.groupValues[1].trim().takeIf { it.isNotEmpty() }
+                buildMap<String, String> {
+                    if (location != null) put("location", location)
+                }
+            },
+        ),
         // "forecast tomorrow" / "forecast for tomorrow" — day-anchored, no explicit horizon (#2066)
         IntentPattern(
             intentName = "get_weather",
@@ -5072,6 +5086,12 @@ class QuickIntentRouter(
         RegexOption.IGNORE_CASE,
     )
 
+    /** #2033/#2056 — "hotter/colder/warmer/cooler tomorrow than today": answered with the computed comparison sentence. */
+    private val weatherTomorrowVsToday = Regex(
+        """\b(?:hotter|warmer|colder|cooler)\b.*\btomorrow\s+than\s+today\b""",
+        RegexOption.IGNORE_CASE,
+    )
+
     /**
      * #1455 — daypart periods the weather skill has no hourly contract for. Any
      * deterministic get_weather pattern (and the classifier) is skipped for wording
@@ -5115,6 +5135,12 @@ class QuickIntentRouter(
             normalized["forecast_days"].isNullOrBlank()
         ) {
             normalized["forecast_days"] = "2"
+        }
+        // #2033/#2056 — tomorrow-vs-today comparison: two days, no day filter, spoken as the computed sentence only.
+        if (weatherTomorrowVsToday.containsMatchIn(raw)) {
+            normalized.remove("day")
+            normalized["forecast_days"] = "2"
+            normalized["compare"] = "true"
         }
 
         // "this weekend" → period=weekend (#1455): the weekend period is explicit

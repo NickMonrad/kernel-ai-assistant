@@ -45,6 +45,7 @@ class GetWeatherUnifiedSkill @Inject constructor(
         "Weather in Auckland → get_weather(location=\"Auckland\")",
         "Weekend forecast in Bundaberg → get_weather(location=\"Bundaberg\", period=\"weekend\")",
         "Weather in Brisbane → get_weather(location=\"Brisbane\")",
+        "Hotter tomorrow than today in Apia → get_weather(location=\"Apia\", forecast_days=\"2\", compare=\"true\")",
     )
 
     override val schema = SkillSchema(
@@ -61,14 +62,19 @@ class GetWeatherUnifiedSkill @Inject constructor(
             "day" to SkillParameter(
                 type = "string",
                 description = "Optional day to get weather for: \"today\" or \"tomorrow\". \"tomorrow\" alone returns tomorrow only; " +
-                    "with forecast_days=N it returns N days starting tomorrow. For \"today and tomorrow\" or comparing today with tomorrow, " +
-                    "use forecast_days=2 and omit day: the result then includes a computed comparison line.",
+                    "with forecast_days=N it returns N days starting tomorrow. For \"today and tomorrow\", " +
+                    "use forecast_days=2 and omit day. For \"hotter/colder tomorrow than today\" use forecast_days=2, omit day, and set compare=\"true\".",
             ),
             "period" to SkillParameter(
                 type = "string",
                 description = "Optional forecast period: \"weekend\" targets the current/upcoming weekend " +
                     "(Saturday + Sunday, or just the remaining Sunday when asked on a Sunday). " +
                     "Omit for the default current/today behaviour. Mutually exclusive with forecast_days.",
+            ),
+            "compare" to SkillParameter(
+                type = "string",
+                description = "Set to \"true\" only for a question comparing tomorrow with today (e.g. \"hotter tomorrow than today\"). " +
+                    "Use with forecast_days=2 and day omitted; the result is then a ready-to-speak comparison sentence.",
             ),
         ),
         required = emptyList(),
