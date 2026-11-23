@@ -34,5 +34,10 @@ class PronunciationLexiconDeviceTest {
         assertEquals("It costs three hundred and forty five dollars.", SherpaSpeechText.prepare("It costs $345"))
         assertEquals("It's eight thirty one A-M.", SherpaSpeechText.prepare("It's 8:31 am"))
         assertEquals("Room one hundred and one and two cats.", SherpaSpeechText.prepare("Room 101 and 2 cats"))
+        // Date and unit spelling (#2077, #1901) uses lookbehinds and \d, so one input per new pattern.
+        assertEquals(
+            "Monday, the 23rd of November, eleven degrees, ninety two percent.",
+            SherpaSpeechText.prepare("Mon, 23 Nov, 11°C, 92%"),
+        )
     }
 }
