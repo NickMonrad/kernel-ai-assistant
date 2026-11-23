@@ -6,22 +6,25 @@ import org.junit.jupiter.params.provider.CsvSource
 
 internal class WakeOverlayRouteTest {
 
-    /** #2081: the direct start needs an interactive, unlocked device; full-screen then tap are the fallbacks. */
-    @ParameterizedTest(name = "interactive={0} keyguardLocked={1} fullScreenAllowed={2} -> {3}")
+    /**
+     * #2081: the direct start needs an interactive, unlocked device. A screen-off or locked device uses the
+     * assistant session when Jandal is the assistant, and a tap-to-open notification otherwise.
+     */
+    @ParameterizedTest(name = "interactive={0} keyguardLocked={1} assistantSession={2} -> {3}")
     @CsvSource(
         "true,  false, false, DIRECT_ACTIVITY",
         "true,  false, true,  DIRECT_ACTIVITY",
         "true,  true,  false, TAP_NOTIFICATION",
-        "true,  true,  true,  FULL_SCREEN_NOTIFICATION",
+        "true,  true,  true,  ASSISTANT_SESSION",
         "false, false, false, TAP_NOTIFICATION",
-        "false, false, true,  FULL_SCREEN_NOTIFICATION",
+        "false, false, true,  ASSISTANT_SESSION",
         "false, true,  false, TAP_NOTIFICATION",
-        "false, true,  true,  FULL_SCREEN_NOTIFICATION",
+        "false, true,  true,  ASSISTANT_SESSION",
     )
-    fun `route follows interactive, keyguard and full-screen grant`(
+    fun `route follows interactive, keyguard and assistant session`(
         interactive: Boolean,
         keyguardLocked: Boolean,
-        fullScreenAllowed: Boolean,
+        assistantSessionAvailable: Boolean,
         expected: WakeOverlayRoute,
     ) {
         assertEquals(
@@ -29,7 +32,7 @@ internal class WakeOverlayRouteTest {
             chooseWakeOverlayRoute(
                 interactive = interactive,
                 keyguardLocked = keyguardLocked,
-                fullScreenAllowed = fullScreenAllowed,
+                assistantSessionAvailable = assistantSessionAvailable,
             ),
         )
     }

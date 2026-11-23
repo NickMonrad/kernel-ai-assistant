@@ -606,21 +606,21 @@ private const val LEGACY_WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
 private const val WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS = 15_000L
 
 /** How the Hey Jandal overlay opens after a wake (#2081). */
-internal enum class WakeOverlayRoute { DIRECT_ACTIVITY, FULL_SCREEN_NOTIFICATION, TAP_NOTIFICATION }
+internal enum class WakeOverlayRoute { DIRECT_ACTIVITY, ASSISTANT_SESSION, TAP_NOTIFICATION }
 
 /**
  * Picks the overlay route for a wake (#2081). The overlay starts directly only on an interactive, unlocked
- * device. Otherwise it is a notification: a full-screen intent when the user has granted
- * USE_FULL_SCREEN_INTENT, else a tap-to-open notification. A direct start can still be refused by
- * background-activity-launch rules; that case is handled when the transcript arrives, not here.
+ * device. A screen-off or locked device uses the assistant session when Jandal holds the assistant role,
+ * and otherwise a tap-to-open notification. A direct start can still be refused by background-activity
+ * launch rules; a transcript the overlay does not take is held for a tap.
  */
 internal fun chooseWakeOverlayRoute(
     interactive: Boolean,
     keyguardLocked: Boolean,
-    fullScreenAllowed: Boolean,
+    assistantSessionAvailable: Boolean,
 ): WakeOverlayRoute = when {
     interactive && !keyguardLocked -> WakeOverlayRoute.DIRECT_ACTIVITY
-    fullScreenAllowed -> WakeOverlayRoute.FULL_SCREEN_NOTIFICATION
+    assistantSessionAvailable -> WakeOverlayRoute.ASSISTANT_SESSION
     else -> WakeOverlayRoute.TAP_NOTIFICATION
 }
 
@@ -1055,6 +1055,8 @@ class WakeWordService : Service() {
     /**
      * #1930: opens the Hey Jandal overlay once the mic-ready cue has played. [token] names the live
      * capture, so the overlay's cancel applies only to it. A failed launch leaves the capture running.
+     * #2081: a screen-off or locked device opens it through the assistant session when Jandal is the
+     * assistant; otherwise through a tap-to-open notification.
      */
     private fun showWakeOverlay(token: Long) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -1063,7 +1065,7 @@ class WakeWordService : Service() {
         val route = chooseWakeOverlayRoute(
             interactive = pm.isInteractive,
             keyguardLocked = km.isKeyguardLocked,
-            fullScreenAllowed = nm.canUseFullScreenIntent(),
+            assistantSessionAvailable = JandalVoiceInteractionService.isActive,
         )
         Log.i(TAG, "WakeWordService: wake overlay route=$route token=$token")
         when (route) {
@@ -1073,14 +1075,12 @@ class WakeWordService : Service() {
                 // Not fatal: the transcript is held for a tap if the overlay does not open (#2081).
                 Log.w(TAG, "WakeWordService: could not open the wake overlay", e)
             }
-            WakeOverlayRoute.FULL_SCREEN_NOTIFICATION,
-            WakeOverlayRoute.TAP_NOTIFICATION,
-            -> postWakeOverlayNotification(
-                nm = nm,
-                token = token,
-                held = false,
-                fullScreen = route == WakeOverlayRoute.FULL_SCREEN_NOTIFICATION,
-            )
+            WakeOverlayRoute.ASSISTANT_SESSION -> {
+                if (!JandalVoiceInteractionService.showWakeSession(token)) {
+                    postWakeOverlayNotification(nm = nm, token = token, held = false)
+                }
+            }
+            WakeOverlayRoute.TAP_NOTIFICATION -> postWakeOverlayNotification(nm = nm, token = token, held = false)
         }
     }
 
@@ -1094,16 +1094,11 @@ class WakeWordService : Service() {
         }
 
     /**
-     * Posts the overlay as a notification. Its content intent is user-initiated, so a tap opens the overlay
-     * with the screen off or locked. A full-screen intent is added only when the user has granted
-     * USE_FULL_SCREEN_INTENT. The channel is silent: the notification appears while the user is speaking (#2081).
+     * Posts the overlay as a tap-to-open notification (#2081). A tap is user-initiated, so the start is
+     * allowed with the screen off or locked. The channel is silent: the notification appears while the
+     * user is speaking.
      */
-    private fun postWakeOverlayNotification(
-        nm: NotificationManager,
-        token: Long,
-        held: Boolean,
-        fullScreen: Boolean,
-    ) {
+    private fun postWakeOverlayNotification(nm: NotificationManager, token: Long, held: Boolean) {
         nm.deleteNotificationChannel(LEGACY_WAKE_OVERLAY_CHANNEL_ID)
         nm.createNotificationChannel(
             NotificationChannel(
@@ -1123,15 +1118,17 @@ class WakeWordService : Service() {
             wakeOverlayIntent(token, held),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val builder = Notification.Builder(this, WAKE_OVERLAY_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("Hey Jandal")
-            .setContentText(if (fullScreen) "Listening…" else "Tap to continue")
-            .setContentIntent(pending)
-            .setAutoCancel(true)
-            .setTimeoutAfter(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
-        if (fullScreen) builder.setFullScreenIntent(pending, true)
-        nm.notify(WAKE_OVERLAY_NOTIFICATION_ID, builder.build())
+        nm.notify(
+            WAKE_OVERLAY_NOTIFICATION_ID,
+            Notification.Builder(this, WAKE_OVERLAY_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentTitle("Hey Jandal")
+                .setContentText("Tap to continue")
+                .setContentIntent(pending)
+                .setAutoCancel(true)
+                .setTimeoutAfter(WAKE_OVERLAY_NOTIFICATION_TIMEOUT_MS)
+                .build(),
+        )
     }
 
     /** #2081: the overlay is up, or the session ended with nothing held, so its notification goes. */
@@ -1247,7 +1244,6 @@ class WakeWordService : Service() {
                     nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
                     token = token,
                     held = true,
-                    fullScreen = false,
                 )
                 scheduleHeldExpiry(token)
                 true
