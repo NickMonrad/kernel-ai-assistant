@@ -376,7 +376,11 @@ class Asr4allVoiceInputController internal constructor(
             if (!c.buffer.isClosed) c.recorder.startRecording()
             while (!c.buffer.isClosed) {
                 val n = c.recorder.read(buf, 0, buf.size)
-                if (n < 0) break
+                if (n < 0) {
+                    // A read error ends the mic without an endpoint; log the code so the early end is diagnosable.
+                    Log.w(TAG, "asr4all mic read failed: code=$n")
+                    break
+                }
                 if (n == 0) continue
                 val rms = rmsOf(buf, n)
                 _inputLevel.value = rms.coerceIn(0f, 1f)
@@ -409,6 +413,8 @@ class Asr4allVoiceInputController internal constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Pre-roll reader error", e)
         } finally {
+            // Any exit ends the speech clock before the consumer wakes; endpoint and halt paths already set it.
+            if (c.endedAtNanos == 0L) c.endedAtNanos = System.nanoTime()
             c.buffer.close()
             stopRecorder(c.recorder)
             releaseAudioFocus(c.focus)

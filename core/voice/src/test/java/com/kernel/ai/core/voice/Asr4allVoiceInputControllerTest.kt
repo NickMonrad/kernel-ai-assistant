@@ -769,6 +769,8 @@ class Asr4allVoiceInputControllerTest {
             assertNull(error.category)
             assertEquals("Microphone stopped. Try again.", error.message)
             assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=MIC_UNAVAILABLE" in it })
+            // A read error ends speech without an endpoint; the end-of-speech clock still closes so the decode is timed.
+            assertTrue(exportedAfter(mark).any { " voice stt_decode_done " in it && "endpointed=false" in it })
         } finally {
             collected.job.cancel()
             scope.cancel()
