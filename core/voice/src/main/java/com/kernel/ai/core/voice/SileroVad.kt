@@ -20,7 +20,9 @@ internal fun interface SpeechDetector {
 /**
  * Silero VAD v4, 16 kHz branch (k2-fsa export; upstream MIT, see `docs/VOICE_MODEL_ATTRIBUTION.md`), run on
  * onnxruntime. The model takes 512-sample frames (32 ms) with recurrent state `h` and `c`, each [2, 1, 64].
- * A chunk is speech when any frame that completes inside it reaches [THRESHOLD].
+ *
+ * Hysteresis: a frame enters speech at [START_THRESHOLD] and leaves it only below [END_THRESHOLD], so a dip inside
+ * a word does not split the utterance. A chunk is speech when any frame completing inside it is in speech.
  */
 internal class SileroVad private constructor(
     private val env: OrtEnvironment,
@@ -30,11 +32,13 @@ internal class SileroVad private constructor(
     private var filled = 0
     private val h = FloatArray(STATE_SIZE)
     private val c = FloatArray(STATE_SIZE)
+    private var inSpeech = false
 
     override fun reset() {
         filled = 0
         h.fill(0f)
         c.fill(0f)
+        inSpeech = false
     }
 
     override fun isSpeech(pcm: ShortArray, n: Int): Boolean {
@@ -43,7 +47,9 @@ internal class SileroVad private constructor(
             frame[filled++] = pcm[i] / 32768f
             if (filled == FRAME) {
                 filled = 0
-                if (probability() >= THRESHOLD) speech = true
+                val p = probability()
+                inSpeech = if (inSpeech) p >= END_THRESHOLD else p >= START_THRESHOLD
+                if (inSpeech) speech = true
             }
         }
         return speech
@@ -66,7 +72,8 @@ internal class SileroVad private constructor(
 
     companion object {
         const val FRAME = 512
-        const val THRESHOLD = 0.5f
+        const val START_THRESHOLD = 0.5f
+        const val END_THRESHOLD = 0.35f
         private const val STATE_SIZE = 2 * 64
         private val STATE_SHAPE = longArrayOf(2, 1, 64)
         private const val MODEL_ASSET = "silero_vad.onnx"
@@ -75,7 +82,9 @@ internal class SileroVad private constructor(
 
         fun fromBytes(model: ByteArray): SileroVad {
             val env = OrtEnvironment.getEnvironment()
-            return SileroVad(env, env.createSession(model))
+            // One intra-op thread: the recogniser runs on the same cores, and ONNX Runtime's default pool spins.
+            val options = OrtSession.SessionOptions().apply { setIntraOpNumThreads(1) }
+            return options.use { SileroVad(env, env.createSession(model, it)) }
         }
     }
 }

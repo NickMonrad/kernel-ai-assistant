@@ -111,6 +111,8 @@ class Asr4allVoiceInputControllerTest {
     private fun controller(
         captureJoinTimeoutMs: Long = defaultCaptureJoinTimeoutMs,
         termsAccepted: Boolean = true,
+        captureWallLimitMs: Long = 30_000L,
+        vadDetector: SpeechDetector? = amplitudeDetector,
     ): Asr4allVoiceInputController {
         var opened = 0
         val context = mockk<Context>(relaxed = true)
@@ -127,11 +129,11 @@ class Asr4allVoiceInputControllerTest {
         val detector = mockk<HardwareProfileDetector>(relaxed = true) {
             every { profile.tier } answers { tier }
         }
-        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, { termsAccepted }).apply {
+        return Asr4allVoiceInputController(context, prefs, detector, captureJoinTimeoutMs, captureWallLimitMs, { termsAccepted }).apply {
             availableForTest = { true }
             micGrantedForTest = true
             recorderForTest = { recorder() }
-            speechDetectorForTest = { amplitudeDetector }
+            speechDetectorForTest = { vadDetector }
             engineOpenForTest = { size, threads ->
                 engineEntered.countDown()
                 engineGate?.await(5, TimeUnit.SECONDS)
@@ -815,8 +817,8 @@ class Asr4allVoiceInputControllerTest {
             try {
                 partialForCall = { "heard" }
                 finalText = ""
-                // Speech on every other chunk keeps the endpoint from firing, so only the cap can end the capture.
-                amplitudeForRead = { if (it % 2 == 1) 8000 else 200 }
+                // Continuous speech keeps the endpoint from firing, so only the cap can end the capture.
+                amplitudeForRead = { 8000 }
                 readAhead = 4
                 firstFrame = CountDownLatch(1)
                 val mark = exportMark()
@@ -1079,20 +1081,19 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `steady hiss below the speech threshold is never decoded and ends as no speech`() = runBlocking(Dispatchers.IO) {
+    fun `steady hiss below the speech threshold never detects speech and ends as no speech`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
         try {
-            // About 1% of full scale: under the detector threshold, so no chunk is speech and the engine never runs.
+            // About 1% of full scale: under the detector threshold, so no chunk is speech and no speech is detected.
             amplitude = 300
-            partialForCall = { "Final" }
+            partialForCall = { "" } // the engine hears nothing in the hiss, so no text counts as speech
             finalText = "" // the engine decodes nothing, so finish() has no text
             firstFrame = CountDownLatch(1)
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
 
-            assertEquals(0, acceptCalls.get())
             assertTrue(collected.events.none { it is VoiceInputEvent.SpeechDetected })
             assertEquals(emptyList<String>(), collected.transcripts())
         } finally {
@@ -1126,7 +1127,7 @@ class Asr4allVoiceInputControllerTest {
     }
 
     @Test
-    fun `load-time silence before speech is not decoded, only the lead-in before onset`() = runBlocking(Dispatchers.IO) {
+    fun `load-time silence is bounded and the utterance endpoints on silence after speech`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
         val collected = Collected(c.events, scope)
@@ -1135,17 +1136,37 @@ class Asr4allVoiceInputControllerTest {
             amplitudeForRead = { read -> if (read in 51..60) 8000 else 0 }
             partialForCall = { "Final" }
             firstFrame = CountDownLatch(1)
+            val mark = exportMark()
             c.startListening(VoiceCaptureMode.Command)
             collected.awaitStops(1)
 
-            // 5 lead-in chunks, 10 of speech, 7 of trailing silence: 22 decoded of the 67 captured.
-            assertEquals(22, acceptCalls.get())
+            // Speech at 5.1-6.0 s of captured audio, then 700 ms of silence: the VAD endpoint falls near 6.8 s.
+            val endpoint = exportedAfter(mark).filter { " voice stt_endpoint " in it && "reason=VAD" in it }
+            assertEquals(1, endpoint.size, "one VAD endpoint: ${exportedAfter(mark)}")
+            val audioMs = Regex("audio_ms=(\\d+)").find(endpoint.single())!!.groupValues[1].toInt()
+            assertTrue(audioMs in 6_500..7_200, "endpoint at ${audioMs} ms")
             assertEquals(listOf("Final text"), collected.transcripts())
         } finally {
             collected.job.cancel()
             scope.cancel()
         }
     }
+
+    @Test
+    fun `a missing Silero model asks for a restart, journals MODEL_UNAVAILABLE and never opens the mic`() =
+        runBlocking(Dispatchers.IO) {
+            val c = controller(vadDetector = null)
+            val mark = exportMark()
+
+            val result = c.startListening(VoiceCaptureMode.Command)
+
+            assertEquals(
+                "Voice detection could not start. Restart the app; if it keeps failing, reinstall it.",
+                (result as VoiceInputStartResult.Unavailable).message,
+            )
+            assertEquals(0, micOpens.get())
+            assertTrue(exportedAfter(mark).any { " voice stt_error " in it && "category=MODEL_UNAVAILABLE" in it })
+        }
 
     @Test
     fun `a microphone open that throws reports one cancelled stop and abandons focus`() = runBlocking(Dispatchers.IO) {
