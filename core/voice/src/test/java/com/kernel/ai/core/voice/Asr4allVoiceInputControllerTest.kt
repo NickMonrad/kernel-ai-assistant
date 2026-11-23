@@ -1169,6 +1169,34 @@ class Asr4allVoiceInputControllerTest {
         }
 
     @Test
+    fun `a Silero exception ends the capture as a detection failure, not a microphone failure`() = runBlocking(Dispatchers.IO) {
+        val c = controller(vadDetector = SpeechDetector { _, _ -> throw IllegalStateException("onnx session closed") })
+        partialForCall = { "" }
+        finalText = ""
+        val scope = CoroutineScope(Dispatchers.IO)
+        val collected = Collected(c.events, scope)
+        val mark = exportMark()
+        try {
+            assertTrue(c.startListening(VoiceCaptureMode.Command) is VoiceInputStartResult.Started)
+            collected.awaitStops(1)
+            // The consumer emits the Error after the stop, so wait for it rather than the stop.
+            val gotError = kotlinx.coroutines.withTimeoutOrNull(10_000) { while (collected.events.none { it is VoiceInputEvent.Error }) kotlinx.coroutines.delay(10) }
+            assertTrue(gotError != null, "no Error event; events=${collected.events}")
+
+            assertEquals(
+                listOf("Voice detection failed. Try again."),
+                collected.events.filterIsInstance<VoiceInputEvent.Error>().map { it.message },
+            )
+            val journal = exportedAfter(mark)
+            assertTrue(journal.any { " voice stt_error " in it && "category=VAD_UNAVAILABLE" in it }, "journal: $journal")
+            assertTrue(journal.none { "category=MIC_UNAVAILABLE" in it }, "journal: $journal")
+        } finally {
+            collected.job.cancel()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `a microphone open that throws reports one cancelled stop and abandons focus`() = runBlocking(Dispatchers.IO) {
         val c = controller()
         val scope = CoroutineScope(Dispatchers.IO)
