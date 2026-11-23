@@ -70,6 +70,18 @@ internal fun formatForecastDate(dateStr: String): String {
     }
 }
 
+/**
+ * ISO date "YYYY-MM-DD" as a weekday name for speech: "Monday" (#2077). Unparseable input is returned unchanged.
+ */
+internal fun formatForecastWeekdayForSpeech(dateStr: String): String {
+    val date = try {
+        java.time.LocalDate.parse(dateStr)
+    } catch (_: java.time.DateTimeException) {
+        return dateStr
+    }
+    return date.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.ENGLISH)
+}
+
 /** Round a Double to nearest int and format as "X degrees". */
 internal fun Double.toRoundedDegreesText(): String = "${roundToInt()} degrees"
 
@@ -131,26 +143,36 @@ internal fun buildCurrentWeatherSpoken(
     }
 }
 
-/** Build a spoken summary for a multi-day forecast (caps at 3 days). */
+/**
+ * One spoken sentence per day, weekday only: "Monday, overcast, high 27 degrees, low 19 degrees." Within a
+ * week every weekday is unique, so the full date is not repeated (#2076, #2077).
+ */
+private fun StringBuilder.appendSpokenForecastDays(
+    days: List<Triple<String, String, Pair<Double?, Double?>>>,
+) {
+    for ((weekday, description, temps) in days) {
+        val (high, low) = temps
+        val parts = buildList {
+            if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
+            if (high != null && !high.isNaN()) add("high ${high.toRoundedDegreesText()}")
+            if (low != null && !low.isNaN()) add("low ${low.toRoundedDegreesText()}")
+        }
+        append(" $weekday")
+        if (parts.isNotEmpty()) append(", ${parts.joinToString(", ")}")
+        append(".")
+    }
+}
+
+/** Build a spoken summary for a multi-day forecast. Speaks every day it is given (#2076). */
 internal fun buildMultiDayForecastSpoken(
     locationLabel: String?,
     days: List<Triple<String, String, Pair<Double?, Double?>>>,
 ): String {
     val place = locationForSpeech(locationLabel)
-    val daySlice = days.take(3)
+    val count = days.size
     return buildString {
-        append("$place ${daySlice.size}-day forecast.")
-        for ((date, description, temps) in daySlice) {
-            val (high, low) = temps
-            val parts = buildList {
-                if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
-                if (high != null && !high.isNaN()) add("high ${high.toRoundedDegreesText()}")
-                if (low != null && !low.isNaN()) add("low ${low.toRoundedDegreesText()}")
-            }
-            append(" $date")
-            if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
-            append(".")
-        }
+        append(if (count == 1) "$place forecast." else "$place forecast for the next $count days.")
+        appendSpokenForecastDays(days)
     }
 }
 
@@ -170,7 +192,7 @@ internal fun buildSingleDayForecastSpoken(
     }
     return buildString {
         append("$dayLabel in $place")
-        if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
+        if (parts.isNotEmpty()) append(", ${parts.joinToString(", ")}")
         append(".")
     }
 }
@@ -183,17 +205,7 @@ internal fun buildWeekendForecastSpoken(
     val place = locationForSpeech(locationLabel)
     return buildString {
         append("$place weekend forecast.")
-        for ((date, description, temps) in days) {
-            val (high, low) = temps
-            val parts = buildList {
-                if (description.isNotBlank() && description != "Unknown") add(description.lowercase())
-                if (high != null && !high.isNaN()) add("high ${high.toRoundedDegreesText()}")
-                if (low != null && !low.isNaN()) add("low ${low.toRoundedDegreesText()}")
-            }
-            append(" $date")
-            if (parts.isNotEmpty()) append(": ${parts.joinToString(", ")}")
-            append(".")
-        }
+        appendSpokenForecastDays(days)
     }
 }
 
@@ -451,7 +463,7 @@ internal fun markStaleWeather(result: SkillResult?, timeText: String): SkillResu
         presentation = (result.presentation as? ToolPresentation.Weather)?.copy(
             staleNoteText = "Forecast from $timeText. The weather service isn't answering, so it may be out of date.",
         ) ?: result.presentation,
-        spokenSummary = "$lead: ${result.spokenSummary ?: result.content}",
+        spokenSummary = "$lead. ${result.spokenSummary ?: result.content}",
     )
 }
 
@@ -652,7 +664,7 @@ internal fun parseWeekendResponse(json: String, displayName: String?, skillName:
     }
     val spokenDays = indices.map { i ->
         Triple(
-            formatForecastDate(dates.getString(i)),
+            formatForecastWeekdayForSpeech(dates.getString(i)),
             wmoDescription(codes.optInt(i, -1)),
             Pair(
                 maxTemps.optDouble(i, Double.NaN).takeUnless { it.isNaN() },
@@ -1301,11 +1313,11 @@ class GetWeatherSkill @Inject constructor(
             )
         }
         val spokenDays = (0 until len).map { i ->
-            val formattedDate = formatForecastDate(dates.getString(i))
+            val spokenDate = formatForecastWeekdayForSpeech(dates.getString(i))
             val desc = wmoDescription(codes.optInt(i, -1))
             val high = maxTemps.optDouble(i, Double.NaN)
             val low = minTemps.optDouble(i, Double.NaN)
-            Triple(formattedDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
+            Triple(spokenDate, desc, Pair(high.takeUnless { it.isNaN() }, low.takeUnless { it.isNaN() }))
         }
         Log.d(TAG, "GetWeatherSkill: fetched ${len}-day forecast")
         // Headline: first day with temperatures. After the MET 15:00 cutoff, today has none (#1922).
@@ -1413,6 +1425,7 @@ class GetWeatherSkill @Inject constructor(
 
         val dateStr = dates.getString(dayIndex)
         val formattedDate = formatForecastDate(dateStr)
+        val spokenDate = formatForecastWeekdayForSpeech(dateStr)
         val code = codes.optInt(dayIndex, -1)
         val emoji = wmoEmoji(code)
         val desc = wmoDescription(code)
@@ -1477,7 +1490,7 @@ class GetWeatherSkill @Inject constructor(
             ),
             spokenSummary = buildSingleDayForecastSpoken(
                 locationLabel = locationLabel,
-                dayLabel = if (dayIndex == 1) "Tomorrow" else formattedDate,
+                dayLabel = if (dayIndex == 1) "Tomorrow" else spokenDate,
                 description = desc,
                 high = high,
                 low = low,

@@ -83,24 +83,24 @@ class GetWeatherWeekendTest {
     @Test
     fun `buildWeekendForecastSpoken names the weekend explicitly`() {
         val days = listOf(
-            Triple("Sat 15 Aug", "Clear sky", Pair(28.0, 18.0)),
-            Triple("Sun 16 Aug", "Rain", Pair(22.0, 16.0)),
+            Triple("Saturday", "Clear sky", Pair(28.0, 18.0)),
+            Triple("Sunday", "Rain", Pair(22.0, 16.0)),
         )
         val spoken = buildWeekendForecastSpoken("Bundaberg", days)
         assertTrue(spoken.startsWith("Bundaberg weekend forecast."))
-        assertTrue(spoken.contains("Sat 15 Aug"))
-        assertTrue(spoken.contains("Sun 16 Aug"))
+        assertTrue(spoken.contains("Saturday"))
+        assertTrue(spoken.contains("Sunday"))
         assertFalse(spoken.contains("2-day"))
     }
 
     @Test
     fun `buildWeekendForecastSpoken handles a single remaining day`() {
         val days = listOf(
-            Triple("Sun 9 Aug", "Partly cloudy", Pair(24.0, 17.0)),
+            Triple("Sunday", "Partly cloudy", Pair(24.0, 17.0)),
         )
         val spoken = buildWeekendForecastSpoken("Brisbane, AU", days)
         assertTrue(spoken.startsWith("Brisbane weekend forecast."))
-        assertTrue(spoken.contains("Sun 9 Aug"))
+        assertTrue(spoken.contains("Sunday"))
         assertTrue(spoken.contains("high 24 degrees"))
     }
 
