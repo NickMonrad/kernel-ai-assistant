@@ -1,14 +1,15 @@
 package com.kernel.ai.core.voice
 
 /**
- * Conservative card-to-speech cleanup shared by every TTS engine. It only handles notation that
- * exists in weather and status cards: emoji, field separators ("|", "/", "·"), line breaks between
- * fields (a sentence pause), em dashes as pauses, and "H:17°C" / "L:10°C" / "Humidity: 92%" labels.
+ * Conservative card-to-speech cleanup shared by every TTS engine. It handles notation that exists in
+ * weather and status cards: emoji, field separators ("|", "/", "·", "•"), line breaks between fields
+ * (a sentence pause), em dashes as pauses, "H:17°C" / "L:10°C" / "Humidity: 92%" labels, and the
+ * day/month abbreviations and units that [SpeechAbbreviationText] spells out ("Mon 23 Nov", "11°C", "92%").
  * Page links are removed first ([SpeechLinkText], #2041).
  *
- * Numbers, percentages, dates and times are deliberately NOT expanded here. Each engine's own
- * preparation owns that (SherpaSpeechText for Piper/Kokoro, InflectMicroTextFrontend for Inflect,
- * eSpeak for Android TTS), so nothing is converted twice. The function is idempotent.
+ * Plain numbers, times and money are deliberately NOT expanded here. Each engine's own preparation owns
+ * that (SherpaSpeechText for Piper/Kokoro, InflectMicroTextFrontend for Inflect, eSpeak for Android TTS),
+ * so nothing is converted twice. The function is idempotent.
  */
 object SpeechCardText {
     /** Emoji, variation selectors and joiners, as found in weather and status cards. */
@@ -17,7 +18,7 @@ object SpeechCardText {
     private val highLow = Regex("""\b([HL]):\s*(-?\d+)(\s*°\s*F)?(?:\s*°\s*C)?""")
     private val humidityLabel = Regex("""\bHumidity:\s*(?=\d)""")
     private val lineBreak = Regex("""\s*\r?\n\s*""")
-    private val cardSeparator = Regex("""\s+[|/·]\s+""")
+    private val cardSeparator = Regex("""\s+[|/·•]\s+""")
     private val emDash = Regex("""\s*—\s*""")
     private val runOfSpaces = Regex("""[ \t]+""")
     /** Characters that already end a clause, so a line break after them needs no extra full stop. */
@@ -31,6 +32,7 @@ object SpeechCardText {
             (if (m.groupValues[1] == "H") "high " else "low ") + m.groupValues[2] + unit
         }
         value = humidityLabel.replace(value, "humidity ")
+        value = SpeechAbbreviationText.expand(value)
         val beforeBreaks = value
         value = lineBreak.replace(beforeBreaks) { m ->
             val previous = if (m.range.first > 0) beforeBreaks[m.range.first - 1] else ' '

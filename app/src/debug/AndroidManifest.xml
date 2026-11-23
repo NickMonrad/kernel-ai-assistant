@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- #2088: foreground service runs the TTS baseline outside the broadcast window. Started only by
+             DebugTtsBaselineReceiver, which is DUMP-gated. -->
+        <service
+            android:name="com.kernel.ai.debug.tts.DebugTtsBaselineService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Debug-only TTS synthesis baseline for on-device evidence" />
+        </service>
         <receiver
             android:name="com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
             android:exported="true">
@@ -49,6 +59,12 @@
              DUMP (held by adb shell, not by third-party apps) keeps other apps from triggering it. -->
         <receiver
             android:name="com.kernel.ai.debug.speech.SpeechProbeReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+        <!-- #2088: TTS synthesis baseline over a fixed corpus. Explicit component only; DUMP restricts
+             senders to adb shell. No intent filter. -->
+        <receiver
+            android:name="com.kernel.ai.debug.tts.DebugTtsBaselineReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
         <!-- #1942: limits calendar reads to one named test calendar for device evidence. Explicit component
