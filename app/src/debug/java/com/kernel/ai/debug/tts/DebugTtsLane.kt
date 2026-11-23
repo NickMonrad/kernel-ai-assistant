@@ -30,7 +30,7 @@ interface DebugTtsLane : Closeable {
 
 data class LaneChunk(
     val index: Int,
-    val phonemeChars: Int,
+    val phonemeChars: Int?,
     val synthMs: Long,
     val audioMs: Double,
     val peakAbs: Float,

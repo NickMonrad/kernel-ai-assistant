@@ -55,6 +55,8 @@ hiltWork = "1.3.0"
 
 # Debug
 leakcanary = "2.14"
+# Debug-only Kokoro TTS lane (#1557); never in release.
+mediapipe-tasks-audio = "1.2.3"
 
 # Auth
 appauth = "0.11.1"
@@ -141,6 +143,8 @@ junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform
 
 # Debug
 leakcanary = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
+# Debug-only Kokoro TTS lane (#1557); never in release.
+mediapipe-tasks-audio = { group = "com.google.mediapipe", name = "tasks-audio", version.ref = "mediapipe-tasks-audio" }
 
 # Auth
 appauth = { group = "net.openid", name = "appauth", version.ref = "appauth" }
