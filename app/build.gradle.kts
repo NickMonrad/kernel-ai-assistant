@@ -779,6 +779,12 @@ dependencies {
     if (!isolatedInflectProbe) {
         debugImplementation(libs.leakcanary)
     }
+    // #1557: Kokoro via MediaPipe tasks-audio. Debug-only; it carries its own LiteRT copy, so release must not get it.
+    debugImplementation(libs.mediapipe.tasks.audio) {
+        // checker-compat-qual is GPLv2+CPE and annotation-only; AboutLibraries strict mode fails on it. Excluded for
+        // this debug-only edge; the #1263/#1474 licence review decides whether tasks-audio ships. See PR #1557.
+        exclude(group = "org.checkerframework", module = "checker-compat-qual")
+    }
 
     implementation(libs.appauth)
     implementation(libs.security.crypto)

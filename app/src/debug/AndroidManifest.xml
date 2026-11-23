@@ -11,6 +11,19 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Debug-only TTS synthesis baseline for on-device evidence" />
         </service>
+        <!-- #1557: E4B-resident Kokoro coexistence run. Started only by KokoroCoexistReceiver (DUMP-gated). -->
+        <service
+            android:name="com.kernel.ai.debug.tts.KokoroCoexistenceService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Debug-only Kokoro coexistence evidence run" />
+        </service>
+        <receiver
+            android:name="com.kernel.ai.debug.tts.KokoroCoexistReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <receiver
             android:name="com.kernel.ai.debug.acoustic.AcousticStimulusReceiver"
             android:exported="true">
