@@ -350,10 +350,10 @@ Criteria (Wilson 95% on the count of violations; intervals are the upper bound w
 | # | Criterion | Result (β 5, all slots) | Verdict |
 |---|---|---|---|
 | 1 | Gold substitutions = 0 | 0 in all 6 slot×size cells; upper 19.4% (full, hint, n=16), 20.4% (trigger, n=15) | **pass** (on recorded lines) |
-| 2 | Non-identity rewrites = 0 (foreign, POI, address, suburb, AU city, gate trap) | 0/17 (full, hint), 0/15 (trigger) | 0 observed; per-class one-sided 97.5% upper bounds 60–97.5% (amendments 1–2); foreign homograph not evaluated (no lines) |
-| 3 | Competitor-place rewrites = 0 | 0/6 (AU city 4, suburb 2) | 0 observed; per-class one-sided 97.5% upper bounds 60–97.5% (amendments 1–2) |
-| 4 | NZ already-correct: non-identity rewrites = 0 | 0/2 | 0 observed; per-class one-sided 97.5% upper bounds 60–97.5% (amendments 1–2) |
-| 5 | Gate traps = 0 non-identity rewrites | 0/5 (full, hint, incl. no-place line), 0/2 (trigger) | 0 observed; per-class one-sided 97.5% upper bounds 60–97.5% (amendments 1–2) |
+| 2 | Non-identity rewrites = 0 (foreign, POI, address, suburb, AU city, gate trap) | 0/17 (full, hint), 0/15 (trigger) | 0 observed; per-class bounds 60-97.5% (amendments 1-2); foreign homograph not evaluated (no lines) |
+| 3 | Competitor-place rewrites = 0 | 0/6 (AU city 4, suburb 2) | 0 observed; per-class bounds 60-97.5% (amendments 1-2) |
+| 4 | NZ already-correct: non-identity rewrites = 0 | 0/2 | 0 observed; per-class bounds 60-97.5% (amendments 1-2) |
+| 5 | Gate traps = 0 non-identity rewrites | 0/5 (full, hint, incl. no-place line), 0/2 (trigger) | 0 observed; per-class bounds 60-97.5% (amendments 1-2) |
 | 6 | Scoring p95 | not measured (PC batch) | **not evaluated** |
 
 Gold correct output (informational; no recall threshold was pre-registered), correct / gold lines:
@@ -367,18 +367,16 @@ Gold correct output (informational; no recall threshold was pre-registered), cor
 | trigger | L | 3/7 | 3/8 |
 | trigger | M | 1/8 | 5/7 |
 
-Gold misses at β 5 (owner, all six cells; 57 misses of 94 cell-lines): 27 `suggest` (a "Did you mean X?" prompt, no
-rewrite), 19 competitor abstains, 9 impostor tops, 2 vetoes. False-boost lines: every class (AU city, foreign city,
-POI, address, suburb, NZ already-correct, gate trap) has zero non-identity rewrites in every slot and size.
+Gold misses at β 5 (owner, all six cells; 57 misses of 94 cell-lines): 27 `suggest` (24 margin, 3 boundary; a "Did you mean X?" prompt, no rewrite), 19 competitor abstains, 9 impostor tops, 2 vetoes.
+False-boost lines: every class (AU city, foreign city, POI, address, suburb, NZ already-correct, gate trap) has zero non-identity rewrites in every slot and size.
 
-Sensitivity (β 3 and β 4, not primary): 0 gold substitutions and 0 non-identity rewrites in every cell at both.
+Sensitivity (β 3 and β 4, not primary; recomputed from the same per-clip rows): 0 gold substitutions and 0 non-identity rewrites in every cell at both.
 
 Gold-line independence: the 16 gold lines cover only 10 distinct place names, and the gap set reuses the same 10.
 Lines are therefore not independent, and the gold counts overstate coverage.
 
 Go/no-go (pre-registered criteria): criterion 1 passes on the recorded lines (0 gold substitutions, small-n limits
-above). Criteria 2–5 show 0 observed; per-class one-sided 97.5% upper bounds are 60–97.5% (amendments 1–2), so they
-are not evidence of safety. Criterion 6 is not evaluated. Recall is low at β 5: the rule gets the gold name right on
+above). Criteria 2–5: 0 observed; per-class bounds 60-97.5% (amendments 1-2), so they are not evidence of safety. Criterion 6 is not evaluated. Recall is low at β 5: the rule gets the gold name right on
 only 1–3 of 7–8 navigate lines per cell. That is a usefulness problem, not a safety failure. Owner decision required
 before any flag change.
 
@@ -425,18 +423,22 @@ Most noisy rewrites are correct rewrites to the gold name; the substitution colu
 noisy M bare_name substitution (1/16, upper 28.3%) is in full and hint. It comes from the same source take as the
 clean L bare_name substitution, so this is reported as one failure.
 
-Sensitivity (β 3 and β 4, not primary): the clean L bare_name substitution (1/8, full and hint) occurs at both. The
-noisy M bare_name substitution occurs at β 4 and at the primary β 5, not at β 3. Clean navigate and weather: 0
-substitutions at both.
+Sensitivity (β 3 and β 4, not primary; recomputed from the same per-clip rows). Gold substitutions (a rewrite whose top is not the gold name):
+
+| β | Clean L bare_name, full / hint | Noisy M bare_name, full / hint | Clean navigate and weather |
+|---|---|---|---|
+| 3 | 1/8, 1/8 | 0/16, 0/16 | 0 in every cell |
+| 4 | 1/8, 1/8 | 1/16, 1/16 | 0 in every cell |
+| 5 (primary) | 1/8, 1/8 | 1/16, 1/16 | 0 in every cell |
+
+The noisy M substitution is therefore present at β 4 and β 5, not at β 3. Both substitutions come from the same bare_name source take.
 
 Intelligibility check: the full-run ASR check promised in amendment 3 was not run before scoring. Before the amendment
 commit, only the R17 takes were checked (take 1: 0.769 word similarity). A later faster-whisper medium.en check, run
 after scoring, gave median word similarity 0.80 over the 41 valid takes. The failing bare_name take scored 0.67
 (mid-range), so it is not an unintelligible synthesis.
 
-Glossary check: six of the ten gold place names used by the owner and gap sets are absent from
-`data/glossary_places.txt` and from `stt_glossary.json`. This is unresolved and overlaps the owner-reserved place
-name question.
+Glossary check: one place in the owner script's glossary column (Whangārei) is absent from both `data/glossary_places.txt` and `stt_glossary.json`. It is a LINZ City, so it is rewritable through the LINZ rows and no number depends on glossary membership. The other five absent gold names (of the ten) are in the non_glossary column, so their absence is expected. Unresolved: the glossary-column label for this place does not match the glossary files.
 
 Go/no-go: the synthetic set is a supplementary check and does not change the real-recording verdict. It shows one
 bare_name failure on synthetic audio (one source take, clean and noisy copies). The real set has no bare_name
