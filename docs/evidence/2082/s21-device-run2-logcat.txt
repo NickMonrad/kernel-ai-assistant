@@ -1,0 +1,90 @@
+# S21 R5CR605B71K, debug build 5e02d112d0. Run 2 (louder Cori clip, S23U volume 10). App pid only.
+# S23U playback NOT confirmed: clip never started (chooser / player permission prompt). Results are capture-only.
+11-25 22:36:43.725 I/VRI[VoiceCommandActivity]@bfec162( 5842): synced displayState. AttachInfo displayState=2
+11-25 22:36:43.725 I/VRI[VoiceCommandActivity]@bfec162( 5842): setView = com.android.internal.policy.DecorView@500da29 IsHRR=false TM=true
+11-25 22:36:43.779 I/BLASTBufferQueue_Java( 5842): new BLASTBufferQueue, mName= VRI[VoiceCommandActivity]@bfec162 mNativeObject= 0xb400007de31448f0 sc.mNativeObject= 0xb400007d43064ed0 caller= android.view.ViewRootImpl.updateBlastSurfaceIfNeeded:3397 android.view.ViewRootImpl.relayoutWindow:11361 android.view.ViewRootImpl.performTraversals:4544 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 android.view.Choreographer$CallbackRecord.run:1751 android.view.Choreographer$CallbackRecord.run:1760 android.view.Choreographer.doCallbacks:1216 android.view.Choreographer.doFrame:1142 android.view.Choreographer$FrameDisplayEventReceiver.run:1707 
+11-25 22:36:43.779 I/BLASTBufferQueue_Java( 5842): update, w= 1080 h= 2400 mName = VRI[VoiceCommandActivity]@bfec162 mNativeObject= 0xb400007de31448f0 sc.mNativeObject= 0xb400007d43064ed0 format= -2 caller= android.graphics.BLASTBufferQueue.<init>:88 android.view.ViewRootImpl.updateBlastSurfaceIfNeeded:3397 android.view.ViewRootImpl.relayoutWindow:11361 android.view.ViewRootImpl.performTraversals:4544 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 
+11-25 22:36:43.779 I/VRI[VoiceCommandActivity]@bfec162( 5842): Relayout returned: old=(0,0,1080,2400) new=(0,0,1080,2400) relayoutAsync=false req=(1080,2400)0 dur=5 res=0x3 s={true 0xb400007d7302d530} ch=true seqId=0
+11-25 22:36:43.779 I/VRI[VoiceCommandActivity]@bfec162( 5842): performConfigurationChange setNightDimText nightDimLevel=0
+11-25 22:36:43.779 D/VRI[VoiceCommandActivity]@bfec162( 5842): mThreadedRenderer.initialize() mSurface={isValid=true 0xb400007d7302d530} hwInitialized=true
+11-25 22:36:43.784 D/VRI[VoiceCommandActivity]@bfec162( 5842): reportNextDraw android.view.ViewRootImpl.performTraversals:5193 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 android.view.Choreographer$CallbackRecord.run:1751 android.view.Choreographer$CallbackRecord.run:1760 
+11-25 22:36:43.784 D/VRI[VoiceCommandActivity]@bfec162( 5842): Setup new sync=wmsSync-VRI[VoiceCommandActivity]@bfec162#4
+11-25 22:36:43.784 I/VRI[VoiceCommandActivity]@bfec162( 5842): Creating new active sync group VRI[VoiceCommandActivity]@bfec162#5
+11-25 22:36:43.784 D/VRI[VoiceCommandActivity]@bfec162( 5842): registerCallbacksForSync syncBuffer=false
+11-25 22:36:43.788 D/VRI[VoiceCommandActivity]@bfec162( 5842): Received frameDrawingCallback syncResult=0 frameNum=1.
+11-25 22:36:43.789 I/VRI[VoiceCommandActivity]@bfec162( 5842): mWNT: t=0xb400007e73177c90 mBlastBufferQueue=0xb400007de31448f0 fn= 1 HdrRenderState mRenderHdrSdrRatio=1.0 caller= android.view.ViewRootImpl$11.onFrameDraw:15016 android.view.ThreadedRenderer$1.onFrameDraw:761 <bottom of call stack> 
+11-25 22:36:43.789 I/VRI[VoiceCommandActivity]@bfec162( 5842): Setting up sync and frameCommitCallback
+11-25 22:36:43.790 I/BLASTBufferQueue( 5842): [VRI[VoiceCommandActivity]@bfec162#2](f:0,a:0,s:0) onFrameAvailable the first frame is available
+11-25 22:36:43.790 I/VRI[VoiceCommandActivity]@bfec162( 5842): Received frameCommittedCallback lastAttemptedDrawFrameNum=1 didProduceBuffer=true
+11-25 22:36:43.791 D/VRI[VoiceCommandActivity]@bfec162( 5842): reportDrawFinished seqId=0
+11-25 22:36:43.809 I/VRI[VoiceCommandActivity]@bfec162( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:36:43.809 D/VRI[VoiceCommandActivity]@bfec162( 5842): mThreadedRenderer.initializeIfNeeded()#2 mSurface={isValid=true 0xb400007d7302d530}
+11-25 22:36:43.831 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:36:43.893 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:36:54.063 W/KernelAI( 5842): VoiceCommandActivity: voice error — No speech heard. Try again.
+11-25 22:36:54.063 D/KernelAI( 5842): VoiceCommandActivity: retrying after error
+11-25 22:36:54.072 I/KernelAI( 5842): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 22:36:54.149 I/KernelAI( 5842): WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-25 22:36:54.167 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:36:54.743 I/KernelAI( 5842): SpeakingStarted engine=inflect chars=45 epochMs=1795610214743
+11-25 22:36:57.736 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:36:57.790 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:36:57.806 I/VRI[VoiceCommandActivity]@bfec162( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:36:57.868 I/VRI[VoiceCommandActivity]@bfec162( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:37:07.921 W/KernelAI( 5842): VoiceCommandActivity: voice error — No speech heard. Try again.
+11-25 22:37:07.921 W/KernelAI( 5842): VoiceCommandActivity: voice unavailable — No speech heard. Try again.
+11-25 22:37:07.929 I/KernelAI( 5842): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 22:37:07.975 I/KernelAI( 5842): WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-25 22:37:07.996 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:09.970 D/KernelAI( 5842): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:37:09.983 I/VRI[VoiceCommandActivity]@bfec162( 5842): handleAppVisibility mAppVisible = true visible = false
+11-25 22:37:09.983 D/VRI[VoiceCommandActivity]@bfec162( 5842): visibilityChanged oldVisibility=true newVisibility=false
+11-25 22:37:09.984 I/VRI[VoiceCommandActivity]@bfec162( 5842): stopped(true) old = false
+11-25 22:37:09.984 D/VRI[VoiceCommandActivity]@bfec162( 5842): WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity set to true
+11-25 22:37:09.992 D/LeakCanary( 5842): Watching instance of com.kernel.ai.feature.widget.VoiceCommandActivity (com.kernel.ai.feature.widget.VoiceCommandActivity received Activity#onDestroy() callback) with key 08383295-736b-41f4-aaca-d6144d4405eb
+11-25 22:37:09.996 I/VRI[VoiceCommandActivity]@bfec162( 5842): dispatchDetachedFromWindow
+11-25 22:37:20.755 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): synced displayState. AttachInfo displayState=2
+11-25 22:37:20.755 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): setView = com.android.internal.policy.DecorView@efaa26 IsHRR=false TM=true
+11-25 22:37:20.784 I/BLASTBufferQueue_Java( 5842): new BLASTBufferQueue, mName= VRI[VoiceCommandActivity]@8a15c8b mNativeObject= 0xb400007de3103b70 sc.mNativeObject= 0xb400007d43019450 caller= android.view.ViewRootImpl.updateBlastSurfaceIfNeeded:3397 android.view.ViewRootImpl.relayoutWindow:11361 android.view.ViewRootImpl.performTraversals:4544 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 android.view.Choreographer$CallbackRecord.run:1751 android.view.Choreographer$CallbackRecord.run:1760 android.view.Choreographer.doCallbacks:1216 android.view.Choreographer.doFrame:1142 android.view.Choreographer$FrameDisplayEventReceiver.run:1707 
+11-25 22:37:20.784 I/BLASTBufferQueue_Java( 5842): update, w= 1080 h= 2400 mName = VRI[VoiceCommandActivity]@8a15c8b mNativeObject= 0xb400007de3103b70 sc.mNativeObject= 0xb400007d43019450 format= -2 caller= android.graphics.BLASTBufferQueue.<init>:88 android.view.ViewRootImpl.updateBlastSurfaceIfNeeded:3397 android.view.ViewRootImpl.relayoutWindow:11361 android.view.ViewRootImpl.performTraversals:4544 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 
+11-25 22:37:20.784 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): Relayout returned: old=(0,0,1080,2400) new=(0,0,1080,2400) relayoutAsync=false req=(1080,2400)0 dur=6 res=0x3 s={true 0xb400007d73091620} ch=true seqId=0
+11-25 22:37:20.784 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): performConfigurationChange setNightDimText nightDimLevel=0
+11-25 22:37:20.784 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): mThreadedRenderer.initialize() mSurface={isValid=true 0xb400007d73091620} hwInitialized=true
+11-25 22:37:20.789 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): reportNextDraw android.view.ViewRootImpl.performTraversals:5193 android.view.ViewRootImpl.doTraversal:3708 android.view.ViewRootImpl$TraversalRunnable.run:12542 android.view.Choreographer$CallbackRecord.run:1751 android.view.Choreographer$CallbackRecord.run:1760 
+11-25 22:37:20.789 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): Setup new sync=wmsSync-VRI[VoiceCommandActivity]@8a15c8b#6
+11-25 22:37:20.789 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): Creating new active sync group VRI[VoiceCommandActivity]@8a15c8b#7
+11-25 22:37:20.789 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): registerCallbacksForSync syncBuffer=false
+11-25 22:37:20.792 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): Received frameDrawingCallback syncResult=0 frameNum=1.
+11-25 22:37:20.792 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): mWNT: t=0xb400007e731718d0 mBlastBufferQueue=0xb400007de3103b70 fn= 1 HdrRenderState mRenderHdrSdrRatio=1.0 caller= android.view.ViewRootImpl$11.onFrameDraw:15016 android.view.ThreadedRenderer$1.onFrameDraw:761 <bottom of call stack> 
+11-25 22:37:20.792 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): Setting up sync and frameCommitCallback
+11-25 22:37:20.793 I/BLASTBufferQueue( 5842): [VRI[VoiceCommandActivity]@8a15c8b#3](f:0,a:0,s:0) onFrameAvailable the first frame is available
+11-25 22:37:20.794 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): Received frameCommittedCallback lastAttemptedDrawFrameNum=1 didProduceBuffer=true
+11-25 22:37:20.794 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): reportDrawFinished seqId=0
+11-25 22:37:20.808 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:37:20.844 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:37:20.877 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:37:20.877 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): mThreadedRenderer.initializeIfNeeded()#2 mSurface={isValid=true 0xb400007d73091620}
+11-25 22:37:30.979 W/KernelAI( 5842): VoiceCommandActivity: voice error — No speech heard. Try again.
+11-25 22:37:30.980 D/KernelAI( 5842): VoiceCommandActivity: retrying after error
+11-25 22:37:30.984 I/KernelAI( 5842): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 22:37:31.027 I/KernelAI( 5842): WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-25 22:37:31.039 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:31.667 I/KernelAI( 5842): SpeakingStarted engine=inflect chars=45 epochMs=1795610251667
+11-25 22:37:34.626 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:37:34.690 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:37:34.703 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:37:34.772 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): onDisplayChanged oldDisplayState=2 newDisplayState=2
+11-25 22:37:44.864 W/KernelAI( 5842): VoiceCommandActivity: voice error — No speech heard. Try again.
+11-25 22:37:44.864 W/KernelAI( 5842): VoiceCommandActivity: voice unavailable — No speech heard. Try again.
+11-25 22:37:44.871 I/KernelAI( 5842): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 22:37:44.902 I/KernelAI( 5842): WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-25 22:37:44.913 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:46.955 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): handleAppVisibility mAppVisible = true visible = false
+11-25 22:37:46.955 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): visibilityChanged oldVisibility=true newVisibility=false
+11-25 22:37:46.980 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): Relayout returned: old=(0,0,1080,2400) new=(0,0,1080,2400) relayoutAsync=false req=(1080,2400)8 dur=9 res=0x2 s={false 0x0} ch=true seqId=0
+11-25 22:37:46.980 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): Not drawing due to not visible. Reason=!mAppVisible && !mForceDecorViewVisibility
+11-25 22:37:46.982 D/KernelAI( 5842): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:37:46.983 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): stopped(true) old = false
+11-25 22:37:46.983 D/VRI[VoiceCommandActivity]@8a15c8b( 5842): WindowStopped on ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity set to true
+11-25 22:37:46.990 D/LeakCanary( 5842): Watching instance of com.kernel.ai.feature.widget.VoiceCommandActivity (com.kernel.ai.feature.widget.VoiceCommandActivity received Activity#onDestroy() callback) with key 3b94da74-13f7-4078-a782-53c2c6963de8
+11-25 22:37:46.994 I/VRI[VoiceCommandActivity]@8a15c8b( 5842): dispatchDetachedFromWindow
