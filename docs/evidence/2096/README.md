@@ -48,3 +48,32 @@ Synthesis timing of Inflect Micro v2 before and after reply chunking (≤120-cha
 
 - `before-2096-run1.json`: schema `debug-tts-baseline/3`, pre-change tree.
 - `after-2096-run1.json`: schema `debug-tts-baseline/3`, chunked tree.
+
+## S21 playback check (R5CR605B71K, Exynos)
+
+Tier: second test device for a voice-output change (`.docs/agents/review-gates-voice.md`). Done on the S21 only; the S23U was not connected for this step.
+
+- Build: PR debug APK plus a temporary timing log (`KernelAI2096` tag: `stop`, `chunk N synth-start`, `chunk N write-start/end`) in `InflectMicroVoiceOutputController`. The timing log is not in the PR; the file was reverted to the committed version after the run.
+- Setup: device lock `/tmp/jandal-s21.lock` held and released by this run. Inflect Micro downloaded in Settings → Voice and selected. Media volume left at 2/15 (not changed). `stay_on_while_plugged_in` left at 2 (not changed).
+- Reply: a multi-sentence answer to an ocean-tides question, spoken via the message's Speak control. Three chunks per reply.
+
+Run 1 (speak tap at 19:39:09.812, clean reply):
+
+```
+09.812 stop (openUtterance)     09.898 chunk 0 synth-start    11.579 chunk 1 synth-start
+11.776 chunk 0 write-start      13.288 chunk 2 synth-start    17.996 chunk 0 write-end / chunk 1 write-start
+23.218 chunk 1 write-end / chunk 2 write-start                29.757 chunk 2 write-end
+```
+
+First audio: 1.96 s after the tap. Chunk 1 started exactly when chunk 0 ended, and chunk 2 exactly when chunk 1 ended (no gap in the logged timestamps). Synthesis of later chunks overlapped playback.
+
+Run 2 (Stop test, full log in `s21-playback-stop-run.log`):
+
+- Speak at 19:39:48.983. Chunk 0 write-start at 52.004 (3.02 s after the tap; chunk 0 synth took 2.94 s in this run vs 1.88 s in run 1).
+- Stop tapped during chunk 1 playback. `stop` logged at 00.597; the in-flight chunk-1 write returned at 00.598. No chunk 2 write started; chunk 2 had been synthesised but was discarded.
+
+Not verified on the S21 in this step:
+- Audible gaps or repeats: the log shows write timing, not sound. Listening check still needed.
+- Audible silence on Stop: the write unblocking within 1 ms is logged, not heard.
+- First-audio latency on the S23U: the S23U was not connected for this step, so only the S21 playback check was run.
+- The S21 first-chunk time (1.96 s, 3.02 s) is not comparable with the S23U harness numbers above (different SoC, and the harness excludes AudioTrack).
