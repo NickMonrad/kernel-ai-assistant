@@ -4,7 +4,7 @@ Tier: Medium (per `.docs/agents/risk-based-evidence-policy.md`; voice output pat
 
 ## Scope
 
-Synthesis timing of Inflect Micro v2 before and after reply chunking (≤120-char speech chunks, lazy per-chunk phonemization, cancellable ORT decode). Same debug harness, corpus, device, voice, and repeats as `docs/evidence/2088`. Not measured: AudioTrack/first-audio latency on the device, audible quality, the fallback controller path, chat-model-resident memory.
+Synthesis timing of Inflect Micro v2 before and after reply chunking (speech chunks target ≤120 characters; a single word longer than 120 is kept whole as its own chunk; lazy per-chunk phonemization; cancellable ORT decode). Same debug harness, corpus, device, voice, and repeats as `docs/evidence/2088`. Not measured: AudioTrack/first-audio latency on the device, audible quality, the fallback controller path, chat-model-resident memory.
 
 ## Corpus and method
 
@@ -23,7 +23,7 @@ Synthesis timing of Inflect Micro v2 before and after reply chunking (≤120-cha
 | after-2096-run1 (chunked) | 0.2344 | 0.2485 | 1086 | 1503 | 0.75 | 410,160 | 502,860 |
 
 - `first_chunk_ms` = frontend + first-chunk synth, from the harness's own clock.
-- `cancel return` = time from `cancel()` to `CancellationException` on the worker thread, for the longest sample cancelled 1000 ms in. Before: the in-flight whole-reply decode finished first. After: `RunOptions.setTerminate` aborts the decode.
+- `cancel return` = time from `cancel()` to `CancellationException` on the worker thread, for the longest sample cancelled 1000 ms in. Single probe per run: one sample, not a distribution. Before: the in-flight whole-reply decode finished first. After: `RunOptions.setTerminate` aborts the decode.
 - Recovery after cancel: ok in both runs (short sample re-synthesised, RTF 0.2452 in both).
 - All 24 rows finite in both runs.
 - Per-row (after, pass 1, sample 01): 2 chunks, `first_chunk_ms` 482, `chunk_synth_ms` [444, 1412], RTF 0.2361.
@@ -34,19 +34,19 @@ Synthesis timing of Inflect Micro v2 before and after reply chunking (≤120-cha
 - **Throughput.** RTF is unchanged within noise (median 0.2352 → 0.2344). Chunking adds no measurable compute overhead.
 - **Cancel.** Cancel return dropped from ~5.8 s to <1 ms. Stop now aborts the native decode rather than waiting for it.
 - **Memory.** Peak VmHWM at end fell from ~1.03 GB to ~0.50 GB. Before, the single long-reply decode set the peak. [INFERENCE] The smaller per-chunk decodes size the ORT arena smaller. Not attributed: a run with `setCPUArenaAllocator(false)` / `setMemoryPatternOptimization(false)` would separate the two effects; not run.
-- **Chunk size.** 120 chars chosen before measurement, sentence-first packing with clause and word fallbacks. Measured first-chunk median 1086 ms is consistent with that choice; no tuning run was done.
+- **Chunk size.** Target 120 chars chosen before measurement, sentence-first packing with clause and word fallbacks. A single word longer than 120 chars is emitted whole (`wordPieces`), so the limit is a target, not a hard cap. Measured first-chunk median 1086 ms is consistent with that choice; no tuning run was done.
 
 ## Deviations and gaps
 
 - Not measured: AudioTrack first-audio latency, playback smoothness, audible join artefacts. The 5 ms edge fades (`fadeChunkEdges`) are unverified by ear. [INFERENCE] They could soften plosive onsets; the risk is untested.
 - Not measured: `FallbackVoiceOutputController` with an Inflect stream. Inflect's streaming session does not implement `ReportsStreamPlaybackOutcome`, and does not override `openPreSynthesisedSession`.
-- Synthesis failure now returns Unavailable for the whole reply. If audio has already started, the fallback may repeat speech. Not exercised on device.
+- Synthesis failure: a chunk failure skips the rest of that append (logged, not spoken) and playback continues with later appends. Unavailable is returned only when nothing has been queued, so Android TTS speaks the buffered text once. Unit-tested via `InflectReplyStreamTest` and `FallbackVoiceOutputControllerTest`; not exercised on device.
 - Single run per side, three passes each. Same device, firmware, and voice as #2088.
 - Device left with `stay_on_while_plugged_in=2` (USB). The pre-session value was not captured, so it has not been restored.
 
 ## Files
 
-- `before-2096-run1.json`: schema `debug-tts-baseline/3`, pre-change tree.
+- `before-2096-run1.json`: schema `debug-tts-baseline/3`, pre-change Inflect tree. It already contains the per-row `vmhwm_kb` field: the harness added it before this baseline run, so the Inflect change is the only difference between the two files.
 - `after-2096-run1.json`: schema `debug-tts-baseline/3`, chunked tree.
 
 ## S21 playback check (R5CR605B71K, Exynos)

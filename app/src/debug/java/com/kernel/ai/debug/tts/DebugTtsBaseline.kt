@@ -127,8 +127,9 @@ class DebugTtsBaselineRun(
     }
 
     /**
-     * Cancels the longest sample [CANCEL_AFTER_MS] into its synthesis from another thread. The corpus is single-chunk
-     * per sample, so cancellation must land inside a synthesis (the runner checks the flag at its stage boundaries).
+     * Cancels the longest sample [CANCEL_AFTER_MS] into its synthesis from another thread. Chunking splits long samples
+     * (sample 01 yields two chunks), so the probe can land inside a chunk's decode or between chunks; the runner checks
+     * the flag at its stage boundaries and the `setTerminate` path aborts an in-flight decode.
      * Then resets cancellation and re-synthesises the shortest sample to check recovery.
      */
     private fun cancelProbe(samples: List<DebugTtsSample>): JSONObject {
