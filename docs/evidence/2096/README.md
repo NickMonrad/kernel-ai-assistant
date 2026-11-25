@@ -77,3 +77,5 @@ Not verified on the S21 in this step:
 - Audible silence on Stop: the write unblocking within 1 ms is logged, not heard.
 - First-audio latency on the S23U: the S23U was not connected for this step, so only the S21 playback check was run.
 - The S21 first-chunk time (1.96 s, 3.02 s) is not comparable with the S23U harness numbers above (different SoC, and the harness excludes AudioTrack).
+
+Listening run (S23U playback, S21 mic): three long replies played, two takes recorded; audio kept outside git in the private fixtures folder, no audio committed here. Agent did not listen; only silence-detection pause timing was measured. Mid-reply Stop not run on this device.
