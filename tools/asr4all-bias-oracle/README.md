@@ -447,6 +447,13 @@ Recall is low at β 5, as in the real set.
 
 Listening set (not scored, not in git): six owner sentences rendered in the same ICL mode, kept privately.
 
+## Tuning (pre-registered amendment 5; in progress)
+
+Pre-registration: `HELDOUT-PREREG-v3-amendment-5.md`, committed before any tuning audio was synthesised. The
+owner's real recordings are no longer a blind test set: they were scored and used for β 5, and the tuning set
+shares their 50 script texts. The real set is re-scored once with the frozen config at the end (reuse disclosed).
+Results are added to this section when the run finishes.
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
