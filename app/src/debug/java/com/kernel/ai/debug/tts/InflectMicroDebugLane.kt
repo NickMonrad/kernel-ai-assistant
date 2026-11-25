@@ -8,9 +8,10 @@ import java.io.File
 import org.json.JSONObject
 
 /**
- * Inflect Micro v2 lane. Runs the production sequence used by `InflectMicroVoiceOutputController.speak()`:
- * `SpeechCardText.speakable` → `InflectMicroTextFrontend.normalize` → `phonemizeChunks` (eSpeak via
- * `InflectPhonemizer` plus `applyPhonemeOverrides`) → `InflectMicroOnnxRunner.synthesize` per chunk.
+ * Inflect Micro v2 lane. Runs the production sequence used by `InflectMicroVoiceOutputController`'s reply
+ * streaming: `SpeechCardText.speakable` → `InflectMicroTextFrontend.normalize` → `phonemizeSpeechChunks`, which
+ * phonemizes lazily per chunk (eSpeak via `InflectPhonemizer` plus `applyPhonemeOverrides`) → `InflectMicroOnnxRunner.synthesize`
+ * per chunk. Edge fades are applied in the controller and are not timed here.
  * It stops before AudioTrack, so playback latency is not included.
  */
 class InflectMicroDebugLane(
@@ -37,13 +38,14 @@ class InflectMicroDebugLane(
         val startedAt = System.nanoTime()
         val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
         require(normalized.isNotBlank()) { "Inflect normalization produced empty text" }
-        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
+        var frontendMs = elapsedMs(startedAt)
+        // Phonemization is lazy, as in the controller; each chunk's eSpeak time is charged to frontendMs as it runs.
+        val chunks = InflectMicroTextFrontend.phonemizeSpeechChunks(normalized) { chunkText ->
+            val phonemizeStartedAt = System.nanoTime()
             InflectMicroTextFrontend.applyPhonemeOverrides(
                 InflectPhonemizer.phonemize(chunkText, espeakDataDirectory),
-            )
+            ).also { frontendMs += elapsedMs(phonemizeStartedAt) }
         }
-        require(chunks.isNotEmpty()) { "Inflect normalization produced no synthesis chunks." }
-        val frontendMs = elapsedMs(startedAt)
         val laneChunks = chunks.mapIndexed { index, chunk ->
             val synthesis = activeRunner.synthesize(chunk.phonemes)
             val sample = synthesis.waveform
@@ -57,7 +59,8 @@ class InflectMicroDebugLane(
             )
             onChunkReady(index, elapsedMs(startedAt))
             laneChunk
-        }
+        }.toList()
+        require(laneChunks.isNotEmpty()) { "Inflect normalization produced no synthesis chunks." }
         return LaneUtterance(frontendMs = frontendMs, chunks = laneChunks)
     }
 

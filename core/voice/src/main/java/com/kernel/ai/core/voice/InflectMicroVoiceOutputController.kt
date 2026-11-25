@@ -8,15 +8,23 @@ import android.media.AudioTrack
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
@@ -40,83 +48,58 @@ class InflectMicroVoiceOutputController @Inject constructor(
     @Volatile private var frontendDataDirectory: File? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
     private val speakingStopGate = SpeakingStopGate()
+    private val activeUtterance = AtomicReference<InflectUtterance?>(null)
+    private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         prepare()
     }
 
+    override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
+        openUtterance(request)
+
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult = withContext(Dispatchers.IO) {
         if (request.text.isBlank()) return@withContext VoiceOutputResult.Spoken
-        synthesisLock.withLock {
-            stop()
-            stopped = false
-            val currentRunner = when (val result = prepare()) {
-                VoiceOutputResult.Spoken -> runner
-                is VoiceOutputResult.Unavailable -> return@withContext result
-            } ?: return@withContext VoiceOutputResult.Unavailable("Inflect runner is not initialized.")
-            val dataDirectory = frontendDataDirectory
-                ?: return@withContext VoiceOutputResult.Unavailable("Inflect eSpeak data is unavailable.")
-            currentRunner.resetCancellation()
-            val generation = playbackGeneration.incrementAndGet()
-            val gain = voiceOutputPreferences.voiceGain.first()
-            val pitch = voiceOutputPreferences.voicePitch.first()
-            var started = false
-            try {
-                val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(request.text))
-                require(normalized.isNotBlank()) { "Inflect normalization produced empty text" }
-                val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
-                    InflectMicroTextFrontend.applyPhonemeOverrides(
-                        InflectPhonemizer.phonemize(chunkText, dataDirectory),
-                    )
-                }
-                require(chunks.isNotEmpty()) { "Inflect normalization produced no synthesis chunks." }
-                runInflectChunks(
-                    chunks = chunks,
-                    shouldContinue = {
-                        !stopped && playbackGeneration.get() == generation
-                    },
-                    synthesize = { chunk -> currentRunner.synthesize(chunk) },
-                    play = { synthesis ->
-                        if (!started) {
-                            requestAudioFocus()
-                            VoiceOutputTrace.speakingStarted("inflect", request.text)
-                            VoiceOutputTrace.logSpeakingStarted("inflect", request.text.length)
-                            speakingStopGate.markStarted(generation)
-                            eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
-                            started = true
-                        }
-                        playVoicePcmOnAudioTrack(
-                            samples = synthesis.waveform,
-                            sampleRate = InflectMicroOnnxRunner.SAMPLE_RATE_HZ,
-                            gain = gain,
-                            pitch = pitch,
-                            shouldContinue = {
-                                !stopped && playbackGeneration.get() == generation
-                            },
-                            onTrackCreated = { activeTrack.set(it) },
-                            onTrackReleased = { activeTrack.compareAndSet(it, null) },
-                        )
-                    },
-                )
-                VoiceOutputResult.Spoken
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                Log.e(TAG, "Inflect synthesis failed", error)
-                VoiceOutputResult.Unavailable("Inflect synthesis failed: ${error.message}")
-            } finally {
-                // Once per speak(), on every exit path including stop(). The gate pairs the stop with
-                // this speak's SpeakingStarted, so a stale unwind cannot end a newer reply's speech.
-                releaseAudioFocus()
-                if (speakingStopGate.claimStopped(generation)) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
-            }
+        val utterance = openUtterance(request)
+        try {
+            val appended = utterance.append(request.text, isFinal = true)
+            utterance.playback.join()
+            if (appended is VoiceOutputResult.Unavailable) appended else utterance.playbackResult()
+        } catch (error: CancellationException) {
+            utterance.cancel()
+            throw error
         }
+    }
+
+    /** Stops any reply still playing, then prepares a new one. Only the newest reply may emit audio. */
+    private suspend fun openUtterance(request: VoiceSpeakRequest): InflectUtterance = withContext(Dispatchers.IO) {
+        stop()
+        stopped = false
+        val generation = playbackGeneration.get()
+        val gain = voiceOutputPreferences.voiceGain.first()
+        val pitch = voiceOutputPreferences.voicePitch.first()
+        val preparation = synthesisLock.withLock { prepare() }
+        val currentRunner = runner
+        val dataDirectory = frontendDataDirectory
+        val unavailable = when {
+            preparation is VoiceOutputResult.Unavailable -> preparation
+            currentRunner == null -> VoiceOutputResult.Unavailable("Inflect runner is not initialized.")
+            dataDirectory == null -> VoiceOutputResult.Unavailable("Inflect eSpeak data is unavailable.")
+            else -> null
+        }
+        val synthesis = if (unavailable == null && currentRunner != null && dataDirectory != null) {
+            PreparedSynthesis(currentRunner, dataDirectory)
+        } else {
+            null
+        }
+        InflectUtterance(request, generation, synthesis, unavailable, gain, pitch).also { activeUtterance.set(it) }
     }
 
     override fun stop() {
         stopped = true
         playbackGeneration.incrementAndGet()
         runner?.cancel()
+        activeUtterance.getAndSet(null)?.abort()
         activeTrack.getAndSet(null)?.let { track ->
             try {
                 track.pause()
@@ -195,22 +178,180 @@ class InflectMicroVoiceOutputController @Inject constructor(
         audioFocusRequest = null
     }
 
+    /** One reply's audio: chunks are synthesized in order as they arrive and played on a single track. */
+    private inner class InflectUtterance(
+        private val request: VoiceSpeakRequest,
+        private val generation: Long,
+        private val synthesis: PreparedSynthesis?,
+        private val unavailable: VoiceOutputResult.Unavailable?,
+        private val gain: Float,
+        private val pitch: Float,
+    ) : VoiceOutputStreamingSession {
+        private val audio = Channel<FloatArray>(capacity = 1)
+        private val audioClosed = AtomicBoolean(false)
+        private var queuedChunks = 0
+        @Volatile private var failure: String? = null
+
+        /** Plays queued waveforms in order until the channel closes or the reply is superseded. */
+        val playback: Job = playbackScope.launch { playAudio() }
+
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = withContext(Dispatchers.IO) {
+            val result = appendText(text)
+            if (isFinal) {
+                closeAudio()
+                if (result == VoiceOutputResult.Spoken && queuedChunks == 0 && isCurrent()) {
+                    return@withContext fail("Inflect normalization produced no synthesis chunks.")
+                }
+            }
+            result
+        }
+
+        override suspend fun cancel() {
+            if (activeUtterance.get() === this) this@InflectMicroVoiceOutputController.stop() else closeAudio()
+        }
+
+        fun playbackResult(): VoiceOutputResult =
+            failure?.let { VoiceOutputResult.Unavailable(it) } ?: VoiceOutputResult.Spoken
+
+        /** Cancels the waveform channel so a blocked [append] or the playback loop unwinds at once. */
+        fun abort() {
+            audioClosed.set(true)
+            audio.cancel()
+        }
+
+        private fun isCurrent(): Boolean = !stopped && playbackGeneration.get() == generation
+
+        private fun closeAudio() {
+            if (audioClosed.compareAndSet(false, true)) audio.close()
+        }
+
+        private fun fail(message: String): VoiceOutputResult.Unavailable {
+            failure = message
+            closeAudio()
+            return VoiceOutputResult.Unavailable(message)
+        }
+
+        private suspend fun appendText(text: String): VoiceOutputResult {
+            unavailable?.let {
+                closeAudio()
+                return it
+            }
+            failure?.let { return VoiceOutputResult.Unavailable(it) }
+            if (audioClosed.get()) return VoiceOutputResult.Spoken
+            if (!isCurrent()) {
+                closeAudio()
+                return VoiceOutputResult.Spoken
+            }
+            val prepared = synthesis ?: return fail("Inflect runner is not initialized.")
+            try {
+                val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
+                if (normalized.isBlank()) return VoiceOutputResult.Spoken
+                for (chunk in InflectMicroTextFrontend.phonemizeSpeechChunks(normalized) { chunkText ->
+                    InflectMicroTextFrontend.applyPhonemeOverrides(
+                        InflectPhonemizer.phonemize(chunkText, prepared.dataDirectory),
+                    )
+                }) {
+                    val waveform = synthesizeChunk(prepared, chunk.phonemes) ?: return VoiceOutputResult.Spoken
+                    if (!enqueue(waveform)) {
+                        return failure?.let { VoiceOutputResult.Unavailable(it) } ?: VoiceOutputResult.Spoken
+                    }
+                    queuedChunks++
+                }
+                return VoiceOutputResult.Spoken
+            } catch (error: CancellationException) {
+                if (isCurrent()) throw error
+                return VoiceOutputResult.Spoken
+            } catch (error: Exception) {
+                Log.e(TAG, "Inflect synthesis failed", error)
+                return fail("Inflect synthesis failed: ${error.message}")
+            }
+        }
+
+        /** Returns null when this reply was superseded before or during the synthesis. */
+        private suspend fun synthesizeChunk(prepared: PreparedSynthesis, phonemes: String): FloatArray? {
+            return synthesisLock.withLock {
+                if (!isCurrent()) return null
+                prepared.runner.resetCancellation()
+                // stop() bumps the generation before cancelling, so a stop racing the reset is caught here.
+                if (!isCurrent()) return null
+                fadeChunkEdges(prepared.runner.synthesize(phonemes).waveform)
+            }
+        }
+
+        private suspend fun enqueue(waveform: FloatArray): Boolean = try {
+            audio.send(waveform)
+            true
+        } catch (error: ClosedSendChannelException) {
+            false
+        } catch (error: CancellationException) {
+            if (isCurrent() && failure == null) throw error
+            false
+        }
+
+        private suspend fun playAudio() {
+            var track: AudioTrack? = null
+            try {
+                for (waveform in audio) {
+                    if (!isCurrent()) break
+                    if (track == null) track = startTrack()
+                    writeVoicePcm(track, waveform, gain) { isCurrent() }
+                }
+                val finished = track
+                if (finished != null) {
+                    if (isCurrent()) drainVoicePcmTrack(finished) { isCurrent() } else fadeOutAndDiscard(finished)
+                }
+            } catch (error: CancellationException) {
+                // stop() cancels the channel; stop() has already silenced the track.
+            } catch (error: Exception) {
+                Log.e(TAG, "Inflect playback failed", error)
+                failure = "Inflect playback failed: ${error.message}"
+                audio.cancel()
+            } finally {
+                track?.let {
+                    activeTrack.compareAndSet(it, null)
+                    it.release()
+                }
+                // Once per reply, on every exit path including stop(). The gate pairs the stop with this reply's
+                // SpeakingStarted, so a stale unwind cannot end a newer reply's speech.
+                if (playbackGeneration.get() == generation) releaseAudioFocus()
+                if (speakingStopGate.claimStopped(generation)) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
+            }
+        }
+
+        private fun startTrack(): AudioTrack {
+            requestAudioFocus()
+            VoiceOutputTrace.speakingStarted("inflect", request.text)
+            VoiceOutputTrace.logSpeakingStarted("inflect", request.text.length)
+            speakingStopGate.markStarted(generation)
+            eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(request.text))
+            return createVoicePcmTrack(InflectMicroOnnxRunner.SAMPLE_RATE_HZ).also { created ->
+                activeTrack.set(created)
+                startVoicePcmTrack(created, pitch)
+            }
+        }
+    }
+
     private companion object {
         const val TAG = "KernelAI"
         const val SHERPA_ESPEAK_DATA_DIR = "espeak-ng-data"
     }
 }
 
-internal fun <T> runInflectChunks(
-    chunks: List<InflectMicroTextFrontend.PhonemizedChunk>,
-    shouldContinue: () -> Boolean,
-    synthesize: (String) -> T,
-    play: (T) -> Unit,
-) {
-    for (chunk in chunks) {
-        if (!shouldContinue()) return
-        val synthesis = synthesize(chunk.phonemes)
-        if (!shouldContinue()) return
-        play(synthesis)
+/** Pairs a reply's runner with its eSpeak data directory; exists only once prepare() has succeeded. */
+private class PreparedSynthesis(val runner: InflectMicroOnnxRunner, val dataDirectory: File)
+
+private const val CHUNK_EDGE_FADE_MS = 5
+
+/**
+ * Fades the first and last [CHUNK_EDGE_FADE_MS] of a synthesized chunk so adjacent chunks join without a click.
+ * Mutates and returns [samples]; the runner's own output stays unprocessed.
+ */
+internal fun fadeChunkEdges(samples: FloatArray, sampleRate: Int = InflectMicroOnnxRunner.SAMPLE_RATE_HZ): FloatArray {
+    val fadeFrames = minOf(samples.size / 2, sampleRate * CHUNK_EDGE_FADE_MS / 1000)
+    for (index in 0 until fadeFrames) {
+        val gain = index.toFloat() / fadeFrames
+        samples[index] *= gain
+        samples[samples.size - 1 - index] *= gain
     }
+    return samples
 }

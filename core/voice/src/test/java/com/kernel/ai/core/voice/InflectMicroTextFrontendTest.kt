@@ -225,29 +225,58 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
-    fun runInflectChunks_does_not_synthesize_later_chunks_after_cancellation() {
-        val chunks = listOf(
-            InflectMicroTextFrontend.PhonemizedChunk("first", "first"),
-            InflectMicroTextFrontend.PhonemizedChunk("second", "second"),
-        )
-        val synthesized = mutableListOf<String>()
-        val played = mutableListOf<String>()
-        var shouldContinue = true
+    fun speechChunks_keeps_short_multi_sentence_reply_in_one_chunk() {
+        val text = "Sure. I've set the reminder for tomorrow morning."
 
-        runInflectChunks(
-            chunks = chunks,
-            shouldContinue = { shouldContinue },
-            synthesize = { phonemes ->
-                synthesized += phonemes
-                phonemes
-            },
-            play = {
-                played += it
-                shouldContinue = false
-            },
+        assertEquals(listOf(text), InflectMicroTextFrontend.speechChunks(text))
+    }
+
+    @Test
+    fun speechChunks_is_lossless_bounded_and_breaks_at_sentence_ends() {
+        val text = (1..40).joinToString(" ") { "Sentence number $it is here." }
+
+        val chunks = InflectMicroTextFrontend.speechChunks(text, maxChunkChars = 120)
+
+        assertTrue(chunks.size > 1)
+        assertTrue(chunks.all { it.length <= 120 })
+        assertTrue(chunks.all { it.endsWith('.') })
+        assertEquals(text, chunks.joinToString(" "))
+    }
+
+    @Test
+    fun speechChunks_splits_overlong_sentence_by_word_without_dropping_words() {
+        val text = (1..300).joinToString(" ") { "word$it" }
+
+        val chunks = InflectMicroTextFrontend.speechChunks(text, maxChunkChars = 50)
+
+        assertTrue(chunks.all { it.length <= 50 })
+        assertEquals(text, chunks.joinToString(" "))
+    }
+
+    @Test
+    fun speechChunks_prefers_clause_boundaries_before_word_boundaries() {
+        val chunks = InflectMicroTextFrontend.speechChunks(
+            normalizedText = "one two three four five, six seven eight nine ten, eleven twelve",
+            maxChunkChars = 25,
         )
 
-        assertEquals(listOf("first"), synthesized)
-        assertEquals(listOf("first"), played)
+        assertEquals(
+            listOf("one two three four five,", "six seven eight nine ten,", "eleven twelve"),
+            chunks,
+        )
+    }
+
+    @Test
+    fun phonemizeSpeechChunks_phonemizes_lazily_one_chunk_at_a_time() {
+        val text = (1..5).joinToString(" ") { "Sentence $it ${"x".repeat(90)}." }
+        var phonemizeCalls = 0
+
+        val first = InflectMicroTextFrontend.phonemizeSpeechChunks(text) { input ->
+            phonemizeCalls++
+            input
+        }.first()
+
+        assertEquals(1, phonemizeCalls)
+        assertTrue(first.text.startsWith("Sentence 1"))
     }
 }

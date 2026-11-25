@@ -95,6 +95,7 @@ class DebugTtsBaselineRun(
                         .put("rtf", round4(utterance.synthMs / utterance.audioMs))
                         .put("peak_abs", utterance.chunks.maxOf { it.peakAbs.toDouble() })
                         .put("finite", utterance.finite)
+                        .put("vmhwm_kb", vmKb("VmHWM"))
                         .put("chunk_synth_ms", JSONArray(utterance.chunks.map { it.synthMs })),
                 )
             }

@@ -14,6 +14,8 @@ import java.util.Locale
  */
 object InflectMicroTextFrontend {
     private val whitespace = Regex("\\s+")
+    private val sentenceBoundary = Regex("(?<=[.!?])\\s+")
+    private val clauseBoundary = Regex("(?<=[,;:])\\s+")
     private val letterNames = mapOf(
         'A' to "ay", 'B' to "bee", 'C' to "see", 'D' to "dee", 'E' to "ee",
         'F' to "eff", 'G' to "gee", 'H' to "aitch", 'I' to "eye", 'J' to "jay",
@@ -123,6 +125,84 @@ object InflectMicroTextFrontend {
             .replace(Regex("\\s+([,;:.!?])"), "$1")
             .replace(Regex("([,;:.!?])(?=\\S)"), "$1 ")
         return value.replace(whitespace, " ").trim()
+    }
+
+    /** Upper bound on characters per speech chunk; keeps first-audio latency near one short sentence. */
+    const val MAX_SPEECH_CHUNK_CHARS = 120
+
+    /**
+     * Splits normalized text into speech chunks of at most [maxChunkChars] characters, greedily packing whole
+     * sentences and falling back to clause, then word, boundaries only for pieces that are still too long.
+     * Chunks are joined in order with single spaces, so no text is dropped or reordered.
+     */
+    fun speechChunks(normalizedText: String, maxChunkChars: Int = MAX_SPEECH_CHUNK_CHARS): List<String> {
+        require(maxChunkChars > 0) { "maxChunkChars must be positive" }
+        val text = normalizedText.trim()
+        if (text.isEmpty()) return emptyList()
+
+        val chunks = mutableListOf<String>()
+        var current = StringBuilder()
+        fun pack(piece: String) {
+            when {
+                current.isEmpty() -> current.append(piece)
+                current.length + 1 + piece.length <= maxChunkChars -> current.append(' ').append(piece)
+                else -> {
+                    chunks += current.toString()
+                    current = StringBuilder(piece)
+                }
+            }
+        }
+
+        for (sentence in text.split(sentenceBoundary)) {
+            val trimmed = sentence.trim()
+            if (trimmed.isEmpty()) continue
+            for (piece in boundedPieces(trimmed, maxChunkChars)) pack(piece)
+        }
+        if (current.isNotEmpty()) chunks += current.toString()
+        return chunks
+    }
+
+    /**
+     * Lazily phonemizes [speechChunks] one chunk at a time, so each chunk can be synthesized before the next is
+     * phonemized. Phoneme length stays under the runner's cap; the phonemizer runs only when the sequence is consumed.
+     */
+    fun phonemizeSpeechChunks(
+        normalizedText: String,
+        maxChunkChars: Int = MAX_SPEECH_CHUNK_CHARS,
+        maxPhonemeLength: Int = InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH,
+        phonemize: (String) -> String,
+    ): Sequence<PhonemizedChunk> = speechChunks(normalizedText, maxChunkChars).asSequence().flatMap { chunk ->
+        phonemizeChunks(
+            normalizedText = chunk,
+            maxPhonemeLength = maxPhonemeLength,
+            phonemize = phonemize,
+        ).asSequence()
+    }
+
+    private fun boundedPieces(sentence: String, maxChunkChars: Int): List<String> {
+        if (sentence.length <= maxChunkChars) return listOf(sentence)
+        return sentence.split(clauseBoundary).flatMap { clause ->
+            val trimmed = clause.trim()
+            if (trimmed.length <= maxChunkChars) listOf(trimmed) else wordPieces(trimmed, maxChunkChars)
+        }
+    }
+
+    private fun wordPieces(text: String, maxChunkChars: Int): List<String> {
+        val pieces = mutableListOf<String>()
+        val current = StringBuilder()
+        for (word in text.split(whitespace).filter(String::isNotEmpty)) {
+            when {
+                current.isEmpty() -> current.append(word)
+                current.length + 1 + word.length <= maxChunkChars -> current.append(' ').append(word)
+                else -> {
+                    pieces += current.toString()
+                    current.setLength(0)
+                    current.append(word)
+                }
+            }
+        }
+        if (current.isNotEmpty()) pieces += current.toString()
+        return pieces
     }
 
     fun applyPhonemeOverrides(phonemes: String): String {
