@@ -63,6 +63,11 @@ Build: this branch, installed on the S21 (`s21-pause-resume-run.txt` has the log
 
 Camcorder and voice session on this build (`s21-pause-resume-run.txt` sections 7–8): camcorder start releases the mic once (no thrash) and Jandal re-arms after the camcorder stops (07:41:53). A voice session yields the mic and Jandal re-arms 5 s after it closes (07:42:22).
 
+Recorder normal flow, no force-stop (`s21-pause-resume-run.txt` section 9): Stop, Home, Back and a Recents swipe do not close the recorder's MIC session. Windows tested: 118 s+ (Home), 97 s+ (Back), 75 s+ after the swipe (about 3.5 min after Stop in total). Only `am force-stop` closed it. Jandal stays paused until the mic is free, then re-arms on Resume (07:58:47, immediate). Documented as expected: Jandal waits for the mic.
+
+Wake phrase after re-arm (section 10): one espeak-ng "Hey Jandal" clip played on the S23U (VLC, media volume 10, restored to 4). S21 logged `WakeWordDetector: detected (high confidence=0.792)` at 07:59:24.112 and yielded to the voice session. Synthetic voice, one playback, distance not measured.
+
 Not verified in this run:
-- The recorder releases its MIC on Stop without force-stop. It did not. The re-arm after Resume is shown only after force-stop. `Closes #2108` therefore depends on a user-visible result we did not reach; the PR uses `Refs #2108`.
-- Stream volumes 1, 2 and 5 were changed by the recorder's start (`Disable System Sound`); pre-run values were not recorded, so restoration is not verified. Current: stream 1 = 0, stream 2 = 11, stream 3 = 2, stream 4 = 11, stream 5 = 11. `mode_ringer` = 2 and `zen_mode` = 0 (unchanged). `stay_on_while_plugged_in` = 2 (unchanged).
+- Human speaker and distance or room tests; the wake rate.
+- Phone call. Camcorder and voice session were run earlier (sections 7–8).
+- Stream volumes 1, 2 and 5 changed by the recorder's start (`Disable System Sound`); pre-run values not recorded, so restoration is not verified. Current: stream 1 = 0, stream 2 = 11, stream 3 = 2, stream 4 = 11, stream 5 = 11. `mode_ringer` = 2 and `zen_mode` = 0 (unchanged). `stay_on_while_plugged_in` = 2 (unchanged).

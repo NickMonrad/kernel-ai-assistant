@@ -53,4 +53,21 @@ audio server: VOICE_RECOGNITION client uid 10649 (re-armed)
 
 ## Cleanup
 Camcorder clip /sdcard/DCIM/Camera/20261126_074128.mp4 and recorder clip (private folder) deleted after the checks. stay_on_while_plugged_in = 2 and mode_ringer = 2 unchanged.
-Not verified: wake phrase after re-arm; phone call; recorder MIC hold after plain Stop (open question, see README); stream volume restoration (pre-run values not recorded).
+Not verified: phone call; stream volume restoration of streams 1, 2, 5 (pre-run values not recorded).
+
+## 9. Recorder normal flow, no force-stop (check 1), 2026-11-26
+Pause 07:49:59.806 (released). Record started 07:50:12.7 (MIC uid 10279, `AnotherRecordActive: false`). Stop 07:50:29.0 (`setRecorderState - state : 3`).
+Home (+0 s): recorder MIC session open for 118 s+ (polled to +118 s, last sample still open).
+Back (separate cycle, stop 07:55:47.8): session open for 97 s+ (polled to +97 s).
+Recents swipe (task removed, recorder process pid 22927 still alive, 07:52–07:53): session open for 75 s+, still open at about 3.5 min after the first Stop.
+`am force-stop com.sec.android.app.voicenote` 07:57:43: session closed at once. Jandal logged `paused by user — not re-arming` (no re-arm while paused).
+Resume tapped 07:58:47.141: re-armed at once (VOICE_RECOGNITION uid 10649, detector started 07:58:47.179).
+Result: Stop, Home, Back and a Recents swipe do not close the recorder's MIC session within the windows tested. Only force-stop did. Jandal waits for the mic to be free and then re-arms on Resume.
+
+## 10. Wake phrase after re-arm (check 2)
+Clip: espeak-ng "Hey Jandal", 3.2 s, 16 kHz mono (synthetic voice, not a human speaker; host file, not kept on the device). Pushed to S23U `/sdcard/Download/hey-jandal.wav` and played in VLC (`org.videolan.vlc`) on the S23U. S23U media volume raised to 10 for playback and set back to 4. VLC audio focus 07:59:22.4 to 07:59:25.6.
+S21 (Jandal re-armed, not paused): 07:59:24.112 `WakeWordDetector: detected (high confidence=0.7921766)`. Then `WakeWordService: yielding mic to voice session` 07:59:24.393. Models reloaded and re-armed 07:59:46.913; VOICE_RECOGNITION uid 10649 active at the end of the check.
+Earlier attempt (07:59:11, screenshot) opened the S23U "Open with" chooser and did not play; no detection in that window.
+S21 media volume: 2 of 15 (unchanged at the end of this run).
+Distance between S23U and S21 was not measured. Only one playback, so this is one detection, not a rate.
+Phones left: S21 recorder force-stopped (process restarts on next launch); S23U awake and unlocked at the start and end of the check (not monitored continuously).
