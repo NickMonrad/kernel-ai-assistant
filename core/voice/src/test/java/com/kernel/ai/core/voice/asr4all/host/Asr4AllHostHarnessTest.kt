@@ -3,10 +3,13 @@ package com.kernel.ai.core.voice.asr4all.host
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.kernel.ai.core.voice.asr4all.Asr4AllBackendLoader
 import com.kernel.ai.core.voice.asr4all.Asr4AllEngine
 import com.kernel.ai.core.voice.asr4all.Asr4AllModelConfig
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
@@ -35,7 +38,12 @@ class Asr4AllHostHarnessTest {
         val bridge = path(cfg["bridge"].asString)
         val outFile = path(cfg["output"].asString).also { it.parentFile?.mkdirs() }
         val stderrLog = File(outFile.path + ".bridge.log")
-        val loader = PythonBridgeBackend.loader(python, bridge, stderrLog)
+        val dumpDir = cfg["dump_logits_dir"]?.asString?.let { path(it).also { d -> d.mkdirs() } }
+        var tap: LogitsTapBackend? = null
+        val baseLoader = PythonBridgeBackend.loader(python, bridge, stderrLog)
+        val loader = if (dumpDir == null) baseLoader else Asr4AllBackendLoader { file, threads ->
+            LogitsTapBackend(baseLoader.load(file, threads)).also { tap = it }
+        }
         val chunkMs = cfg["chunk_ms"]?.asInt ?: 100
         val repeat = cfg["repeat"]?.asInt ?: 1
         // Optional second chunk size: the final text must not depend on how audio is chunked.
@@ -55,7 +63,15 @@ class Asr4AllHostHarnessTest {
                         val chunk = engine.config.sampleRate * chunkMs / 1000
                         for ((id, wav) in clips) {
                             val pcm = readWav(wav, engine.config.sampleRate)
-                            val runs = (1..repeat).map { runClip(engine, pcm, chunk) }
+                            val runs = (1..repeat).map { i ->
+                                tap?.start()
+                                val result = runClip(engine, pcm, chunk)
+                                val logits = tap?.stop()
+                                if (i == 1 && dumpDir != null && logits != null) {
+                                    writeLogitsDump(dumpDir, id, sizeName, tierName, pcm.size, engine.config.samplesPerFrame, engine.config.vocabSize, logits, result.second, sha256(wav))
+                                }
+                                result
+                            }
                             runs.drop(1).forEach { assertEquals(runs[0], it, "non-deterministic output for $id $sizeName $tierName") }
                             if (checkChunkMs != null) {
                                 val other = runClip(engine, pcm, engine.config.sampleRate * checkChunkMs / 1000).second
@@ -110,6 +126,51 @@ class Asr4AllHostHarnessTest {
             val bytes = stream.readAllBytes()
             return ShortArray(bytes.size / 2) { i -> ((bytes[2 * i].toInt() and 0xff) or (bytes[2 * i + 1].toInt() shl 8)).toShort() }
         }
+    }
+
+    /**
+     * Bias-oracle dump (#2093): writes the encoder logits the engine consumed as little-endian float32
+     * `[frames, vocab]`, cut to `floor(samples / samplesPerFrame)` frames (the frames decoded at end of
+     * input), plus a JSON sidecar with the final text. Dumps are private and never committed.
+     */
+    private fun writeLogitsDump(
+        dir: File,
+        id: String,
+        size: String,
+        tier: String,
+        samples: Int,
+        samplesPerFrame: Int,
+        vocab: Int,
+        chunks: List<FloatArray>,
+        final: String,
+        wavSha: String,
+    ) {
+        val frames = samples / samplesPerFrame
+        val available = chunks.sumOf { it.size } / vocab
+        check(available >= frames) { "$id $size $tier: encoder produced $available frames, need $frames" }
+        val buf = ByteBuffer.allocate(frames * vocab * 4).order(ByteOrder.LITTLE_ENDIAN)
+        var remaining = frames * vocab
+        for (chunk in chunks) {
+            if (remaining == 0) break
+            val n = minOf(chunk.size, remaining)
+            for (i in 0 until n) buf.putFloat(chunk[i])
+            remaining -= n
+        }
+        val stem = "$id.$size.$tier"
+        File(dir, "$stem.logits.f32").writeBytes(buf.array())
+        val meta = JsonObject().apply {
+            addProperty("clip", id)
+            addProperty("size", size)
+            addProperty("tier", tier)
+            addProperty("wav_sha256", wavSha)
+            addProperty("samples", samples)
+            addProperty("samples_per_frame", samplesPerFrame)
+            addProperty("frames", frames)
+            addProperty("vocab_size", vocab)
+            addProperty("layout", "float32 little-endian, row-major [frames, vocab_size]")
+            addProperty("final", final)
+        }
+        File(dir, "$stem.json").writeText(GsonBuilder().disableHtmlEscaping().create().toJson(meta))
     }
 
     private fun sha256(file: File): String =
