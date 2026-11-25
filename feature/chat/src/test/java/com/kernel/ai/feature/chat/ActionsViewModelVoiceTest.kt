@@ -653,7 +653,7 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
-    fun `slot question cut off by a screen stop is asked again on resume and the mic opens after it`() = runTest(dispatcher) {
+    fun `slot question whose playback never stops opens the slot mic after the 15 s safety`() = runTest(dispatcher) {
         stubWifeSmsSlot()
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
@@ -665,50 +665,87 @@ class ActionsViewModelVoiceTest {
         runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
         runCurrent()
-        // Home stops the screen mid-question: the speech is cut and the mic stays closed.
-        viewModel.onScreenStopped(screenOff = false)
-        runCurrent()
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
-        advanceTimeBy(500)
+        advanceTimeBy(14_000)
         runCurrent()
         coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
 
-        // Back on screen: the cut question is asked again in full, then the mic opens after it.
-        viewModel.onScreenResumed()
-        runCurrent()
-        coVerify(exactly = 2) { voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == question }) }
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
-        runCurrent()
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
-        advanceTimeBy(350)
+        advanceTimeBy(1_500)
         runCurrent()
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
-    fun `slot question that finishes while the screen is away opens the mic only after resume`() = runTest(dispatcher) {
+    fun `slot question started under other text keeps the start watchdog so the mic still opens`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceTimeBy(200)
+        runCurrent()
+        // Engine speaks different wording: not the pending question, so no playback-safety re-arm.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your spouse?"))
+        runCurrent()
+        advanceTimeBy(9_000)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        // The 10 s start watchdog re-asks once; the second watchdog opens the mic.
+        advanceTimeBy(11_500)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `slot question started after cancelled speech still re-arms the mic at its stop`() = runTest(dispatcher) {
         stubWifeSmsSlot()
         coEvery {
             voiceInputController.startListening(VoiceCaptureMode.SlotReply)
         } returns VoiceInputStartResult.Started(1L)
         val question = "What would you like to say to your wife?"
+        speechStopCoordinator.observe(backgroundScope)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
         advanceTimeBy(200)
         runCurrent()
+        // Stop lands before the question's start event (the Hey Jandal handoff race, #2082).
+        speechStopCoordinator.requestStop()
+        runCurrent()
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
         runCurrent()
-        // Screen off: speech keeps playing in the background, but no mic opens while away.
-        viewModel.onScreenStopped(screenOff = true)
         voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
-        advanceTimeBy(1_000)
-        runCurrent()
-        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
-
-        viewModel.onScreenResumed()
-        advanceTimeBy(350)
+        advanceTimeBy(351)
         runCurrent()
         coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `silent slot prompt opens the mic at most three times without any speech events`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceTimeBy(200)
+        runCurrent()
+        repeat(6) {
+            advanceTimeBy(30_000)
+            runCurrent()
+            voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
+            runCurrent()
+            voiceInputEvents.emit(
+                VoiceInputEvent.Error(
+                    VoiceCaptureMode.SlotReply,
+                    "No speech heard. Try again.",
+                    captureSessionId = 1L,
+                    category = NO_SPEECH_WINDOW_EXHAUSTED,
+                ),
+            )
+            runCurrent()
+        }
+        coVerify(atMost = 3) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
@@ -1119,23 +1156,6 @@ class ActionsViewModelVoiceTest {
 
         coVerify(exactly = 0) { voiceInputController.startListening(any()) }
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
-    }
-
-    @Test
-    fun `resume after a background stop restores the slot-reply re-arm`() = runTest(dispatcher) {
-        stubWifeSmsSlot()
-        viewModel.onScreenStopped(screenOff = true)
-        viewModel.onScreenResumed()
-
-        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
-        runCurrent()
-        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
-        advanceTimeBy(351)
-        runCurrent()
-
-        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
