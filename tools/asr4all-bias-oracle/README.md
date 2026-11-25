@@ -338,6 +338,43 @@ pass criteria are in `HELDOUT-PREREG-v2.md` and apply only to the owner's real r
 audio, not the S21 microphone; one take per line; 61 lines; zero-count upper bounds ≈ 11% per class with 30 lines.
 The flag stays off.
 
+## Owner real recordings (pre-registered v3 + amendments 1–2; β 5 primary)
+
+36 of 50 owner lines recorded (quiet room only): gold 16/30 (bare_name 0/3 not recorded), false-boost 20/20.
+R17–R30 not recorded; noisy-room and bare_name not evaluated. Scored with frozen v3 code and asset (oracle
+sha256 `397329a5…`, asset `fd1b0904…`). 16 kHz mono conversion via ffmpeg. Commits: `ebb619e9` (amendment 2,
+before scoring).
+
+Criteria (Wilson 95% on the count of violations; intervals are the upper bound when zero):
+
+| # | Criterion | Result (β 5, all slots) | Verdict |
+|---|---|---|---|
+| 1 | Gold substitutions = 0 | 0 in all 6 slot×size cells; upper 19.4% (full, hint, n=16), 20.4% (trigger, n=15) | **pass** (on recorded lines) |
+| 2 | Non-identity rewrites = 0 (foreign, POI, address, suburb, AU city, gate trap) | 0/17 (full, hint), 0/15 (trigger); upper 18.4% / 20.4% | **pass**; foreign homograph not evaluated (no lines) |
+| 3 | Competitor-place rewrites = 0 | 0/6 (AU city 4, suburb 2); upper 39.0% | **pass** (small n) |
+| 4 | NZ already-correct: non-identity rewrites = 0 | 0/2; upper 65.8% | **pass** (small n) |
+| 5 | Gate traps = 0 non-identity rewrites | 0/5 (full, hint, incl. no-place line), 0/2 (trigger); upper 43.4% / 65.8% | **pass** (small n) |
+| 6 | Scoring p95 | not measured (PC batch) | **not evaluated** |
+
+Gold correct output (informational; no recall threshold was pre-registered), correct / gold lines:
+
+| Slot | Size | navigate | weather |
+|---|---|---|---|
+| full | L | 2/8 | 3/8 |
+| full | M | 1/8 | 6/8 |
+| hint | L | 3/8 | 3/8 |
+| hint | M | 1/8 | 6/8 |
+| trigger | L | 3/7 | 3/8 |
+| trigger | M | 1/8 | 5/7 |
+
+Most gold misses are `suggest` (a "Did you mean X?" prompt, no rewrite), not wrong substitutions. False-boost
+lines: every class (AU city, foreign city, POI, address, suburb, NZ already-correct, gate trap) has zero
+non-identity rewrites in every slot and size.
+
+Go/no-go (pre-registered criteria): criteria 1–5 pass on the recorded lines, with the small-n limits above.
+Criterion 6 is not evaluated. Recall is low at β 5: the rule almost never accepts a navigate line. That is a
+usefulness problem, not a safety failure. Owner decision required before any flag change.
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
