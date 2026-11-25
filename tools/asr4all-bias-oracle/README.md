@@ -461,6 +461,13 @@ boundary on, competitor runner-ups counted) is kept.
 
 Current rule, all six cells: gold correct 283 of 672; gold substitutions 6 (all L); false-boost rewrites 6 of 444.
 
+Owner real recordings, re-scored once with the frozen rule (oracle `8e616943…`, reuse disclosed; 36 lines, six cells,
+94 gold cell-lines, 114 non-gold cell-lines). β 5 (primary): gold correct 37/94 (39.4%, Wilson 95% 30.1–49.5%); gold
+substitutions 0/94 (0–3.9%); false-boost rewrites 0/114 (0–3.3%). Sensitivity: β 3 and β 4 both give 33/94 gold correct
+(35.1%, Wilson 26.2–45.2%), with 0 substitutions and 0 false-boost rewrites. Per-cell correct-output counts match the
+v3 table above (lines 361–368). A fresh owner recording is not needed to confirm the current rule: it changed nothing; a
+bound is already reported; a new check would tighten the bound only.
+
 
 ## Privacy
 
