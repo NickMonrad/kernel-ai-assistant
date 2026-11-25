@@ -61,7 +61,8 @@ Build: this branch, installed on the S21 (`s21-pause-resume-run.txt` has the log
 | Resume tapped | Jandal re-syncs and stays paused, because the recorder still held the mic. This is correct behaviour for that state. |
 | Recorder released (`am force-stop`) | Jandal re-arms: VOICE_RECOGNITION session for uid 10649 at 07:39:19; notification "Listening for wake word…". |
 
+Camcorder and voice session on this build (`s21-pause-resume-run.txt` sections 7–8): camcorder start releases the mic once (no thrash) and Jandal re-arms after the camcorder stops (07:41:53). A voice session yields the mic and Jandal re-arms 5 s after it closes (07:42:22).
+
 Not verified in this run:
 - The recorder releases its MIC on Stop without force-stop. It did not. The re-arm after Resume is shown only after force-stop. `Closes #2108` therefore depends on a user-visible result we did not reach; the PR uses `Refs #2108`.
-- Camera thrash and a voice-session re-arm were not re-run on this build.
 - Stream volumes 1, 2 and 5 were changed by the recorder's start (`Disable System Sound`); pre-run values were not recorded, so restoration is not verified. Current: stream 1 = 0, stream 2 = 11, stream 3 = 2, stream 4 = 11, stream 5 = 11. `mode_ringer` = 2 and `zen_mode` = 0 (unchanged). `stay_on_while_plugged_in` = 2 (unchanged).

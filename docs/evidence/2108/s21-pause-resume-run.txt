@@ -36,7 +36,21 @@ KernelAI 07:39:19.811  WakeWordDetector: starting 3-stage ONNX pipeline
 KernelAI 07:39:19.931  WakeWordDetector: models loaded
 Notification after re-arm: "Listening for wake word…" (action "Pause")
 
-## Not run in this session
-- Camera video (camcorder) thrash check on S21 after this build (only the earlier build's logs exist; see README).
-- Single voice session then re-arm (needs a spoken or tapped wake session).
-- Recorder stop without force-stop: the recorder kept its MIC session after stop, so the wake re-arm was only shown after force-stop.
+## 7. Camcorder (check c), same build, Jandal listening, not paused
+07:41:28.372  KernelAI: WakeWordService: another app is recording — releasing wake mic  (once)
+audio server 07:41:04: MIC client uid 1000 com.samsung.android.bixby.wakeup (system listener, known limit; Jandal released for it)
+audio server 07:41:19+: CAMCORDER client uid 10100 com.sec.android.app.camera (recording)
+camcorder stop (tap stop, ~07:41:45)
+07:41:53.732  KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+audio server: VOICE_RECOGNITION client uid 10649 ai.jandal.assistant.debug (re-armed)
+Releases in this window: 1. No release/re-arm thrash.
+
+## 8. Voice session (check d)
+07:42:17.165  KernelAI: WakeWordService: yielding mic to voice session
+audio server: MIC client uid 10649 ai.jandal.assistant.debug (voice session)
+Back pressed 07:42:22: 07:42:22.165 KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+audio server: VOICE_RECOGNITION client uid 10649 (re-armed)
+
+## Cleanup
+Camcorder clip /sdcard/DCIM/Camera/20261126_074128.mp4 and recorder clip (private folder) deleted after the checks. stay_on_while_plugged_in = 2 and mode_ringer = 2 unchanged.
+Not verified: wake phrase after re-arm; phone call; recorder MIC hold after plain Stop (open question, see README); stream volume restoration (pre-run values not recorded).
