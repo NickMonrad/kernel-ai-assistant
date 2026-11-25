@@ -375,6 +375,55 @@ Go/no-go (pre-registered criteria): criteria 1–5 pass on the recorded lines, w
 Criterion 6 is not evaluated. Recall is low at β 5: the rule almost never accepts a navigate line. That is a
 usefulness problem, not a safety failure. Owner decision required before any flag change.
 
+## Synthetic gap fill (pre-registered amendments 3–4; β 5 primary; NOT pooled with the real recordings)
+
+Synthetic supplementary set for the 14 owner script lines not recorded (R17–R30), plus noisy copies of R21–R30.
+Voice clone: the same owner reference audio as the held-out clone test, in full voice-clone (ICL) mode with its
+ASR transcript (not x-vector-only). The same voice, not a new speaker, and not the owner's microphone or room.
+Scored with the frozen v3 code and asset (oracle `397329a5…`, asset `fd1b0904…`). Reported separately. The real-recording
+verdict above stands on its own.
+
+Pipeline and counts: 41 valid clean takes (42 minus one over-cap take excluded, amendment 4: a generation that ran over
+the 5 s cap was dropped, not truncated or re-seeded). 58 noisy copies from 29 valid R21–R30 takes at 10 dB and 5 dB
+SNR, using a babble-like noise generated locally by the script (not a recording of a TV or kitchen; no third-party
+audio). Noisy results are combined over both SNRs because the scorer groups by class, not SNR. The synthesis
+script was amended during the run (resume, excluded-take record, valid-only noisy and harness inputs); the changed hashes are in the amendment 4 addendum, which corrects the noisy count to 58.
+
+Clean takes, criteria (β 5, Wilson 95%):
+
+| # | Criterion | Result | Verdict |
+|---|---|---|---|
+| 1 | Gold substitutions = 0 | navigate and weather: 0 in all 6 slot×size cells (upper bounds 17.6–29.9%); bare_name: 1/8 in L full and L hint (upper 47.1%), 0/8 in M | **fail** on one clean bare_name clip (L, full and hint) |
+| 2 | Non-identity rewrites = 0 (non-glossary classes) | no such lines in this set | **not evaluated** |
+| 3 | Competitor-place rewrites = 0 | no such lines | **not evaluated** |
+| 4 | NZ already-correct non-identity = 0 | no such lines | **not evaluated** |
+| 5 | Gate traps = 0 | no such lines | **not evaluated** |
+| 6 | Scoring p95 | not measured | **not evaluated** |
+
+Gold correct output, clean (informational, no threshold): full and hint, both sizes: navigate 9/15 (L and M); weather
+8/18 (L), 7/18 (M); trigger navigate 9/15 (L and M), weather 4/9 (L) and 5/12 (M); bare_name 2/8 (L) and 3/8 (M).
+
+Noisy copies (β 5; "rewrites" = accepted non-identity output; "gold substitutions" = a rewrite that is not the gold name):
+
+| Slot | Size | bare_name rewrites / sub | navigate rewrites / sub | weather rewrites / sub |
+|---|---|---|---|---|
+| full | L | 4/16 / 0 | 4/18 / 0 | 13/24 / 0 |
+| full | M | 1/16 / **1** | 3/18 / 0 | 9/24 / 0 |
+| hint | L | 4/16 / 0 | 4/18 / 0 | 13/24 / 0 |
+| hint | M | 1/16 / **1** | 3/18 / 0 | 9/24 / 0 |
+| trigger | L | — | 4/18 / 0 | 7/11 / 0 |
+| trigger | M | — | 3/17 / 0 | 7/12 / 0 |
+
+Most noisy rewrites are correct rewrites to the gold name; the substitution column is the count that matters. The
+noisy M bare_name substitution (1/16, upper 28.3%) is in full and hint.
+
+Go/no-go: the synthetic set is a supplementary check and does not change the real-recording verdict. It shows one
+bare_name substitution on clean synthetic audio (and one on a noisy copy). The real set has no bare_name recordings,
+so it can neither show nor rule out this failure. Owner decision still required before any flag change. Recall is low
+at β 5, as in the real set.
+
+Listening set (not scored, not in git): six owner sentences rendered in the same ICL mode, kept privately.
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
