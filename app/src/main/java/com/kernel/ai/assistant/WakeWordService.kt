@@ -9,6 +9,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.media.AudioRecordingConfiguration
 import android.os.Build
 import android.os.IBinder
 import android.os.Handler
@@ -72,6 +74,8 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
 import java.util.Locale
@@ -767,6 +771,35 @@ class WakeWordService : Service() {
         rearmAllowed = { !isHandlingDetection },
     )
 
+    /** Serialises voice events and recording-client updates, since both start and stop the detector (#2108). */
+    private val micLock = Mutex()
+
+    /** Active microphone clients from [recordingCallback], consumed in order by [recordingClientsJob]. */
+    private val recordingClients = Channel<List<MicRecordingClient>>(Channel.UNLIMITED)
+    private var recordingClientsJob: Job? = null
+    @Volatile private var recordingCallbackRegistered = false
+
+    private val recordingCallback = object : AudioManager.AudioRecordingCallback() {
+        override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
+            recordingClients.trySend(configs.map { it.toMicClient() })
+        }
+    }
+
+    /**
+     * Pauses wake capture while another app records or Jandal's capture is silenced, and re-arms when that
+     * ends (#2108). See [WakeMicContentionGate]. Yields to voice sessions through [micGate] as well.
+     */
+    private val contentionGate = WakeMicContentionGate(
+        releaseMic = {
+            Log.i(TAG, "WakeWordService: another app is recording — releasing wake mic")
+            wakeWordDetector.stop()
+        },
+        rearmMic = { rearmDetector() },
+        // A voice session or wake handoff owns the mic; its own terminal event re-arms the detector.
+        rearmAllowed = { !isHandlingDetection && !micGate.voiceSessionActive },
+        ownSessionId = { wakeWordDetector.captureSessionId },
+    )
+
     /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
     @Volatile private var wakeVerifierProvisionRequested = false
 
@@ -859,6 +892,9 @@ class WakeWordService : Service() {
         JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STARTED)
 
         Log.i(TAG, "WakeWordService: starting wake word detection")
+        // #2108: observe other apps' mic clients before the first arm, so a recorder already running at
+        // service start keeps the wake detector paused from the beginning.
+        registerRecordingCallback()
         startWakeCapture()
 
         // Automatically yield the AudioRecord whenever another voice session is active.
@@ -867,8 +903,16 @@ class WakeWordService : Service() {
             // ListeningStopped of the session that owns the yield. micLifecycleEvents also carries a
             // replaced native session's close, which the gate's owner check keeps from re-arming.
             voiceInputController.micLifecycleEvents.collect { event ->
-                micGate.onVoiceEvent(event)
-                isVoiceSessionActive = micGate.voiceSessionActive
+                micLock.withLock {
+                    micGate.onVoiceEvent(event)
+                    isVoiceSessionActive = micGate.voiceSessionActive
+                }
+            }
+        }
+        // #2108: step aside while another app records. One consumer keeps callback updates in order.
+        recordingClientsJob = serviceScope.launch {
+            for (clients in recordingClients) {
+                micLock.withLock { contentionGate.onRecordingClients(clients) }
             }
         }
 
@@ -881,6 +925,7 @@ class WakeWordService : Service() {
         instance = null
         JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STOPPED)
         cameraMonitorJob = null
+        unregisterRecordingCallback()
         wakeWordDetector.stop()
         // #2081: a transcript still held when the service dies can no longer be tapped; journal it.
         if (WakeWordHandoff.dropAll() != null) {
@@ -1160,6 +1205,31 @@ class WakeWordService : Service() {
     }
 
 
+    // ── Other apps' microphone use (#2108) ─────────────────────────────────────
+
+    /** Registers the recording callback and seeds the contention state from the current clients. */
+    private fun registerRecordingCallback() {
+        if (recordingCallbackRegistered) return
+        val audioManager = getSystemService(AudioManager::class.java) ?: return
+        audioManager.registerAudioRecordingCallback(recordingCallback, Handler(Looper.getMainLooper()))
+        recordingCallbackRegistered = true
+        // Synchronous: the detector is not armed yet, so this only sets the initial pause state.
+        contentionGate.onRecordingClients(
+            audioManager.activeRecordingConfigurations.map { it.toMicClient() },
+        )
+    }
+
+    private fun unregisterRecordingCallback() {
+        recordingClientsJob?.cancel()
+        recordingClientsJob = null
+        if (!recordingCallbackRegistered) return
+        recordingCallbackRegistered = false
+        getSystemService(AudioManager::class.java)?.unregisterAudioRecordingCallback(recordingCallback)
+    }
+
+    private fun AudioRecordingConfiguration.toMicClient() =
+        MicRecordingClient(sessionId = clientAudioSessionId, silenced = isClientSilenced)
+
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
         // #1502: a camera-driven suspension is a latch — no re-arm path may take the microphone
@@ -1167,6 +1237,11 @@ class WakeWordService : Service() {
         // the foreground right now: that covers a session ending between the camera appearing and
         // the monitor's next poll, and a restart that lost the latch while the camera was already
         // in front (see HonorCameraCoexistence.shouldWithholdWakeCapture).
+        // #2108: another app is recording (or our capture is silenced); WakeMicContentionGate re-arms.
+        if (contentionGate.paused) {
+            Log.i(TAG, "WakeWordService: another app is recording — not re-arming")
+            return
+        }
         if (isWakeCaptureSuspended || HonorCameraCoexistence.shouldWithholdWakeCapture(this)) {
             Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
             return

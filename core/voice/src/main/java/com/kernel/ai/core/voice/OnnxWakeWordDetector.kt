@@ -525,6 +525,9 @@ class OnnxWakeWordDetector @Inject constructor(
     @Volatile private var activeAudioRecord: AudioRecord? = null
     @Volatile private var detectionThread: Thread? = null
 
+    override val captureSessionId: Int?
+        get() = activeAudioRecord?.let { runCatching { it.audioSessionId }.getOrNull() }
+
 
     private fun loadModelBytes(): ModelBytes? {
         return runCatching {
