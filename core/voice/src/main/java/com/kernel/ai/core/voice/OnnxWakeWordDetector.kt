@@ -762,6 +762,8 @@ class OnnxWakeWordDetector @Inject constructor(
             var pcmFilled   = 0
             var silenceFrames = 0
             var voicedFrameStreak = 0
+            // stop() can land while the models were loading. Never open the capture after it (#2109).
+            if (!running.get()) return
             runCatching { audioRecord.startRecording() }
                 .onFailure { e ->
                     Log.e(TAG, "WakeWordDetector: startRecording failed", e)
@@ -769,6 +771,9 @@ class OnnxWakeWordDetector @Inject constructor(
                     running.set(false)
                     return
                 }
+            // stop() can also land between the check above and startRecording(); its AudioRecord.stop()
+            // would then have hit an idle recorder. Re-check so the capture closes at once (#2109).
+            if (!running.get()) return
             Log.d(TAG, "WakeWordDetector: recording started")
             while (running.get() && !Thread.currentThread().isInterrupted) {
                 // Read exactly one 80ms frame; abort if AudioRecord signals an error.

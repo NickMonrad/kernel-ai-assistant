@@ -32,6 +32,7 @@ class WakeCategoryExportTest {
             "usage_access_revoked" to WakeCategory.USAGE_ACCESS_REVOKED,
             "wake_model_unavailable" to WakeCategory.WAKE_MODEL_UNAVAILABLE,
             "camera_foreground_yield" to WakeCategory.CAMERA_FOREGROUND_YIELD,
+            "mic_contended_by_other_app" to WakeCategory.MIC_CONTENDED_BY_OTHER_APP,
             "tone_generator_unavailable" to WakeCategory.TONE_GENERATOR_UNAVAILABLE,
             "playback_start_failed" to WakeCategory.PLAYBACK_START_FAILED,
             "playback_exception" to WakeCategory.PLAYBACK_EXCEPTION,

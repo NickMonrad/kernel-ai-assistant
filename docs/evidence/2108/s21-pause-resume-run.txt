@@ -1,0 +1,42 @@
+S21 R5CR605B71K, debug build installed with `adb -s R5CR605B71K install -r` (lastUpdateTime 2026-11-26 07:36:05).
+Jandal running with the notification shade expanded; Pause action tapped; Samsung Voice Recorder (com.sec.android.app.voicenote) used.
+
+## 1. Pause (user action)
+KernelAI 07:36:31.785  WakeWordService: paused by user — releasing wake mic
+Notification text: "Paused. Tap Resume to listen for Hey Jandal." action "Resume"
+
+## 2. Recorder starts while Jandal is paused
+VR#Recorder 07:37:15.127  AnotherRecordActive: false
+VR#Recorder 07:37:15.734  setRecorderState - state : 2   (recording)
+KernelAI 07:37:15.726  WakeWordService: another app is recording — releasing wake mic
+  (contention callback while already paused; detector already stopped; no re-arm, user pause holds)
+Screenshot: recorder shows 00:51.9 elapsed with a live waveform.
+
+## 3. Recorder stop
+VR#Recorder 07:38:14.163  getDuration - mRecordEndTime= 57961 - mRecordStartTime= 0
+VR#Recorder 07:38:14.165  Enable System Sound
+VR#Recorder 07:38:14.229  isSaveEnable - mRecordEndTime= 57961   (clip saved, 57.96 s; not kept on device)
+Notification after stop: "Paused. Tap Resume to listen for Hey Jandal." (user pause still active)
+
+## 4. Recorder MIC session after stop
+RecordActivityMonitor 07:38:52, riid 91946991 active? true,
+  source client=MIC, uid:10279, pack:com.sec.android.app.voicenote
+  (session still open 40 s after the recorder's stop; no `rec stop` event for riid 91946991)
+Notification after Home press: "Paused while another app records" (action "Pause")
+
+## 5. Resume (user action)
+KernelAI 07:38:33.557  WakeWordService: resumed by user — re-arming wake word detection
+KernelAI 07:38:33.576  WakeWordService: another app is recording — re-syncing before re-arm
+  (the recorder's session was still open, so contention held wake paused; this is the correct result)
+
+## 6. Recorder session released (am force-stop com.sec.android.app.voicenote)
+RecordActivityMonitor 07:39:24, riid 91947007 active? true,
+  source client=VOICE_RECOGNITION, uid:10649, pack:ai.jandal.assistant.debug (Jandal re-armed)
+KernelAI 07:39:19.811  WakeWordDetector: starting 3-stage ONNX pipeline
+KernelAI 07:39:19.931  WakeWordDetector: models loaded
+Notification after re-arm: "Listening for wake word…" (action "Pause")
+
+## Not run in this session
+- Camera video (camcorder) thrash check on S21 after this build (only the earlier build's logs exist; see README).
+- Single voice session then re-arm (needs a spoken or tapped wake session).
+- Recorder stop without force-stop: the recorder kept its MIC session after stop, so the wake re-arm was only shown after force-stop.

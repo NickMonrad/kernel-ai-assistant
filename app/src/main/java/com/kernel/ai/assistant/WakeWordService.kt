@@ -22,6 +22,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.voice.AcousticEventType
+import com.kernel.ai.core.voice.OwnMicCaptureSessions
 import com.kernel.ai.core.voice.NO_SPEECH_WINDOW_EXHAUSTED
 import com.kernel.ai.core.voice.NATIVE_NOT_READY
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -597,7 +598,6 @@ internal suspend fun runWakeOverlayHandoff(
 private const val TAG = "KernelAI"
 private const val CHANNEL_ID = "kernel_wake_word"
 private const val NOTIFICATION_ID = 9_500
-private const val NOTIFICATION_TEXT_LISTENING = "Listening for wake word…"
 private const val LEGACY_WAKE_OVERLAY_CHANNEL_ID = "kernel_wake_overlay"
 
 /** How the Hey Jandal overlay opens after a wake (#2081). */
@@ -621,7 +621,6 @@ internal fun chooseWakeOverlayRoute(
     else -> WakeOverlayRoute.TAP_NOTIFICATION
 }
 
-private const val NOTIFICATION_TEXT_CAMERA_PAUSED = "Paused while Camera is in use"
 
 /** #1502: monitor cadence validated on the Honor BKQ-N49 (well below the measured detection need). */
 internal const val HONOR_CAMERA_POLL_INTERVAL_MS = 2_000L
@@ -757,6 +756,8 @@ class WakeWordService : Service() {
 
     /** Last text pushed to the ongoing notification; avoids redundant updates on every re-arm. */
     @Volatile private var notificationText = NOTIFICATION_TEXT_LISTENING
+    /** The user's "Pause Hey Jandal" choice from the notification (#2109); see [WakeUserPause]. */
+    private val userPause = WakeUserPause()
 
     /** True while [handleDetection] owns a live STT session; suppresses the observer's re-arm. */
     @Volatile private var isHandlingDetection = false
@@ -766,7 +767,7 @@ class WakeWordService : Service() {
             Log.i(TAG, "WakeWordService: yielding mic to voice session")
             wakeWordDetector.stop()
         },
-        rearmMic = { rearmDetector() },
+        rearmMic = { rearmDetectorLocked() },
         // The wake handoff owns the session and re-arms on its own terminal event.
         rearmAllowed = { !isHandlingDetection },
     )
@@ -789,15 +790,25 @@ class WakeWordService : Service() {
      * Pauses wake capture while another app records or Jandal's capture is silenced, and re-arms when that
      * ends (#2108). See [WakeMicContentionGate]. Yields to voice sessions through [micGate] as well.
      */
-    private val contentionGate = WakeMicContentionGate(
+    private val contentionGate: WakeMicContentionGate = WakeMicContentionGate(
         releaseMic = {
             Log.i(TAG, "WakeWordService: another app is recording — releasing wake mic")
+            recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
             wakeWordDetector.stop()
+            refreshNotification()
         },
-        rearmMic = { rearmDetector() },
+        rearmMic = { rearmDetectorLocked() },
         // A voice session or wake handoff owns the mic; its own terminal event re-arms the detector.
         rearmAllowed = { !isHandlingDetection && !micGate.voiceSessionActive },
-        ownSessionId = { wakeWordDetector.captureSessionId },
+        // The wake detector's own capture and the speech-to-text recorders are Jandal's, not another app's (#2109).
+        ownSessionIds = { setOfNotNull(wakeWordDetector.captureSessionId) + OwnMicCaptureSessions.snapshot() },
+        clockMs = { SystemClock.elapsedRealtime() },
+        scheduleRecheck = { delayMs ->
+            serviceScope.launch {
+                delay(delayMs)
+                micLock.withLock { contentionGate.onRecordingClients(currentMicClients()) }
+            }
+        },
     )
 
     /** One-shot guard: verifier model provisioning is requested at most once per service lifetime. */
@@ -842,7 +853,7 @@ class WakeWordService : Service() {
         }
 
         val foregroundStarted = tryPromoteToMicrophoneForeground(
-            promote = { startForeground(NOTIFICATION_ID, buildNotification(NOTIFICATION_TEXT_LISTENING)) },
+            promote = { startForeground(NOTIFICATION_ID, wakeNotification()) },
             onRejected = { error ->
                 Log.w(
                     TAG,
@@ -855,6 +866,18 @@ class WakeWordService : Service() {
         if (!foregroundStarted) {
             stopSelf(startId)
             return START_NOT_STICKY
+        }
+
+        // #2109: the notification's Pause and Resume actions arrive here, after the foreground promotion.
+        when (intent?.action) {
+            ACTION_PAUSE -> {
+                pauseByUser()
+                return START_STICKY
+            }
+            ACTION_RESUME -> {
+                resumeByUser()
+                return START_STICKY
+            }
         }
 
         // #1502: on the Honor device where the camera contends for the microphone, wake capture may
@@ -965,7 +988,7 @@ class WakeWordService : Service() {
         if (HonorCameraCoexistence.isAffectedDevice(this)) {
             startHonorCameraMonitor()
         } else {
-            rearmDetector()
+            requestRearm()
         }
     }
 
@@ -1007,7 +1030,7 @@ class WakeWordService : Service() {
             releaseVoiceCapture = { voiceInputController.stopListening() },
         )
         recordServiceError(WakeCategory.CAMERA_FOREGROUND_YIELD)
-        updateNotification(NOTIFICATION_TEXT_CAMERA_PAUSED)
+        refreshNotification()
     }
 
     /**
@@ -1037,7 +1060,7 @@ class WakeWordService : Service() {
             return
         }
         Log.i(TAG, "WakeWordService: camera not foreground — arming wake capture")
-        rearmDetector()
+        micLock.withLock { rearmDetectorLocked() }
     }
 
     /**
@@ -1081,7 +1104,7 @@ class WakeWordService : Service() {
                         if (WakeWordHandoff.heldTranscript?.wakeToken != WakeOverlayChannel.currentToken()) {
                             cancelWakeOverlayNotification()
                         }
-                        rearmDetector()
+                        requestRearm()
                     },
                     // #1502: a camera-driven yield must not be undone by the session's retry.
                     capturePermitted = { !isWakeCaptureSuspended },
@@ -1233,18 +1256,60 @@ class WakeWordService : Service() {
         silenced = isClientSilenced,
     )
 
-    /** Re-arms [wakeWordDetector] with the standard callbacks. */
-    private fun rearmDetector() {
+    /** Active microphone clients now, for a re-sync outside the recording callback (#2109). */
+    private fun currentMicClients(): List<MicRecordingClient> =
+        getSystemService(AudioManager::class.java)?.activeRecordingConfigurations?.map { it.toMicClient() }.orEmpty()
+
+    /** Re-arms the detector from a caller outside [micLock]. The re-arm itself checks every condition (#2109). */
+    private fun requestRearm() {
+        serviceScope.launch { micLock.withLock { rearmDetectorLocked() } }
+    }
+
+    /** Releases the detector from a caller outside [micLock], so a start cannot race the stop (#2109). */
+    private fun requestDetectorRelease() {
+        serviceScope.launch { micLock.withLock { wakeWordDetector.stop() } }
+    }
+
+    /** The notification's Pause action: release the mic until the user resumes (#2109). */
+    private fun pauseByUser() {
+        if (!userPause.pause()) return
+        Log.i(TAG, "WakeWordService: paused by user — releasing wake mic")
+        requestDetectorRelease()
+        refreshNotification()
+    }
+
+    /** The notification's Resume action: clear the user pause and re-arm (#2109). */
+    private fun resumeByUser() {
+        if (!userPause.resume()) return
+        Log.i(TAG, "WakeWordService: resumed by user — re-arming wake word detection")
+        refreshNotification()
+        requestRearm()
+    }
+
+    /**
+     * Re-arms [wakeWordDetector] with the standard callbacks. The caller holds [micLock]: the user pause,
+     * the contention gate and the detector change only under that lock, so the checks below still hold when
+     * `start()` runs (#2109). Callers outside the lock use [requestRearm].
+     */
+    private fun rearmDetectorLocked() {
+        // #2109: the user paused Hey Jandal from the notification. Only its Resume action re-arms.
+        if (userPause.paused) {
+            Log.i(TAG, "WakeWordService: paused by user — not re-arming")
+            return
+        }
+        // #2108: another app is recording (or our capture is silenced); WakeMicContentionGate re-arms.
+        // Re-read the clients first, so a missed callback cannot keep wake paused (#2109). If the gate
+        // unpauses here it re-arms through rearmMic, so this path returns without arming a second time.
+        if (contentionGate.paused) {
+            Log.i(TAG, "WakeWordService: another app is recording — re-syncing before re-arm")
+            contentionGate.onRecordingClients(currentMicClients())
+            return
+        }
         // #1502: a camera-driven suspension is a latch — no re-arm path may take the microphone
         // back while the Honor Camera needs it. On top of the latch, ask whether the camera owns
         // the foreground right now: that covers a session ending between the camera appearing and
         // the monitor's next poll, and a restart that lost the latch while the camera was already
         // in front (see HonorCameraCoexistence.shouldWithholdWakeCapture).
-        // #2108: another app is recording (or our capture is silenced); WakeMicContentionGate re-arms.
-        if (contentionGate.paused) {
-            Log.i(TAG, "WakeWordService: another app is recording — not re-arming")
-            return
-        }
         if (isWakeCaptureSuspended || HonorCameraCoexistence.shouldWithholdWakeCapture(this)) {
             Log.i(TAG, "WakeWordService: wake capture suspended — not re-arming")
             return
@@ -1287,7 +1352,7 @@ class WakeWordService : Service() {
             type = AcousticEventType.DETECTOR_REARMED,
             generationId = generationId,
         )
-        updateNotification(NOTIFICATION_TEXT_LISTENING)
+        refreshNotification()
     }
 
     /**
@@ -1346,21 +1411,52 @@ class WakeWordService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        // #2109: one action, Pause while listening and Resume after the user paused.
+        val paused = userPause.paused
+        val toggleIntent = PendingIntent.getService(
+            this,
+            if (paused) 2 else 1,
+            Intent(this, WakeWordService::class.java).setAction(if (paused) ACTION_RESUME else ACTION_PAUSE),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val toggleAction = Notification.Action.Builder(
+            android.graphics.drawable.Icon.createWithResource(
+                this,
+                if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+            ),
+            if (paused) "Resume" else "Pause",
+            toggleIntent,
+        ).build()
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Hey Jandal")
             .setContentText(text)
             .setContentIntent(tapIntent)
+            .addAction(toggleAction)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
     }
 
+    /** The notification for the current state; also records it as the shown text (#2109). */
+    private fun wakeNotification(): Notification {
+        val text = currentWakeText()
+        notificationText = text
+        return buildNotification(text)
+    }
+
+    private fun currentWakeText(): String =
+        wakeNotificationText(userPause.paused, isWakeCaptureSuspended, contentionGate.paused)
+
     /**
-     * #1502: keep the ongoing notification truthful about whether Jandal is actually listening —
-     * it must not claim to listen while wake capture is suspended for the Honor Camera. No-op when
-     * the text is unchanged, so repeated re-arms do not churn the notification.
+     * #1502, #2109: keep the ongoing notification truthful about why wake is or is not listening. No-op when
+     * the text is unchanged, so repeated re-arms do not churn the notification. Each state has its own text,
+     * so the text is enough to detect a change, including the Pause/Resume action.
      */
+    private fun refreshNotification() {
+        updateNotification(currentWakeText())
+    }
+
     private fun updateNotification(text: String) {
         if (notificationText == text) return
         notificationText = text
@@ -1419,7 +1515,7 @@ class WakeWordService : Service() {
         fun pause(context: Context) {
             instance?.get()?.let { svc ->
                 Log.i("KernelAI", "WakeWordService: pausing (mic requested by external caller)")
-                svc.wakeWordDetector.stop()
+                svc.requestDetectorRelease()
             }
         }
 
@@ -1430,7 +1526,7 @@ class WakeWordService : Service() {
         fun resume(context: Context) {
             instance?.get()?.let { svc ->
                 Log.i("KernelAI", "WakeWordService: resuming wake word detection")
-                svc.rearmDetector()
+                svc.requestRearm()
             }
         }
     }

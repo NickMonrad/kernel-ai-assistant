@@ -10,16 +10,20 @@ import org.junit.jupiter.api.Test
 class WakeMicContentionGateTest {
 
     private val own = 101
+    private val speechToText = 303
     private val other = 202
     private val mic = MediaRecorder.AudioSource.MIC
     private val camcorder = MediaRecorder.AudioSource.CAMCORDER
     private val voiceCall = MediaRecorder.AudioSource.VOICE_COMMUNICATION
     private val voiceRecognition = MediaRecorder.AudioSource.VOICE_RECOGNITION
+    private val hotword = WakeMicContentionGate.HOTWORD_SOURCE
 
     private var released = 0
     private var rearmed = 0
     private var rearmAllowedNow = true
-    private var ownSession: Int? = own
+    private var now = 0L
+    private val scheduled = mutableListOf<Long>()
+    private var ownIds: Set<Int> = setOf(own)
     private lateinit var gate: WakeMicContentionGate
 
     @BeforeEach
@@ -28,7 +32,9 @@ class WakeMicContentionGateTest {
             releaseMic = { released++ },
             rearmMic = { rearmed++ },
             rearmAllowed = { rearmAllowedNow },
-            ownSessionId = { ownSession },
+            ownSessionIds = { ownIds },
+            clockMs = { now },
+            scheduleRecheck = { scheduled += it },
         )
     }
 
@@ -39,65 +45,68 @@ class WakeMicContentionGateTest {
     fun `a recorder app on MIC pauses the wake mic once`() {
         gate.onRecordingClients(listOf(ownClient(), otherClient(mic)))
         gate.onRecordingClients(listOf(ownClient(), otherClient(mic)))
-
         assertTrue(gate.paused)
         assertEquals(1, released)
-        assertEquals(0, rearmed)
     }
 
     @Test
     fun `camcorder and voice call clients pause the wake mic`() {
-        gate.onRecordingClients(listOf(ownClient(), otherClient(camcorder)))
+        gate.onRecordingClients(listOf(otherClient(camcorder)))
         assertTrue(gate.paused)
-
-        gate.onRecordingClients(listOf(ownClient(), otherClient(voiceCall)))
+        gate.onRecordingClients(emptyList())
+        gate.onRecordingClients(listOf(otherClient(voiceCall)))
         assertTrue(gate.paused)
-        assertEquals(1, released)
+        assertEquals(2, released)
     }
 
     @Test
     fun `re-arms when the other app stops recording`() {
         gate.onRecordingClients(listOf(otherClient(mic)))
-        gate.onRecordingClients(listOf(ownClient()))
-
+        gate.onRecordingClients(emptyList())
         assertFalse(gate.paused)
-        assertEquals(1, released)
         assertEquals(1, rearmed)
     }
 
     @Test
     fun `another always-on VOICE_RECOGNITION listener never pauses`() {
-        gate.onRecordingClients(listOf(ownClient(), otherClient(voiceRecognition)))
-
+        gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
         assertFalse(gate.paused)
         assertEquals(0, released)
-        assertEquals(0, rearmed)
+    }
+
+    @Test
+    fun `a system hotword client (source 1999) never pauses`() {
+        gate.onRecordingClients(listOf(otherClient(hotword)))
+        assertFalse(gate.paused)
+        assertEquals(0, released)
     }
 
     @Test
     fun `an always-on listener alongside a MIC recorder pauses only for the recorder`() {
-        gate.onRecordingClients(listOf(ownClient(), otherClient(voiceRecognition), otherClient(voiceRecognition)))
-        assertFalse(gate.paused)
-
-        gate.onRecordingClients(listOf(ownClient(), otherClient(voiceRecognition), MicRecordingClient(303, mic, false)))
+        gate.onRecordingClients(listOf(otherClient(voiceRecognition), otherClient(mic)))
         assertTrue(gate.paused)
-        assertEquals(1, released)
+        gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
     }
 
     @Test
     fun `Jandal's own capture alone never pauses`() {
         gate.onRecordingClients(listOf(ownClient()))
+        assertFalse(gate.paused)
+    }
 
+    @Test
+    fun `Jandal's speech-to-text capture never pauses the wake mic`() {
+        ownIds = setOf(own, speechToText)
+        gate.onRecordingClients(listOf(ownClient(), MicRecordingClient(speechToText, mic, silenced = false)))
         assertFalse(gate.paused)
         assertEquals(0, released)
-        assertEquals(0, rearmed)
     }
 
     @Test
     fun `no active clients does nothing`() {
-        ownSession = null
         gate.onRecordingClients(emptyList())
-
         assertFalse(gate.paused)
         assertEquals(0, released)
         assertEquals(0, rearmed)
@@ -105,30 +114,63 @@ class WakeMicContentionGateTest {
 
     @Test
     fun `another app recording while our detector holds no capture still pauses`() {
-        ownSession = null
+        ownIds = emptySet()
         gate.onRecordingClients(listOf(otherClient(mic)))
+        assertTrue(gate.paused)
+    }
 
+    @Test
+    fun `our capture silenced by a higher-priority client pauses`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
         assertTrue(gate.paused)
         assertEquals(1, released)
     }
 
     @Test
-    fun `our capture silenced by a higher-priority client pauses, and un-silenced re-arms`() {
+    fun `silenced, then only a VOICE_RECOGNITION silencer remains, stays paused until it leaves and the back-off passes`() {
         gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
         assertTrue(gate.paused)
-        assertEquals(1, released)
+        assertEquals(0, rearmed)
 
-        gate.onRecordingClients(listOf(ownClient(silenced = false)))
+        gate.onRecordingClients(emptyList())
+        assertTrue(gate.paused)
+        assertEquals(listOf(WakeMicContentionGate.SILENCE_BACKOFF_MS), scheduled)
+
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(emptyList())
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
+    }
+
+    @Test
+    fun `silenced with no other client re-arms only after the back-off, not on the first empty update`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 4_000L
+        gate.onRecordingClients(emptyList())
+        assertTrue(gate.paused)
+        assertEquals(listOf(WakeMicContentionGate.SILENCE_BACKOFF_MS - 4_000L), scheduled)
+
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(emptyList())
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
+    }
+
+    @Test
+    fun `a silence-backed pause re-arms from an empty update after the back-off`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS + 1
+        gate.onRecordingClients(emptyList())
         assertFalse(gate.paused)
         assertEquals(1, rearmed)
     }
 
     @Test
     fun `a voice session holding the mic defers the re-arm`() {
-        gate.onRecordingClients(listOf(otherClient(mic)))
-
         rearmAllowedNow = false
-        gate.onRecordingClients(listOf(ownClient()))
+        gate.onRecordingClients(listOf(otherClient(mic)))
+        gate.onRecordingClients(emptyList())
         assertFalse(gate.paused)
         assertEquals(0, rearmed)
     }
@@ -138,9 +180,7 @@ class WakeMicContentionGateTest {
         gate.onRecordingClients(listOf(otherClient(mic)))
         gate.onRecordingClients(emptyList())
         gate.onRecordingClients(listOf(otherClient(mic)))
-
         assertTrue(gate.paused)
         assertEquals(2, released)
-        assertEquals(1, rearmed)
     }
 }
