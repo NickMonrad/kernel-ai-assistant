@@ -447,12 +447,20 @@ Recall is low at β 5, as in the real set.
 
 Listening set (not scored, not in git): six owner sentences rendered in the same ICL mode, kept privately.
 
-## Tuning (pre-registered amendment 5; in progress)
+## Tuning (pre-registered amendments 5–6; result: current rule kept)
 
-Pre-registration: `HELDOUT-PREREG-v3-amendment-5.md`, committed before any tuning audio was synthesised. The
-owner's real recordings are no longer a blind test set: they were scored and used for β 5, and the tuning set
-shares their 50 script texts. The real set is re-scored once with the frozen config at the end (reuse disclosed).
-Results are added to this section when the run finishes.
+Pre-registration: `HELDOUT-PREREG-v3-amendment-5.md` (before any tuning audio) and `HELDOUT-PREREG-v3-amendment-6.md`
+(frozen decision, after the sweep). The owner's real recordings are not a blind set: they were scored for β 5 and
+share their 50 script texts with the tuning set. Disclosed in both amendments.
+
+Tuning set: 226 synthetic clips (113 clean, 113 at 10 dB babble); 25 excluded for intelligibility (faster-whisper
+word ratio < 0.60); 201 scored across M/L × full/hint/trigger. Grid: 80 configs. No config satisfies both hard
+constraints (0 gold substitutions and 0 non-identity false-boost rewrites): 34 configs have 0 substitutions, 32
+have 0 false-boost rewrites, none has both. Fallback in amendment 5 applies: the current rule (β 5, margin 1.0,
+boundary on, competitor runner-ups counted) is kept.
+
+Current rule, all six cells: gold correct 283 of 672; gold substitutions 6 (all L); false-boost rewrites 6 of 444.
+
 
 ## Privacy
 
