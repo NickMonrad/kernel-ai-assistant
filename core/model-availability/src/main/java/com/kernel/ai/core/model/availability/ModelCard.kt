@@ -210,7 +210,7 @@ fun ModelCardCompact(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.Top) {
                     if (showLock) {
                         Icon(
                             imageVector = Icons.Default.Lock,
@@ -223,8 +223,6 @@ fun ModelCardCompact(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (!description.isNullOrBlank()) {
