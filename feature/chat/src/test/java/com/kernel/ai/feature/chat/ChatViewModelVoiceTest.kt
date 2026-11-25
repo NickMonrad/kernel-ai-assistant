@@ -1602,6 +1602,42 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `one-shot slot question reopens the mic once after it is spoken`() = runTest(dispatcher) {
+        val timerSlot = SlotSpec(name = "duration", promptTemplate = "How long would you like the timer for?")
+        var slotOpen = false
+        every { slotFillerManager.startSlotFill(any(), any()) } answers { slotOpen = true }
+        every { slotFillerManager.pendingRequestFor(any()) } answers {
+            if (slotOpen) {
+                PendingSlotRequest(intentName = "set_timer", existingParams = emptyMap(), missingSlot = timerSlot)
+            } else {
+                null
+            }
+        }
+        every { quickIntentRouter.route("Set a timer") } returns QuickIntentRouter.RouteResult.NeedsSlot(
+            intent = QuickIntentRouter.MatchedIntent(intentName = "set_timer", params = emptyMap()),
+            missingSlot = timerSlot,
+        )
+        coEvery { voiceInputController.startListening(VoiceCaptureMode.Command) } returns
+            VoiceInputStartResult.Started(1L)
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Set a timer", captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("How long would you like the timer for?"))
+        advanceUntilIdle()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // The question finished: the one-shot mic reopens for the slot answer, exactly once.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
+    }
+
+    @Test
     fun `back-and-forth voice re-arms listening after spoken reply playback stops`() = runTest(dispatcher) {
         every { quickIntentRouter.route("Hello loop") } returns
             QuickIntentRouter.RouteResult.FallThrough(input = "Hello loop")

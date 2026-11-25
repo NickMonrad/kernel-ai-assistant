@@ -126,6 +126,7 @@ class ActionsViewModelVoiceTest {
         every { voiceInputController.notices } returns voiceInputNotices
         every { voiceInputController.stopListening() } just Runs
         coEvery { voiceInputController.prewarm() } just Runs
+        coEvery { voiceInputController.startListening(any()) } returns VoiceInputStartResult.Started(1L)
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.speak(any()) } returns VoiceOutputResult.Spoken
         coEvery { voiceOutputController.openStreamingSession(any()) } answers {
@@ -247,7 +248,7 @@ class ActionsViewModelVoiceTest {
             )
 
         viewModel.executeAction("send a message to Laurelle", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         val pending = viewModel.pendingSlot.value
         assertNotNull(pending)
@@ -279,7 +280,7 @@ class ActionsViewModelVoiceTest {
             )
 
         viewModel.executeAction("remind me to call my mum on Monday", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         // Assistant framing ("should I remind you") stays first-person; only the echoed user value
         // ("call my mum") is flipped to second-person ("call your mum"). (#1012 RCA — TTS pronoun bug.)
@@ -308,7 +309,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("at bridge to my last", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         assertEquals(
             "bread",
@@ -344,7 +345,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("and bred to my last", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         assertEquals(
             "bread",
@@ -373,7 +374,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("and ice cream to my last", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         assertEquals(
             "ice cream",
@@ -402,7 +403,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("create a new lust", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         assertEquals(
             "list_name",
@@ -431,7 +432,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("add a bridge to my list", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         assertEquals(
             "bread",
@@ -484,7 +485,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         voiceViewModel.onSlotReply("Nick")
         runCurrent()
@@ -535,7 +536,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         voiceViewModel.onSlotReply("Nick")
         runCurrent()
@@ -566,7 +567,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         voiceViewModel.onSlotReply("Nick")
         runCurrent()
@@ -598,7 +599,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         voiceViewModel.onSlotReply("Nick")
         runCurrent()
@@ -631,7 +632,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
+        runCurrent()
         // TTS speaks the pronoun-normalised text ("your wife"), so SpeakingStarted carries that text.
         voiceOutputEvents.emit(
             VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
@@ -649,6 +650,85 @@ class ActionsViewModelVoiceTest {
 
         coVerify { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
         verify(exactly = 1) { voiceOutputController.stop() }
+    }
+
+    @Test
+    fun `slot question cut off by a screen stop is asked again on resume and the mic opens after it`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+        val question = "What would you like to say to your wife?"
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceTimeBy(200)
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
+        runCurrent()
+        // Home stops the screen mid-question: the speech is cut and the mic stays closed.
+        viewModel.onScreenStopped(screenOff = false)
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(500)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        // Back on screen: the cut question is asked again in full, then the mic opens after it.
+        viewModel.onScreenResumed()
+        runCurrent()
+        coVerify(exactly = 2) { voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == question }) }
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(350)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `slot question that finishes while the screen is away opens the mic only after resume`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+        val question = "What would you like to say to your wife?"
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceTimeBy(200)
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted(question))
+        runCurrent()
+        // Screen off: speech keeps playing in the background, but no mic opens while away.
+        viewModel.onScreenStopped(screenOff = true)
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(1_000)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        viewModel.onScreenResumed()
+        advanceTimeBy(350)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
+    fun `slot question that never starts is asked once more, then the slot mic opens`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+        val question = "What would you like to say to your wife?"
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        // No SpeakingStarted ever arrives: the watchdog re-asks once after 10 s, then falls back to the mic.
+        advanceTimeBy(10_000)
+        runCurrent()
+        coVerify(exactly = 2) { voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == question }) }
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+
+        advanceTimeBy(10_000)
+        runCurrent()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
     }
 
     @Test
@@ -671,7 +751,7 @@ class ActionsViewModelVoiceTest {
         )
 
         voiceViewModel.executeAction("send an email", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
         voiceOutputEvents.emit(
             VoiceOutputEvent.SpeakingStarted("Who would you like to email?"),
         )
@@ -681,7 +761,7 @@ class ActionsViewModelVoiceTest {
         runCurrent()
 
         voiceViewModel.onSlotReply("Nick")
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         advanceTimeBy(351)
         runCurrent()
@@ -717,7 +797,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(9_000)
 
         viewModel.pauseTransientVoiceUi()
         voiceOutputEvents.emit(
@@ -1075,7 +1155,7 @@ class ActionsViewModelVoiceTest {
     fun `slot safety net opens the mic only while the re-arm is armed`() = runTest(dispatcher) {
         stubWifeSmsSlot()
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(200)
         assertTrue(viewModel.slotReplyAutoRearmArmed.value)
 
         // Armed and in the foreground: the safety net opens the mic, which disarms the re-arm.
@@ -1148,11 +1228,11 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(200)
         voiceOutputEvents.emit(
             VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"),
         )
-        advanceUntilIdle()
+        runCurrent()
 
         assertEquals(
             ActionsViewModel.VoicePlaybackState.Speaking("What would you like to say to your wife?"),
@@ -1477,7 +1557,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         spokenResponsesEnabled.value = false
         runCurrent()
@@ -3024,7 +3104,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a message to Bob", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         // Put ViewModel into SlotReply capture state so it owns the mode.
         viewModel.startVoiceSlotReply()
@@ -3040,7 +3120,7 @@ class ActionsViewModelVoiceTest {
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
             ),
         )
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         assertEquals(ActionsViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
         assertNotNull(viewModel.pendingSlot.value)
@@ -3072,7 +3152,7 @@ class ActionsViewModelVoiceTest {
                 category = NO_SPEECH_WINDOW_EXHAUSTED,
             ),
         )
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         assertNotNull(viewModel.pendingSlot.value)
         coVerify(atLeast = 2) {
@@ -3382,7 +3462,7 @@ class ActionsViewModelVoiceTest {
         } returns VoiceInputStartResult.Started(1L)
 
         viewModel.executeAction("send a text to Dave", InputMode.Voice)
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         // ── Exhaust the retry budget (SLOT_REPLY_MAX_VOICE_RETRIES = 2 retries) ──
 
@@ -3393,7 +3473,7 @@ class ActionsViewModelVoiceTest {
 
         // Error 1 → retry 1: reprompt spoken, auto-rearm armed.
         voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
@@ -3408,7 +3488,7 @@ class ActionsViewModelVoiceTest {
         voiceInputEvents.emit(VoiceInputEvent.ListeningStarted(VoiceCaptureMode.SlotReply, captureSessionId = 1L))
         advanceUntilIdle()
         voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         // Simulate TTS completing → auto-rearm restarts mic.
         voiceOutputEvents.emit(
@@ -3442,7 +3522,7 @@ class ActionsViewModelVoiceTest {
 
         // First error of the new session → reprompt should fire (retry budget is fresh).
         voiceInputEvents.emit(VoiceInputEvent.Error(VoiceCaptureMode.SlotReply, "no speech", captureSessionId = 1L))
-        advanceUntilIdle()
+        advanceTimeBy(200)
 
         // A 3rd reprompt speak confirms the retry path fired (not the exhaustion path).
         coVerify(atLeast = 3) {
@@ -3476,7 +3556,7 @@ class ActionsViewModelVoiceTest {
             } returns VoiceInputStartResult.Started(1L)
 
             viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-            advanceUntilIdle()
+            advanceTimeBy(200)
 
             // Sherpa emits SpeakingStarted with the normalised text (pronouns replaced).
             voiceOutputEvents.emit(
@@ -4811,7 +4891,7 @@ class ActionsViewModelVoiceTest {
             } returns VoiceInputStartResult.Started(1L)
 
             viewModel.executeAction("send a text message to my wife", InputMode.Voice)
-            advanceUntilIdle()
+            advanceTimeBy(200)
 
             // One-shot speak, so every engine reports SpeakingStarted with the exact prompt text
             // the re-arm matches on (Android TTS streaming would report a re-normalised chunk).

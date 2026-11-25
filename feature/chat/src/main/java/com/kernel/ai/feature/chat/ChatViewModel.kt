@@ -481,6 +481,8 @@ class ChatViewModel @Inject constructor(
     */
     private var chatCommandVoiceRetryCount = 0
     private var awaitingVoicePlaybackCompletion = false
+    /** Set when a spoken reply is a slot question: a one-shot mic reopens once it has played (#2083). */
+    private var reopenMicAfterSpeech = false
     /** Set by a stop while generating; the re-arm waits for generation to complete (SF2). */
     private var rearmBackAndForthAfterGeneration = false
 
@@ -931,13 +933,16 @@ class ChatViewModel @Inject constructor(
                             speakMessageJob = null
                         }
                         val shouldHandleCompletion = awaitingVoicePlaybackCompletion
+                        val reopenForSlotQuestion = reopenMicAfterSpeech
                         awaitingVoicePlaybackCompletion = false
+                        reopenMicAfterSpeech = false
                         if (!shouldHandleCompletion) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Idle
-                        if (_voiceMode.value == VoiceMode.BackAndForth) {
-                            rearmVoiceInput()
-                        } else {
-                            _voiceMode.value = null
+                        when {
+                            _voiceMode.value == VoiceMode.BackAndForth -> rearmVoiceInput()
+                            // One-shot slot question: reopen the mic once (#2083). Other one-shot answers end here.
+                            reopenForSlotQuestion && _voiceMode.value == VoiceMode.OneShot && !backgroundPaused -> rearmVoiceInput()
+                            else -> _voiceMode.value = null
                         }
                     }
                 }
@@ -1865,11 +1870,11 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Re-arms voice listening for the next back-and-forth turn. Only called internally after a
-     * spoken reply finishes; guards against starting if the mode was cleared in the interim.
+     * Re-arms voice listening after a spoken reply: a back-and-forth turn, or a one-shot slot question
+     * that asked for its answer (#2083). Guards against starting if the mode was cleared in the interim.
      */
     private fun rearmVoiceInput() {
-        if (_voiceMode.value != VoiceMode.BackAndForth) return
+        if (_voiceMode.value == null) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
         // #2070: each back-and-forth turn gets its own silence retry.
@@ -4413,6 +4418,7 @@ class ChatViewModel @Inject constructor(
     /** Stops chat speech; [reason] is logged on the reply's `speak_end` (#1942), null when there is no clear cause. */
     fun stopVoicePlayback(reason: SpeechStopReason? = null) {
         awaitingVoicePlaybackCompletion = false
+        reopenMicAfterSpeech = false
         pendingVoiceReply = false
         suppressVoiceOutputForCurrentResponse = true
         stopChatSpeech(reason)
@@ -4739,6 +4745,9 @@ class ChatViewModel @Inject constructor(
         }
 
         awaitingVoicePlaybackCompletion = true
+        // A spoken slot question reopens a one-shot mic once it has played (#2083).
+        reopenMicAfterSpeech = _voiceMode.value == VoiceMode.OneShot &&
+            conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null
         assistantSpeechJob?.cancel()
         assistantSpeechJob = viewModelScope.launch {
             val result = try {

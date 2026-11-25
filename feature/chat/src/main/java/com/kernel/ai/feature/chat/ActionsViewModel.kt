@@ -70,6 +70,8 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
+private const val SLOT_PROMPT_START_TIMEOUT_MS = 10_000L
+private const val SLOT_PROMPT_PLAYBACK_SAFETY_MS = 15_000L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
 
@@ -381,6 +383,17 @@ class ActionsViewModel @Inject constructor(
      * opens the mic.
      */
     private var backgroundPaused = false
+
+    /** Slot question cut off mid-speech by the screen's ON_STOP; asked again on ON_RESUME (#2082). */
+    private var slotPromptNeedsSpeech = false
+
+    /** Slot question finished while the screen was away; its mic re-arm waits for ON_RESUME (#2082). */
+    private var slotReplyRearmDeferred = false
+
+    /** Slot-question playback watchdog (#2082); see [onSlotPromptWatchdog]. */
+    private var slotPromptWatchdogJob: Job? = null
+    private var slotPromptWatchdogRespeaks = 0
+
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -455,6 +468,8 @@ class ActionsViewModel @Inject constructor(
                     is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
                         if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
+                        // The slot mic is open: the never-started fallback no longer applies.
+                        if (event.mode == VoiceCaptureMode.SlotReply) cancelSlotPromptWatchdog()
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.takeIf { it.mode == event.mode }
                             ?.transcript
@@ -637,6 +652,7 @@ class ActionsViewModel @Inject constructor(
                         if (event.text == expectedSlotPromptSpeech) {
                             _slotPromptPlaybackStarted.value = true
                             Log.d(TAG, "ActionsViewModel: slot prompt playback started")
+                            armSlotPromptWatchdog(SLOT_PROMPT_PLAYBACK_SAFETY_MS)
                         }
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
@@ -655,20 +671,19 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle &&
                             _slotPromptPlaybackStarted.value
                         ) {
-                            setSlotReplyAutoRearmArmed(false, "voiceOutputSpeakingStopped")
-                            clearExpectedSlotPromptSpeech()
                             cancelPendingVoiceSlotReplyRestart()
-                            pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
-                                delay(SLOT_REPLY_REARM_DELAY_MS)
-                                if (
-                                    _pendingSlot.value?.inputMode == InputMode.Voice &&
-                                    _voiceCaptureState.value == VoiceCaptureState.Idle
-                                ) {
-                                    startVoiceCapture(
-                                        mode = VoiceCaptureMode.SlotReply,
-                                        userInitiated = false,
-                                        interruptPlayback = false,
-                                    )
+                            when {
+                                slotPromptNeedsSpeech ->
+                                    Log.d(TAG, "ActionsViewModel: slot question cut by screen stop; re-asked on resume")
+                                backgroundPaused -> {
+                                    // The prompt finished while the screen was away: the mic waits for ON_RESUME (#2082).
+                                    slotReplyRearmDeferred = true
+                                    Log.d(TAG, "ActionsViewModel: slot prompt finished while screen away; re-arm deferred")
+                                }
+                                else -> {
+                                    setSlotReplyAutoRearmArmed(false, "voiceOutputSpeakingStopped")
+                                    clearExpectedSlotPromptSpeech()
+                                    scheduleSlotReplyRearm()
                                 }
                             }
                         } else if (
@@ -876,6 +891,7 @@ class ActionsViewModel @Inject constructor(
     fun onScreenResumed() {
         if (backgroundPaused) Log.d(TAG, "ActionsViewModel: screen resumed, background pause cleared")
         backgroundPaused = false
+        resumeSlotReplyVoice()
     }
 
     /**
@@ -884,11 +900,10 @@ class ActionsViewModel @Inject constructor(
      * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
      * privacy, but leaves spoken output running so the reply finishes in the background. It also
      * skips cancelPendingVoiceSpeech(), so a pending command retry still speaks its prompt; its
-     * mic start is blocked by [backgroundPaused]. It skips clearExpectedSlotPromptSpeech() because
-     * the slot prompt may still be playing: its expected text and [slotPromptPlaybackStarted] stay
-     * accurate for the sheet if the user returns mid-prompt, and with the re-arm disarmed and
-     * [backgroundPaused] set they cannot open the mic.
+     * mic start is blocked by [backgroundPaused]. A slot question still playing keeps its re-arm
+     * armed, so its completion is deferred until [onScreenResumed] (#2082).
      * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
+     * A slot question cut mid-speech keeps its text and is asked again on [onScreenResumed] (#2082).
      */
     fun pauseTransientVoiceUi(
         reason: String = "unspecified",
@@ -901,15 +916,18 @@ class ActionsViewModel @Inject constructor(
                 "pendingSlot=${_pendingSlot.value != null} " +
                 "voiceCaptureState=${_voiceCaptureState.value} voicePlaybackState=${_voicePlaybackState.value}",
         )
-        setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
+        val slotQuestionSpeaking = isSlotQuestionSpeaking()
+        if (!slotQuestionSpeaking) setSlotReplyAutoRearmArmed(false, "pauseTransientVoiceUi:$reason")
         cancelPendingVoiceSlotReplyRestart()
         clearActionsVoiceCapture(discard = true)
         if (keepSpeech) return
-        clearExpectedSlotPromptSpeech()
+        // A cut slot question keeps its text so onScreenResumed can ask it again (#2082).
+        if (!slotQuestionSpeaking) clearExpectedSlotPromptSpeech()
         cancelPendingVoiceSpeech()
         stopActionSpeech()
         stopAllVoiceOutput(stopReason)
         _voicePlaybackState.value = VoicePlaybackState.Idle
+        if (slotQuestionSpeaking) slotPromptNeedsSpeech = true
     }
 
 
@@ -1931,7 +1949,9 @@ class ActionsViewModel @Inject constructor(
         } else {
             null
         }
-        _slotPromptPlaybackStarted.value = false
+        slotPromptNeedsSpeech = false
+        slotReplyRearmDeferred = false
+        slotPromptWatchdogRespeaks = 0
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
@@ -2416,6 +2436,7 @@ class ActionsViewModel @Inject constructor(
         // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
         // so chunking would gain nothing.
         val isSlotPrompt = summary == expectedSlotPromptSpeech
+        if (isSlotPrompt && shouldAutoStartVoiceSlotReply) armSlotPromptWatchdog(SLOT_PROMPT_START_TIMEOUT_MS)
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
@@ -2448,6 +2469,92 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSlotReplyRestart() {
         pendingVoiceSlotReplyRestartJob?.cancel()
         pendingVoiceSlotReplyRestartJob = null
+        cancelSlotPromptWatchdog()
+    }
+
+    private fun scheduleSlotReplyRearm() {
+        cancelPendingVoiceSlotReplyRestart()
+        pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
+            delay(SLOT_REPLY_REARM_DELAY_MS)
+            if (
+                _pendingSlot.value?.inputMode != InputMode.Voice ||
+                _voiceCaptureState.value != VoiceCaptureState.Idle
+            ) return@launch
+            if (backgroundPaused) {
+                // The screen left during the re-arm delay: the mic waits for ON_RESUME (#2082).
+                slotReplyRearmDeferred = true
+                return@launch
+            }
+            startVoiceCapture(
+                mode = VoiceCaptureMode.SlotReply,
+                userInitiated = false,
+                interruptPlayback = false,
+            )
+        }
+    }
+
+    /** ON_RESUME: finish a slot question that was cut off or completed while the screen was away (#2082). */
+    private fun resumeSlotReplyVoice() {
+        if (_pendingSlot.value?.inputMode != InputMode.Voice || !shouldAutoStartVoiceSlotReply) {
+            slotPromptNeedsSpeech = false
+            slotReplyRearmDeferred = false
+            return
+        }
+        if (slotPromptNeedsSpeech) {
+            slotPromptNeedsSpeech = false
+            slotReplyRearmDeferred = false
+            val question = expectedSlotPromptSpeech ?: return
+            Log.d(TAG, "ActionsViewModel: re-asking slot question cut off by screen stop")
+            speakForVoice(InputMode.Voice, question, spokenOverride = question)
+            return
+        }
+        if (slotReplyRearmDeferred) {
+            slotReplyRearmDeferred = false
+            if (_voiceCaptureState.value == VoiceCaptureState.Idle) {
+                setSlotReplyAutoRearmArmed(false, "resumeRearm")
+                clearExpectedSlotPromptSpeech()
+                scheduleSlotReplyRearm()
+            }
+        }
+    }
+
+    /** True while the slot question itself is being spoken (its text is the expected prompt). */
+    private fun isSlotQuestionSpeaking(): Boolean =
+        expectedSlotPromptSpeech != null &&
+            _voicePlaybackState.value is VoicePlaybackState.Speaking &&
+            _pendingSlot.value?.inputMode == InputMode.Voice
+
+    private fun armSlotPromptWatchdog(timeoutMs: Long) {
+        slotPromptWatchdogJob?.cancel()
+        slotPromptWatchdogJob = viewModelScope.launch {
+            delay(timeoutMs)
+            onSlotPromptWatchdog()
+        }
+    }
+
+    private fun cancelSlotPromptWatchdog() {
+        slotPromptWatchdogJob?.cancel()
+        slotPromptWatchdogJob = null
+    }
+
+    /**
+     * Slot-question playback watchdog (#2082), owned here rather than by the sheet's composition:
+     * playback that never starts is re-asked once; playback that started but never stopped, or a
+     * second silent start, opens the mic through the existing fallback.
+     */
+    private fun onSlotPromptWatchdog() {
+        slotPromptWatchdogJob = null
+        if (_pendingSlot.value?.inputMode != InputMode.Voice || !shouldAutoStartVoiceSlotReply) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle || backgroundPaused) return
+        val question = expectedSlotPromptSpeech ?: return
+        if (!_slotPromptPlaybackStarted.value && slotPromptWatchdogRespeaks < 1) {
+            slotPromptWatchdogRespeaks++
+            Log.w(TAG, "ActionsViewModel: slot question never started; re-asking once")
+            speakForVoice(InputMode.Voice, question, spokenOverride = question)
+            return
+        }
+        Log.w(TAG, "ActionsViewModel: slot question playback stalled; opening slot mic")
+        startAutoVoiceSlotReply()
     }
 
     private fun setSlotReplyAutoRearmArmed(armed: Boolean, reason: String) {
@@ -2459,6 +2566,10 @@ class ActionsViewModel @Inject constructor(
     private fun clearExpectedSlotPromptSpeech() {
         expectedSlotPromptSpeech = null
         _slotPromptPlaybackStarted.value = false
+        slotPromptNeedsSpeech = false
+        slotReplyRearmDeferred = false
+        slotPromptWatchdogRespeaks = 0
+        cancelSlotPromptWatchdog()
     }
 
     private fun cancelPendingVoiceSpeech() {
