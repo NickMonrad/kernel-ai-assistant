@@ -1,14 +1,17 @@
 package com.kernel.ai.assistant
 
+import android.media.MediaRecorder
+
 /** One active microphone client from `AudioRecordingCallback`, reduced to what arbitration needs (#2108). */
-internal data class MicRecordingClient(val sessionId: Int, val silenced: Boolean)
+internal data class MicRecordingClient(val sessionId: Int, val source: Int, val silenced: Boolean)
 
 /**
  * Steps wake capture aside while another app records, and re-arms when that ends (#2108).
  *
- * Paused when any client other than Jandal's own capture is recording, or when Jandal's own capture is
- * silenced by the audio server (a higher-priority client took the input). [ownSessionId] is the audio
- * session of the wake detector's live AudioRecord, or null while it holds no capture.
+ * Owner rule (#2109): always-on wake and hotword listeners are not recordings. Other apps' clients
+ * that capture with [MediaRecorder.AudioSource.VOICE_RECOGNITION] are ignored. Recorders, camera
+ * video and calls use other sources (MIC, CAMCORDER, VOICE_COMMUNICATION, ...) and pause Jandal.
+ * Our own capture, identified by [ownSessionId], never pauses us unless the audio server silenced it.
  *
  * [rearmAllowed] is false while a voice session or wake handoff owns the mic; the transition out of
  * contention then does not re-arm, and that owner re-arms on its own terminal event. [rearmMic] must
@@ -27,7 +30,13 @@ internal class WakeMicContentionGate(
     /** Called with the full active-client list on every recording-configuration change. */
     fun onRecordingClients(clients: List<MicRecordingClient>) {
         val own = ownSessionId()
-        val contended = clients.any { it.sessionId != own || it.silenced }
+        val contended = clients.any { client ->
+            if (client.sessionId == own) {
+                client.silenced
+            } else {
+                client.source !in ALWAYS_ON_SOURCES
+            }
+        }
         when {
             contended && !paused -> {
                 paused = true
@@ -38,5 +47,14 @@ internal class WakeMicContentionGate(
                 if (rearmAllowed()) rearmMic()
             }
         }
+    }
+
+    companion object {
+        /**
+         * Sources used by always-on listeners (wake words, hotwords, assistant dictation). A client on one
+         * of these never pauses Jandal. Only the public VOICE_RECOGNITION constant is listed: the hidden
+         * HOTWORD source cannot be referenced from the SDK.
+         */
+        val ALWAYS_ON_SOURCES: Set<Int> = setOf(MediaRecorder.AudioSource.VOICE_RECOGNITION)
     }
 }

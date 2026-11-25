@@ -1227,8 +1227,11 @@ class WakeWordService : Service() {
         getSystemService(AudioManager::class.java)?.unregisterAudioRecordingCallback(recordingCallback)
     }
 
-    private fun AudioRecordingConfiguration.toMicClient() =
-        MicRecordingClient(sessionId = clientAudioSessionId, silenced = isClientSilenced)
+    private fun AudioRecordingConfiguration.toMicClient() = MicRecordingClient(
+        sessionId = clientAudioSessionId,
+        source = clientAudioSource,
+        silenced = isClientSilenced,
+    )
 
     /** Re-arms [wakeWordDetector] with the standard callbacks. */
     private fun rearmDetector() {
