@@ -2362,7 +2362,7 @@ internal fun ModelInitializationFailedContent(
 }
 
 @Composable
-private fun OnboardingContent(
+internal fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
@@ -2377,7 +2377,9 @@ private fun OnboardingContent(
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 32.dp, vertical = 24.dp),
         ) {
             Text(text = "🩴", style = MaterialTheme.typography.displayLarge)
             Text(
