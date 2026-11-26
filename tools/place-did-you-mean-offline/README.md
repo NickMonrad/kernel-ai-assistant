@@ -25,3 +25,7 @@ Offline score sweep for `PlaceSlotMatcher` over owner-recorded lines. No app cod
 Without `PLACE_DYM_DIR` the test is skipped.
 
 Results and the chosen config: see `RESULTS.md`.
+
+## Data attribution
+
+The AU place names in the bundled `competitor_places.txt` and the offline `au_geonames.txt` input are derived from GeoNames (https://www.geonames.org/), licensed CC BY 4.0. Attribution: "Place names © GeoNames, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)."
