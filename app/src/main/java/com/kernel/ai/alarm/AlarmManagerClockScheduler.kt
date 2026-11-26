@@ -7,7 +7,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationManagerCompat
-import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockPlatformState
 import com.kernel.ai.core.memory.clock.ClockScheduledEvent
@@ -16,6 +15,19 @@ import com.kernel.ai.core.memory.clock.SchedulingResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** How AlarmManager is asked to deliver a clock alarm or timer. */
+internal enum class AlarmDelivery { EXACT_WAKEUP, INEXACT_WAKEUP }
+
+/**
+ * Picks the delivery for every clock event, timers included (#1990). Timers use the same exact API as alarms.
+ * `setAlarmClock` would show the alarm icon, become the system "next alarm" and end bedtime DND, so it is not used.
+ * Exact delivery needs `SCHEDULE_EXACT_ALARM` or `USE_EXACT_ALARM`; Jandal declares `USE_EXACT_ALARM`, which is
+ * granted to alarm and timer apps. When exact alarms are unavailable the event is scheduled inexactly and the
+ * repository reports EXACT_ALARM_UNAVAILABLE.
+ */
+internal fun alarmDeliveryFor(canScheduleExactAlarms: Boolean): AlarmDelivery =
+    if (canScheduleExactAlarms) AlarmDelivery.EXACT_WAKEUP else AlarmDelivery.INEXACT_WAKEUP
 
 @Singleton
 class AlarmManagerClockScheduler @Inject constructor(
@@ -49,20 +61,13 @@ class AlarmManagerClockScheduler @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return try {
-            when {
-                // #1990: setExactAndAllowWhileIdle is rate-limited per app while idle (about one dispatch per 9
-                // minutes) and needs SCHEDULE_EXACT_ALARM. setAlarmClock is delivered on time through Doze, needs
-                // no exact-alarm permission, and is the platform API for user-visible timers and alarms.
-                event.type == ClockEventType.TIMER -> alarmManager.setAlarmClock(
-                    AlarmManager.AlarmClockInfo(event.triggerAtMillis, buildOpenAppPendingIntent()),
-                    pendingIntent,
-                )
-                alarmManager.canScheduleExactAlarms() -> alarmManager.setExactAndAllowWhileIdle(
+            when (alarmDeliveryFor(alarmManager.canScheduleExactAlarms())) {
+                AlarmDelivery.EXACT_WAKEUP -> alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     event.triggerAtMillis,
                     pendingIntent,
                 )
-                else -> alarmManager.setAndAllowWhileIdle(
+                AlarmDelivery.INEXACT_WAKEUP -> alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     event.triggerAtMillis,
                     pendingIntent,
@@ -70,6 +75,7 @@ class AlarmManagerClockScheduler @Inject constructor(
             }
             SchedulingResult.Success(Unit)
         } catch (_: SecurityException) {
+            // Exact delivery was refused although the platform check passed: keep the event, scheduled inexactly.
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
                 event.triggerAtMillis,
@@ -91,17 +97,6 @@ class AlarmManagerClockScheduler @Inject constructor(
             notificationManager.cancel(ClockAlertContract.preAlarmNotificationId(event.ownerId))
         }
     }
-
-    /** Activity shown when the user taps the system alarm indicator for a timer set through setAlarmClock. */
-    private fun buildOpenAppPendingIntent(): PendingIntent =
-        PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
 
     private fun buildBroadcastIntent(event: ClockScheduledEvent): Intent =
         Intent().apply {

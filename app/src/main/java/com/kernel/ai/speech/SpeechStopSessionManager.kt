@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.kernel.ai.R
-import com.kernel.ai.core.inference.InferenceGenerationService
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -29,11 +28,11 @@ import kotlinx.coroutines.launch
  * The card posted by [SpeechPlaybackService] after promotion is unverified on device. Lock-screen
  * display is not verified: the S21 lock-screen check failed (PR #1913).
  *
- * Foreground scheduling (#1959): [open] promotes [SpeechPlaybackService], which posts the card as ID
- * 1873 while it runs. If the OS denies the background start, the manager posts the same card itself
+ * Foreground scheduling (#1959, #2000): [open] promotes [SpeechPlaybackService] (mediaPlayback), which posts the
+ * card as ID 1873 while it runs. If the OS denies the background start, the manager posts the same card itself
  * so the shade control still exists. Exactly one party posts ID 1873 in either case ([SpeechStopCard]).
  * [close] stops the service, deferred until promotion if the start is still pending. The session and
- * card are released when speech ends.
+ * card are released when speech ends. Speech does not hold the generation service (#2000).
  */
 @Singleton
 class SpeechStopSessionManager @Inject constructor(
@@ -92,8 +91,6 @@ class SpeechStopSessionManager @Inject constructor(
             isActive = true
         }
         session = mediaSession
-        // Speech holds the generation service's foreground promotion until close (#2000).
-        InferenceGenerationService.holdForSpeech()
         card.show(mediaSession.sessionToken)
     }
 
@@ -104,7 +101,6 @@ class SpeechStopSessionManager @Inject constructor(
         }
         session = null
         card.hide()
-        InferenceGenerationService.releaseSpeechHold(context)
     }
 
     private companion object {

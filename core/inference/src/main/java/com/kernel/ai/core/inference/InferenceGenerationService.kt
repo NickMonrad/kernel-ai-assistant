@@ -57,6 +57,65 @@ class ForegroundServiceLifecycle {
     }
 }
 
+/** Cancels an action scheduled with a delay. */
+internal fun interface CancelDelayed {
+    fun cancel()
+}
+
+/**
+ * Decides when the generation service stops (#2000).
+ *
+ * A generation that ends with the screen off or locked, and whose reply will be spoken, keeps the service
+ * promoted for [lingerMs]. That covers the gap before speech starts; the speech itself is foreground-scheduled
+ * by SpeechPlaybackService (mediaPlayback), not by this service. Any other end stops the service at once, and
+ * a new generation cancels a pending linger. The linger is the only time-based hold, so a stuck speech state
+ * cannot keep this service up.
+ */
+internal class ReplyLingerGate(
+    private val lingerMs: Long,
+    private val isScreenOffOrLocked: () -> Boolean,
+    private val schedule: (delayMs: Long, action: () -> Unit) -> CancelDelayed,
+    private val stopService: () -> Unit,
+) {
+    private val lock = Any()
+    private var generationRunning = false
+    private var pendingLinger: CancelDelayed? = null
+
+    /** True while a linger is scheduled. */
+    val isLingering: Boolean
+        get() = synchronized(lock) { pendingLinger != null }
+
+    fun onGenerationStart() {
+        synchronized(lock) {
+            generationRunning = true
+            cancelLinger()
+        }
+    }
+
+    /** Ends a generation. [lingerForReply] is true only for a reply that will be spoken. */
+    fun onGenerationEnd(lingerForReply: Boolean) {
+        synchronized(lock) {
+            generationRunning = false
+            cancelLinger()
+            if (!lingerForReply || !isScreenOffOrLocked()) {
+                stopService()
+            } else {
+                pendingLinger = schedule(lingerMs) {
+                    synchronized(lock) {
+                        pendingLinger = null
+                        if (!generationRunning) stopService()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelLinger() {
+        pendingLinger?.cancel()
+        pendingLinger = null
+    }
+}
+
 /**
  * Foreground service that keeps the process at high OOM priority during
  * on-device response generation.
@@ -116,24 +175,29 @@ class InferenceGenerationService : Service() {
         private const val NOTIFICATION_ID = 9002
 
         /**
-         * How long the promoted service outlives a generation that ends with the screen off or locked (#2000),
-         * so a reply spoken right after generation starts while the process still holds foreground priority.
-         * Speech that starts later than this runs without the hold, as before.
+         * How long the promoted service outlives a spoken reply that ends with the screen off or locked (#2000),
+         * so speech that starts shortly after generation still runs at foreground priority.
          */
         private const val REPLY_LINGER_MS = 30_000L
 
         private val lifecycle = ForegroundServiceLifecycle()
         private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
-        private val holdLock = Any()
-        private var generationRunning = false
-        private var speechHeld = false
-        private var lingerRunnable: Runnable? = null
+
+        @Volatile private var appContext: Context? = null
+
+        private val gate = ReplyLingerGate(
+            lingerMs = REPLY_LINGER_MS,
+            isScreenOffOrLocked = { isScreenOffOrLocked(checkNotNull(appContext)) },
+            schedule = { delayMs, action ->
+                val runnable = Runnable(action)
+                mainHandler.postDelayed(runnable, delayMs)
+                CancelDelayed { mainHandler.removeCallbacks(runnable) }
+            },
+            stopService = { stopNow(checkNotNull(appContext)) },
+        )
 
         fun start(context: Context) {
-            synchronized(holdLock) {
-                generationRunning = true
-                cancelLinger()
-            }
+            gate.onGenerationStart()
             try {
                 lifecycle.start {
                     context.startForegroundService(
@@ -146,56 +210,20 @@ class InferenceGenerationService : Service() {
             }
         }
 
-        /**
-         * Ends the generation's use of the service. With the screen off or locked, the service keeps running
-         * for [REPLY_LINGER_MS] or until speech takes a hold ([holdForSpeech]), so the reply is spoken at
-         * foreground priority (#2000). Otherwise it stops immediately.
-         */
+        /** Ends the generation's use of the service now: cancel, tool abort, internal generation. */
         fun stop(context: Context) {
-            val appContext = context.applicationContext
-            synchronized(holdLock) {
-                generationRunning = false
-                if (speechHeld) return
-                cancelLinger()
-                if (!isScreenOffOrLocked(appContext)) {
-                    stopNow(appContext)
-                    return
-                }
-                val runnable = Runnable {
-                    synchronized(holdLock) {
-                        lingerRunnable = null
-                        if (!generationRunning && !speechHeld) stopNow(appContext)
-                    }
-                }
-                lingerRunnable = runnable
-                mainHandler.postDelayed(runnable, REPLY_LINGER_MS)
-                Log.i(TAG, "Generation ended with screen off or locked; service kept promoted for ${REPLY_LINGER_MS}ms")
-            }
+            appContext = context.applicationContext
+            gate.onGenerationEnd(lingerForReply = false)
         }
 
-        /** Called when speech starts: keeps the service promoted until [releaseSpeechHold]. */
-        fun holdForSpeech() {
-            synchronized(holdLock) {
-                speechHeld = true
-                Log.i(TAG, "Speech hold acquired; generation service kept promoted for reply speech")
-                cancelLinger()
-            }
-        }
-
-        /** Called when speech stops: stops the service now unless a generation has started again. */
-        fun releaseSpeechHold(context: Context) {
-            val appContext = context.applicationContext
-            synchronized(holdLock) {
-                speechHeld = false
-                Log.i(TAG, "Speech hold released; generationRunning=$generationRunning")
-                if (generationRunning || lingerRunnable != null) return
-                stopNow(appContext)
-            }
-        }
-
-        private fun cancelLinger() {
-            lingerRunnable?.let(mainHandler::removeCallbacks)
-            lingerRunnable = null
+        /**
+         * Ends a generation whose reply will be spoken. With the screen off or locked the service stays promoted
+         * for [REPLY_LINGER_MS] unless another generation starts (#2000).
+         */
+        fun stopAfterReply(context: Context) {
+            appContext = context.applicationContext
+            gate.onGenerationEnd(lingerForReply = true)
+            if (gate.isLingering) Log.i(TAG, "Reply ended with screen off or locked; service kept promoted for ${REPLY_LINGER_MS}ms")
         }
 
         private fun isScreenOffOrLocked(context: Context): Boolean {

@@ -79,7 +79,7 @@ class ClockRepositorySchedulingTest {
     }
 
     @Test
-    fun `timer scheduling reports no exact-alarm warning because timers use setAlarmClock (#1990)`() = runTest {
+    fun `timer scheduling reports EXACT_ALARM_UNAVAILABLE when exact alarm access is denied (#1990)`() = runTest {
         every { scheduler.getPlatformState() } returns ClockPlatformState(
             canScheduleExactAlarms = false,
             notificationsEnabled = true,
@@ -91,8 +91,20 @@ class ClockRepositorySchedulingTest {
         val result = repository.scheduleTimer(durationMs = 30_000L, label = "Tea")
 
         assertTrue(result is SchedulingResult.Success)
+        assertTrue(SchedulingWarning.EXACT_ALARM_UNAVAILABLE in (result as SchedulingResult.Success).warnings)
+    }
+
+    @Test
+    fun `timer scheduling reports no exact-alarm warning when exact alarms are granted (#1990)`() = runTest {
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val result = repository.scheduleTimer(durationMs = 30_000L, label = "Tea")
+
+        assertTrue(result is SchedulingResult.Success)
         assertFalse(SchedulingWarning.EXACT_ALARM_UNAVAILABLE in (result as SchedulingResult.Success).warnings)
     }
+
 
     // ── Full event-set rollback ────────────────────────────────────────
 
