@@ -3,10 +3,13 @@ package com.kernel.ai.assistant
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.service.voice.VoiceInteractionSession
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
 import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import com.kernel.ai.feature.widget.VoiceCommandActivity
@@ -31,6 +34,9 @@ class JandalVoiceInteractionSession(
     /** True for a wake turn: the overlay shows a capture [WakeWordService] owns, so the capture is not paused. */
     private var wakeTurn = false
 
+    /** Starts the turn once the wake mic is released (#2109). Not cancelled on destroy: the turn must still start. */
+    private val releaseScope = CoroutineScope(Dispatchers.Main.immediate)
+
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
         if (args?.getBoolean(EXTRA_WAKE_OVERLAY, false) == true) {
@@ -49,17 +55,20 @@ class JandalVoiceInteractionSession(
         }
         Log.d(TAG, "AssistantSession: onShow flags=$showFlags — pausing wake word, delegating to VoiceCommandActivity")
 
-        // Release the WakeWordService AudioRecord before Vosk tries to open the mic.
-        // OnnxWakeWordDetector exits its 80ms audio loop within one frame; 300ms is ample.
-        WakeWordService.pause(ctx)
-        Handler(Looper.getMainLooper()).postDelayed({
+        // The turn starts only after the wake detector has released the mic (#2109). Its stop joins the detector
+        // thread, so a fixed delay is not enough. A release that times out still starts the turn.
+        val release = WakeWordService.pause(ctx)
+        releaseScope.launch {
+            if (!awaitMicRelease(release)) {
+                Log.w(TAG, "AssistantSession: wake mic not released within ${MIC_RELEASE_TIMEOUT_MS} ms — starting anyway")
+            }
             ctx.startActivity(
                 Intent(ctx, VoiceCommandActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 }
             )
             hide()
-        }, 300)
+        }
     }
 
     override fun onHide() {
@@ -75,4 +84,16 @@ class JandalVoiceInteractionSession(
         // When a real voice session ran, WakeWordService.resume() is idempotent.
         WakeWordService.resume(ctx)
     }
+}
+
+/** Longest wait for the wake detector to release the mic before a voice turn starts (#2109). */
+internal const val MIC_RELEASE_TIMEOUT_MS = 2_500L
+
+/**
+ * Waits until [release] completes, for at most [timeoutMs]. Returns false on timeout. A null [release] means the
+ * service was not running, so there is nothing to wait for (#2109).
+ */
+internal suspend fun awaitMicRelease(release: Job?, timeoutMs: Long = MIC_RELEASE_TIMEOUT_MS): Boolean {
+    if (release == null) return true
+    return withTimeoutOrNull(timeoutMs) { release.join() } != null
 }

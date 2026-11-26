@@ -19,6 +19,7 @@ class WakeMicContentionGateTest {
     private val hotword = WakeMicContentionGate.HOTWORD_SOURCE
 
     private var released = 0
+    private val causes = mutableListOf<MicContention>()
     private var rearmed = 0
     private var rearmAllowedNow = true
     private var now = 0L
@@ -29,7 +30,7 @@ class WakeMicContentionGateTest {
     @BeforeEach
     fun setUp() {
         gate = WakeMicContentionGate(
-            releaseMic = { released++ },
+            releaseMic = { cause -> causes += cause; released++ },
             rearmMic = { rearmed++ },
             rearmAllowed = { rearmAllowedNow },
             ownSessionIds = { ownIds },
@@ -47,6 +48,14 @@ class WakeMicContentionGateTest {
         gate.onRecordingClients(listOf(ownClient(), otherClient(mic)))
         assertTrue(gate.paused)
         assertEquals(1, released)
+    }
+
+    @Test
+    fun `the release names its cause, another app's recorder or the audio server silencing us`() {
+        gate.onRecordingClients(listOf(otherClient(camcorder)))
+        gate.onRecordingClients(emptyList())
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        assertEquals(listOf(MicContention.OTHER_APP, MicContention.SILENCED), causes)
     }
 
     @Test

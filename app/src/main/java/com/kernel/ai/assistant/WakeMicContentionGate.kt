@@ -5,6 +5,9 @@ import android.media.MediaRecorder
 /** One active microphone client from `AudioRecordingCallback`, reduced to what arbitration needs (#2108). */
 internal data class MicRecordingClient(val sessionId: Int, val source: Int, val silenced: Boolean)
 
+/** Why the gate released the wake mic: another app's recording, or the audio server silencing our capture (#2109). */
+internal enum class MicContention { OTHER_APP, SILENCED }
+
 /**
  * Steps wake capture aside while another app records, and re-arms when that ends (#2108).
  *
@@ -25,7 +28,7 @@ internal data class MicRecordingClient(val sessionId: Int, val source: Int, val 
  * still refuse to take the mic while the user pause is set, because the voice path calls it independently.
  */
 internal class WakeMicContentionGate(
-    private val releaseMic: () -> Unit,
+    private val releaseMic: (MicContention) -> Unit,
     private val rearmMic: () -> Unit,
     private val rearmAllowed: () -> Boolean,
     private val ownSessionIds: () -> Set<Int>,
@@ -63,7 +66,7 @@ internal class WakeMicContentionGate(
             if (contended) {
                 paused = true
                 if (silenced) holdAfterSilence() else silencedAtMs = null
-                releaseMic()
+                releaseMic(if (silenced) MicContention.SILENCED else MicContention.OTHER_APP)
                 return
             }
             probeStartedAtMs?.let { started ->

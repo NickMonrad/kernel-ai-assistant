@@ -792,8 +792,14 @@ class WakeWordService : Service() {
      * ends (#2108). See [WakeMicContentionGate]. Yields to voice sessions through [micGate] as well.
      */
     private val contentionGate: WakeMicContentionGate = WakeMicContentionGate(
-        releaseMic = {
-            Log.i(TAG, "WakeWordService: another app is recording — releasing wake mic")
+        releaseMic = { cause ->
+            Log.i(
+                TAG,
+                when (cause) {
+                    MicContention.OTHER_APP -> "WakeWordService: another app is recording — releasing wake mic"
+                    MicContention.SILENCED -> "WakeWordService: audio server silenced wake capture — releasing wake mic"
+                },
+            )
             recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
             wakeWordDetector.stop()
             refreshNotification()
@@ -1273,9 +1279,8 @@ class WakeWordService : Service() {
      * Runs [block] under [micLock], queued in call order (see [launchQueuedUnder]). Callers outside the lock use this,
      * so a pause and a resume cannot race each other (#2109).
      */
-    private fun launchUnderMicLock(block: () -> Unit) {
+    private fun launchUnderMicLock(block: () -> Unit): Job =
         serviceScope.launchQueuedUnder(micLock, Dispatchers.Default, block)
-    }
 
     /** Re-arms the detector from a caller outside [micLock]. The re-arm itself checks every condition (#2109). */
     private fun requestRearm() = launchUnderMicLock { rearmDetectorLocked() }
@@ -1531,13 +1536,13 @@ class WakeWordService : Service() {
 
         /**
          * Release AudioRecord so another caller can open the mic.
-         * No-op (safe) if the service is not running.
+         * Returns the release job, which completes once the detector has stopped (#2109). Null when the service
+         * is not running, so there is nothing to wait for.
          */
-        fun pause(context: Context) {
-            instance?.get()?.let { svc ->
-                Log.i("KernelAI", "WakeWordService: pausing (mic requested by external caller)")
-                svc.requestDetectorRelease()
-            }
+        fun pause(context: Context): Job? {
+            val svc = instance?.get() ?: return null
+            Log.i("KernelAI", "WakeWordService: pausing (mic requested by external caller)")
+            return svc.requestDetectorRelease()
         }
 
         /**
