@@ -726,6 +726,24 @@ M 4,927 and L 3,807; trigger M 850 and L 583. Rounds p50 1, p95 2.
 The reported `margin` can be larger than the full-scan margin when the true margin is ≥ 1. Decisions read only
 `margin < 1.0`, so they are unchanged. The check compares decisions, not the margin value.
 
+**Timing (PC, owner dumps, 36 per size, 3 slots, pinned to one core, single-threaded BLAS; `time` mode).** Per clip-slot:
+one warm-up, then five repetitions of each path; the per-clip median is reported, then p50 and p95 across clips. Timed
+from slot choice to the decision (S4, S5, SILENT start flag); greedy decode excluded. Machine load (1-minute average,
+16 cores, other work on the machine): 4.25 before, 1.28 after; not controlled.
+
+| Size | Slot | Full scan p50 / p95 (ms) | Pruned p50 / p95 (ms) |
+|---|---|---|---|
+| M | hint | 661 / 1,256 | 24.0 / 58.7 |
+| M | full | 1,270 / 1,526 | 40.0 / 95.5 |
+| M | trigger | 651 / 945 | 23.2 / 46.3 |
+| L | hint | 636 / 1,171 | 25.0 / 46.3 |
+| L | full | 1,236 / 1,482 | 40.2 / 103.4 |
+| L | trigger | 626 / 867 | 24.0 / 34.7 |
+
+- The pruned hint p95 is 46–59 ms: at or above the 50 ms S21 target, not clearly under it. Phone timing is not measured here.
+- Slot length (greedy frames): hint p50 54–56, p95 98–101; full p50 103, p95 123; trigger p50 53, p95 73.
+- Criterion 6 is not settled by this run: the hint p95 straddles 50 ms, and the S21 phone run is outstanding.
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
