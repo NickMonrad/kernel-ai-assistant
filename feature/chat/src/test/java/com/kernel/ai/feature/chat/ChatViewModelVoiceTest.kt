@@ -1602,6 +1602,33 @@ class ChatViewModelVoiceTest {
     }
 
     @Test
+    fun `one-shot llm clarifying question does not reopen the mic`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("Set it up") } returns
+            QuickIntentRouter.RouteResult.FallThrough(input = "Set it up")
+        every { inferenceEngine.generate(any()) } returns flowOf(
+            GenerationResult.Token("Which room do you mean?"),
+            GenerationResult.Complete(durationMs = 1L),
+        )
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startVoiceInput()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "Set it up", captureSessionId = 1L))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Which room do you mean?"))
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        assertEquals("You: Set it up\nJandal: Which room do you mean?", viewModel.getConversationAsText())
+        assertEquals(ChatViewModel.VoiceCaptureState.Idle, viewModel.voiceCaptureState.value)
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Dictation) }
+    }
+
+    @Test
     fun `one-shot slot question reopens the mic once after it is spoken`() = runTest(dispatcher) {
         val timerSlot = SlotSpec(name = "duration", promptTemplate = "How long would you like the timer for?")
         var slotOpen = false

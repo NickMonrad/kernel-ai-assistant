@@ -1,6 +1,6 @@
 # PR #2107 device evidence: slot follow-up mic (#2082) and chat one-shot reopen (#2083)
 
-**Risk tier: High** (voice pipeline: TTS playback stop, slot-reply mic open, watchdog). Policy requires S23U device evidence for High risk. **This run is S21 only.** S23U evidence is not collected here; see Gaps.
+**Risk tier: High** (voice pipeline: TTS playback stop, slot-reply mic open, watchdog). Policy normally requires S23U device evidence for High risk. **Owner waiver (27 Nov 2026): S23U voice evidence is waived, recorded on PR #2107. S21 device runs plus unit tests are the evidence.** This run is S21 only.
 
 Build: `fix/2082-2083-slot-followup-mic` at `b92cadfd` (debug build, `ai.jandal.assistant.debug`, lastUpdateTime 2026-11-26 07:44:26), installed with `adb -s R5CR605B71K install -r`.
 
@@ -153,3 +153,57 @@ Builds: `app-debug.apk` from `0e9c8a49`, installed with `adb install -r` on S21 
 - S21 media 2, S23U media 4 restored. `stay_on_while_plugged_in` = 2 on S23U.
 - Staged `silence_2107.wav` removed from the S23U. No active reminders (DB: 0). No timers created.
 - Privacy: logs in `/tmp` only; no audio, transcripts, names committed. The one S21 screenshot (chat screen) was kept in `/tmp`, not committed.
+
+## Run 2026-11-27d (head `704980b2` merged with `origin/main` `9e398a9f`; S21 only)
+
+Build: `./gradlew :app:assembleDebug` on the merged head, `app-debug.apk` installed on S21 `R5CR605B71K` with `adb install -r` (`lastUpdateTime` 06:32:36). Locks `/tmp/jandal-s21.lock` and `/tmp/jandal-s23u.lock` taken by mkdir at 06:30:04 (neither was held). Both released at the end of the run.
+
+### Blocker: S23U disconnected
+
+- The S23U (`RFCW11265XH`, usb:1-5) dropped off adb at about 06:33. It did not reattach within 60 s, and `adb kill-server` / `start-server` did not bring it back. The owner must replug it before any S23U run.
+- Not run: the S23U speaker step (playing a "ten seconds" reply from the S23U to the S21 mic), and the LLM non-reopen check by voice. The S23U was never used for playback in this run, so its volume and stay-on settings were not changed.
+- No "ten seconds" clip exists on disk. `/tmp/jandal-clips` has `answer_five.wav` (approved clone clip) but no "ten" clip. It was not played.
+
+### Timer routing: typed "set a timer" on S21 (pass)
+
+Route: `am start` with `adb_harness_token`, `quick_action_input_encoded=set%20a%20timer`, `quick_action_is_voice=true` (`docs/adb-testing.md` §8.1). `external_prompt_trust callerUid=-1 trust=DIRECT`.
+
+| Event | Time (AEST) |
+|---|---|
+| `NeedsSlot for "set a timer"` → slot sheet, `ADB_SLOT_STATE missingSlot=duration_seconds` | 06:32:47.74 |
+| Slot question spoken, 38 chars: "How long would you like the timer for?" | 06:32:49.20 |
+| Playback stopped (`voiceOutputSpeakingStopped`) | 06:32:51.48 |
+| `startVoiceCapture mode=SlotReply`, `startListening started mode=SlotReply` | 06:32:51.83 / 06:32:52.15 |
+| No speech: `slot-reply voice error — retry 2/2`; re-asks with `SlotReply` mic at 06:33:08 and 06:33:24 | 06:33:18 / 06:33:34 |
+| `no retry (handedOff=false), waiting for manual input`; `slotReplyVoiceRetryExhausted` | 06:33:34.70 |
+
+The mic opened, so the route is not broken. The "ten seconds" answer was not heard because nothing was played (S23U disconnected).
+
+### Timer creation: typed slot reply on S21 (pass for the slot-to-timer step, typed not voice)
+
+- Typed "ten seconds" into the slot sheet's answer field and tapped Submit (the field needed a keyboard-shift fix: first attempt dropped the final "s"). Log: `ADB_SLOT_STATE action=reply slot=duration_seconds reply="ten seconds"`, `action=complete intent=set_timer finalSlots=[duration_seconds]`, `set_timer params={duration_seconds=10}` at 06:35:35.
+- UI text on the Actions result: "Timer set for 10 seconds." The same text says exact-alarm access is off, so the timer is inexact and may ring later, and it may not persist across restarts.
+- Cancel: harness `cancel my timer` routed to `cancel_timer` at 06:35:47 and the UI reply was "Dismissed the active timer alert." The 10 s timer was already past its expiry (about 12 s after creation), so the cancel dismissed its alert. Nothing was left active (inferred from the reply text; no timer list was read).
+
+### #2083 LLM non-reopen on S21: not verified
+
+- New conversation: the `New conversation` content-desc node (912-984, 1704-1776 on the Chats screen) opened a fresh chat. Model load took about 30 s.
+- Typed "Help my plans" (typed, not voice). First token 58.7 s after `generate_called`. The model emitted a malformed `run_intent` call with `intent_name=plan` and garbage parameters (`JSONException`, fail-closed). The reply was "Invalid parameters: expected a JSON object", not a clarifying question.
+- No mic activity was logged. A typed turn cannot reopen the mic, so this run proves nothing about the reopen rule. Verification of the rule rests on the unit test below.
+- Separate observation, out of scope: the S21 model emits invalid tool-call JSON for a vague request. Fail-closed handling is correct. Not fixed here.
+
+### Unit tests (pass)
+
+- New: `ActionsViewModelVoiceTest` "voice bare set a timer routes to duration slot and arms slot reply mic". Uses the real `QuickIntentRouter`. It asserts `duration_seconds` pending, the spoken question, and `startListening(SlotReply)` only after the 350 ms settle.
+- Existing and extended: `ChatViewModelVoiceTest` "one-shot llm clarifying question does not reopen the mic". A FallThrough LLM reply that is a question ("Which room do you mean?") is spoken; the chat stays Idle; no `Command` or `SlotReply` capture; one `Dictation` capture only.
+- `./gradlew :core:skills:testDebugUnitTest --tests '*QuickIntentRouterTest*' :feature:chat:testDebugUnitTest --tests '*ActionsViewModelVoiceTest*' --tests '*ChatViewModelVoiceTest*'`: BUILD SUCCESSFUL. ActionsViewModelVoiceTest 178 tests, ChatViewModelVoiceTest 92 tests, QuickIntentRouterTest suites 0 failures or errors.
+
+### State
+
+- S21 media volume 2 (unchanged), stay-awake 2. Harness token removed from the S21 app dir; token file in `/tmp` only.
+- S23U: not reached; volumes and stay-awake unchanged by this run. Its PIN state and sleep state are unknown after the disconnect.
+- Privacy: no audio, transcripts, or screenshots committed. UI dumps kept in `/tmp`.
+
+### Still open
+
+- S23U speaker run (voice answer → timer, and voice LLM non-reopen) when the S23U is reconnected. Owner waived S23U voice evidence on 27 Nov; this run is still not voice-end-to-end on the S21 alone.

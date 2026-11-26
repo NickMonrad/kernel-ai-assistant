@@ -678,6 +678,41 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `voice bare set a timer routes to duration slot and arms slot reply mic`() = runTest(dispatcher) {
+        val voiceViewModel = ActionsViewModel(
+            quickIntentRouter = QuickIntentRouter(),
+            skillRegistry = skillRegistry,
+            quickActionDao = quickActionDao,
+            speechStopCoordinator = speechStopCoordinator,
+            voiceInputController = voiceInputController,
+            voiceOutputController = voiceOutputController,
+            voiceOutputPreferences = voiceOutputPreferences,
+            startListeningCuePlayer = startListeningCuePlayer,
+            voiceInputPreferences = voiceInputPreferences,
+        )
+        coEvery {
+            voiceInputController.startListening(VoiceCaptureMode.SlotReply)
+        } returns VoiceInputStartResult.Started(1L)
+
+        voiceViewModel.executeAction("set a timer", InputMode.Voice)
+        runCurrent()
+        assertEquals("duration_seconds", voiceViewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("How long would you like the timer for?"))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        advanceTimeBy(349)
+        runCurrent()
+        coVerify(exactly = 0) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+        advanceTimeBy(1)
+        runCurrent()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
     fun `slot question whose playback never stops opens the slot mic after the 15 s safety`() = runTest(dispatcher) {
         stubWifeSmsSlot()
         coEvery {
