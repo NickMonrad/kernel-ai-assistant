@@ -599,6 +599,34 @@ class ThinkingStreamStateMachineTest {
         assertEquals("Hiphophopotamus", result.response)
     }
 
+    @Test
+    fun `captured litertlm 0-19-1 S23U delta stream is emitted verbatim`() {
+        // Raw event_seq callbacks from an S23U run (Gemma-4 E-4B, GPU, MTP on, litertlm 0.19.1).
+        // Includes multi-token chunks such as seq 102-103 (" per" + " persona") that the
+        // replay stripper used to drop. Expected text is the verbatim concatenation of the deltas.
+        val resource = javaClass.classLoader!!.getResource("s23u_0_19_1_delta_fixture.json")
+            ?: throw IllegalStateException("Missing test resource: s23u_0_19_1_delta_fixture.json")
+        val json = org.json.JSONObject(resource.readText())
+        val events = json.getJSONArray("events")
+        val machine = ThinkingStreamStateMachine()
+        val thinking = mutableListOf<String>()
+        val response = mutableListOf<String>()
+        for (i in 0 until events.length()) {
+            val evt = events.getJSONObject(i)
+            val thought = evt.optString("thought", "").takeIf { it.isNotEmpty() }
+            val emission = machine.consume(thought, evt.getString("raw"))
+            thinking += emission.thinkingDeltas
+            response += emission.responseDeltas
+        }
+        val final = machine.finish()
+        thinking += final.thinkingDeltas
+        response += final.responseDeltas
+
+        assertEquals(json.getString("expected_thinking"), thinking.joinToString(""))
+        assertEquals(json.getString("expected_visible"), response.joinToString(""))
+        assertVisibleDeltasAreSafe(response)
+    }
+
     private data class Collected(
         val thinkingDeltas: List<String>,
         val responseDeltas: List<String>,
