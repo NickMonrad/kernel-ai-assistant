@@ -2525,13 +2525,16 @@ class NativeIntentHandler @Inject constructor(
             ?: return SkillResult.Failure("add_reminder", "No task specified for reminder")
         val rawListName = (params["list_name"] ?: "to-do list").trim()
         val dayRaw = params["day"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("add_reminder", "No day specified for reminder")
         val timeRaw = params["time"]?.trim()?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("add_reminder", "No time specified for reminder")
-        val targetDate = resolveDate(dayRaw)
-            ?: return SkillResult.Failure("add_reminder", "Could not parse day: $dayRaw")
         val targetTime = resolveTime(timeRaw)
             ?: return SkillResult.Failure("add_reminder", "Could not parse time: $timeRaw")
+        // A missing day defaults to the next occurrence of the time (see defaultReminderDate).
+        val targetDate = if (dayRaw == null) {
+            defaultReminderDate(targetTime, LocalDateTime.now())
+        } else {
+            resolveDate(dayRaw) ?: return SkillResult.Failure("add_reminder", "Could not parse day: $dayRaw")
+        }
         val triggerAt = targetDate.atTime(targetTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val now = System.currentTimeMillis()
         if (triggerAt <= now) {
@@ -2609,11 +2612,15 @@ class NativeIntentHandler @Inject constructor(
             )
         }
 
-        val dayDisplay = dayRaw.replaceFirstChar { it.uppercase() }
+        val dayPhrase = if (dayRaw == null) {
+            if (targetDate == LocalDate.now()) "today" else "tomorrow"
+        } else {
+            "on ${dayRaw.replaceFirstChar { it.uppercase() }}"
+        }
         val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Reminder set: \"$item\" on $dayDisplay at $timeDisplay.",
+            "Reminder set: \"$item\" $dayPhrase at $timeDisplay.",
             presentation = buildListPreview(persistedListName, allItems),
         )
     }
@@ -3704,3 +3711,10 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 }
+
+/**
+ * Day for a reminder that names a time but no day: today while [time] is still ahead of [now],
+ * otherwise tomorrow. A time equal to [now] counts as passed.
+ */
+internal fun defaultReminderDate(time: LocalTime, now: LocalDateTime): LocalDate =
+    if (now.toLocalDate().atTime(time).isAfter(now)) now.toLocalDate() else now.toLocalDate().plusDays(1)

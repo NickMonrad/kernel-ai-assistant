@@ -354,52 +354,22 @@ class SlotFillerManagerTest {
     }
 
     @Test
-    fun `reminder time-first reply retains time and asks for day`() {
+    fun `reminder time reply completes an item-first reminder without a day`() {
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
                 intentName = "add_reminder",
                 existingParams = mapOf("item" to "buy milk"),
-                missingSlot = SlotSpec("day", "Which day should I set the reminder for?"),
+                missingSlot = SlotSpec("time", "What time should I remind you to buy milk?"),
             ),
         )
-
-        val needsMore = assertInstanceOf(
-            SlotFillResult.NeedsMore::class.java,
-            manager.onUserReply(conversationOne, "5 pm"),
-        )
-
-        assertEquals("17:00", needsMore.request.existingParams["time"])
-        assertEquals("day", needsMore.request.missingSlot.name)
-        assertTrue(manager.hasPending)
-    }
-
-    @Test
-    fun `time-first reminder completes after day follow-up`() {
-        manager.startSlotFill(
-            conversationOne,
-            PendingSlotRequest(
-                intentName = "add_reminder",
-                existingParams = mapOf("item" to "buy milk"),
-                missingSlot = SlotSpec("day", "Which day should I set the reminder for?"),
-            ),
-        )
-
-        val needsMore = assertInstanceOf(
-            SlotFillResult.NeedsMore::class.java,
-            manager.onUserReply(conversationOne, "5 pm"),
-        )
-        manager.startSlotFill(conversationOne, needsMore.request)
 
         val completed = assertInstanceOf(
             SlotFillResult.Completed::class.java,
-            manager.onUserReply(conversationOne, "tomorrow"),
+            manager.onUserReply(conversationOne, "5 pm"),
         )
 
-        assertEquals(
-            mapOf("item" to "buy milk", "time" to "17:00", "day" to "tomorrow"),
-            completed.params,
-        )
+        assertEquals(mapOf("item" to "buy milk", "time" to "17:00"), completed.params)
         assertFalse(manager.hasPending)
     }
 

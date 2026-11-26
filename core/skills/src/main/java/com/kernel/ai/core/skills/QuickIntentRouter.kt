@@ -271,13 +271,9 @@ class QuickIntentRouter(
                 name = "item",
                 promptTemplate = "What would you like me to remind you about?",
             ),
-            "day" to com.kernel.ai.core.skills.slot.SlotSpec(
-                name = "day",
-                promptTemplate = "Which day should I set the reminder for?",
-            ),
             "time" to com.kernel.ai.core.skills.slot.SlotSpec(
                 name = "time",
-                promptTemplate = "What time on {day} should I remind you to {item}?",
+                promptTemplate = "What time should I remind you to {item}?",
             ),
         ),
         "create_note" to mapOf(
@@ -777,7 +773,17 @@ class QuickIntentRouter(
                     "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // Bare reminder requests with no task or schedule: ask for the item, then the time.
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:remind\s+me|(?:set|create|make|add)\s+(?:an?\s+)?rem(?:in|ain)der)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("add_reminder"),
         ),
         // Imperative reminder requests without a schedule — retain the task and start slot-filling.
         IntentPattern(

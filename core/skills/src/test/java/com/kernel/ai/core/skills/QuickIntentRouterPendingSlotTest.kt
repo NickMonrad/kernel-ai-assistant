@@ -26,4 +26,11 @@ class QuickIntentRouterPendingSlotTest {
 
         assertNull(router.pendingSlotFor("add_reminder", params))
     }
+
+    @Test
+    fun `add_reminder with item and time does not ask for a day`() {
+        val params = mapOf("item" to "put the bins out", "time" to "17:00")
+
+        assertNull(router.pendingSlotFor("add_reminder", params))
+    }
 }

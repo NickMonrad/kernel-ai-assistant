@@ -4700,9 +4700,15 @@ class NativeIntentHandlerTest {
         }
 
         @Test
-        fun `add_reminder with missing day returns Failure`() {
-            val result = handleIntent("add_reminder", mapOf("item" to "dentist", "time" to "9:00"))
-            assertInstanceOf(SkillResult.Failure::class.java, result)
+        fun `add_reminder without a day schedules the next occurrence of the time`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val result = handleIntent("add_reminder", mapOf("item" to "dentist", "time" to "11:59 pm"))
+            assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            assertTrue(requireNotNull(insertedItemSlot.captured.dueAt) > System.currentTimeMillis())
         }
 
         @Test
