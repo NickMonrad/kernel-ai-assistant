@@ -62,7 +62,7 @@ Attempted the two-turn reminder flow ("set a reminder" → "put the bins out" �
 | Run | Player → listener | Result |
 |---|---|---|
 | reminder 1 | S23U → S21 | **Failed.** Wake detected on S21 (18:46:49). "Set a reminder" routed FallThrough → chat; the chat LLM dispatched `add_reminder` with no params. No `mode=SlotReply` mic opened; no reminder created. |
-| timer 2 | S23U → S21 | **Passed.** NeedsSlot → slot sheet; `SlotReply` mic opened 0.35 s after playback stopped (18:50:12.01). "Ten seconds" normalised to 10 seconds; `set_timer` completed at 18:50:16. 10 s timer; expired, nothing to delete. |
+| timer 2 | S23U → S21 | **Passed on `45bc7387`, not on this head.** Actions path, not the wake route (see the 27 Nov c section). NeedsSlot → slot sheet; `SlotReply` mic opened 0.35 s after playback stopped (18:50:12.01). "Ten seconds" normalised to 10 seconds; `set_timer` completed at 18:50:16. 10 s timer; expired, nothing to delete. |
 | S23U evidence | S21 → S23U, S21 media 15 | **Failed.** Hey Jandal enabled (pref `hey_jandal_enabled` = true). S23U WakeWordService started its detector only after an explicit app relaunch and backgrounding; it did not detect the S21 wake clip. Voice session launched via `VoiceCommandActivity`; command played inside its capture window (18:55:50), S23U reported "No speech heard" at 18:55:59. Acoustic path S21 → S23U not working at this placement and volume. |
 | #2083 chat check | not run | Depends on an audio path; not attempted. |
 
@@ -162,7 +162,7 @@ Build: `./gradlew :app:assembleDebug` on the merged head, `app-debug.apk` instal
 
 - The S23U (`RFCW11265XH`, usb:1-5) dropped off adb at about 06:33. It did not reattach within 60 s, and `adb kill-server` / `start-server` did not bring it back. The owner must replug it before any S23U run.
 - Not run: the S23U speaker step (playing a "ten seconds" reply from the S23U to the S21 mic), and the LLM non-reopen check by voice. The S23U was never used for playback in this run, so its volume and stay-on settings were not changed.
-- No "ten seconds" clip exists on disk. `/tmp/jandal-clips` has `answer_five.wav` (approved clone clip) but no "ten" clip. It was not played.
+- A "ten seconds" clip exists outside the repo at `~/private-acoustic-fixtures/device-2107/reply_ten_seconds.wav`. It was not played, because the S23U was disconnected, and it was not in `/tmp/jandal-clips`.
 
 ### Timer routing: typed "set a timer" on S21 (pass)
 

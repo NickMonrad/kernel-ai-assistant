@@ -543,6 +543,60 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `reminder item reply with a time keeps the item and completes without a time question`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+        assertEquals("item", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+
+        viewModel.onSlotReply("put the bins out at 5 pm")
+        advanceUntilIdle()
+
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(
+            mapOf(
+                "intent_name" to "add_reminder",
+                "item" to "put the bins out",
+                "time" to "17:00",
+            ),
+            runIntentSkill.calls.single().arguments,
+        )
+    }
+
+    @Test
+    fun `reminder item reply with a count keeps the count in the item and asks for the time`() = runTest(dispatcher) {
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+
+        viewModel.onSlotReply("call 3 people")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.pendingSlot.value).request
+        assertEquals("time", pending.missingSlot.name)
+        assertEquals(mapOf("item" to "call 3 people"), pending.existingParams)
+    }
+
+    @Test
+    fun `reminder item reply with a short day word keeps it in the item and asks for the time`() = runTest(dispatcher) {
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+
+        viewModel.onSlotReply("put on sun cream")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.pendingSlot.value).request
+        assertEquals("time", pending.missingSlot.name)
+        assertEquals(mapOf("item" to "put on sun cream"), pending.existingParams)
+    }
+
+    @Test
     fun `bare set a reminder asks for the item without falling through to chat`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {

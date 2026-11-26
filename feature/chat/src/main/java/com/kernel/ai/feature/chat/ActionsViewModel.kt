@@ -24,7 +24,7 @@ import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
-import com.kernel.ai.core.skills.slot.parseReminderScheduleReply
+import com.kernel.ai.core.skills.slot.parseReminderSlotReply
 import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -884,8 +884,9 @@ class ActionsViewModel @Inject constructor(
      * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
      * privacy, but leaves spoken output running so the reply finishes in the background. It also
      * skips cancelPendingVoiceSpeech(), so a pending command retry still speaks its prompt; its
-     * mic start is blocked by [backgroundPaused]. A slot question still playing keeps its re-arm
-     * armed, so its completion is deferred until [onScreenResumed] (#2082).
+     * mic start is blocked by [backgroundPaused]. A slot question still playing has its re-arm
+     * disarmed too (#2082): when it finishes, the mic does not reopen while backgrounded, and the
+     * next slot question after [onScreenResumed] arms as usual.
      * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
      */
     fun pauseTransientVoiceUi(
@@ -1780,14 +1781,15 @@ class ActionsViewModel @Inject constructor(
         Log.d(TAG, "ADB_SLOT_STATE action=reply intent=${pending.request.intentName} slot=${pending.request.missingSlot.name} reply=\"$text\"")
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
-        val reminderSchedule = if (pending.request.intentName == "add_reminder") {
-            parseReminderScheduleReply(text)
+        val reminderReply = if (pending.request.intentName == "add_reminder") {
+            parseReminderSlotReply(text, pending.request.missingSlot.name)
         } else {
-            emptyMap()
+            null
         }
-        if (pending.request.intentName == "add_reminder" &&
-            pending.request.missingSlot.name !in reminderSchedule &&
-            reminderSchedule.isNotEmpty()
+        val reminderSchedule = reminderReply?.schedule.orEmpty()
+        if (reminderReply != null &&
+            reminderReply.value == null &&
+            pending.request.missingSlot.name !in reminderSchedule
         ) {
             val mergedParams = pending.request.existingParams + reminderSchedule
             val nextMissingSlot = quickIntentRouter.nextMissingSlot(
@@ -1808,9 +1810,9 @@ class ActionsViewModel @Inject constructor(
         }
         val normalizedText = reminderSchedule[pending.request.missingSlot.name]
             ?: if (pending.inputMode == InputMode.Voice) {
-                normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
+                normalizeVoiceSlotReply(reminderReply?.value ?: text, pending.request.missingSlot.name)
             } else {
-                normalizeSlotReply(text, pending.request.missingSlot.name)
+                normalizeSlotReply(reminderReply?.value ?: text, pending.request.missingSlot.name)
             }
         if (normalizedText.isBlank()) {
             cancelSlotFill()

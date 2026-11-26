@@ -2614,6 +2614,8 @@ class NativeIntentHandler @Inject constructor(
 
         val dayPhrase = if (dayRaw == null) {
             if (targetDate == LocalDate.now()) "today" else "tomorrow"
+        } else if (dayRaw.trim().lowercase() in setOf("today", "tomorrow")) {
+            dayRaw.trim().lowercase()
         } else {
             "on ${dayRaw.replaceFirstChar { it.uppercase() }}"
         }

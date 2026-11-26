@@ -1219,6 +1219,23 @@ class ActionsViewModelVoiceTest {
     }
 
     @Test
+    fun `resume after a background stop restores the slot-reply re-arm`() = runTest(dispatcher) {
+        stubWifeSmsSlot()
+        viewModel.onScreenStopped(screenOff = true)
+        viewModel.onScreenResumed()
+
+        viewModel.executeAction("send a text message to my wife", InputMode.Voice)
+        advanceUntilIdle()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("What would you like to say to your wife?"))
+        runCurrent()
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceTimeBy(200)
+        runCurrent()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.SlotReply) }
+    }
+
+    @Test
     fun `resume after a background stop restores the command retry`() = runTest(dispatcher) {
         viewModel.onScreenStopped(screenOff = false)
         viewModel.onScreenResumed()
