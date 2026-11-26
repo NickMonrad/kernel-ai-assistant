@@ -543,6 +543,24 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `bare set a reminder asks for the item without falling through to chat`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+
+        assertEquals("item", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        assertEquals(0, insertedActions.size)
+        assertEquals(0, runIntentSkill.calls.size)
+    }
+
+    @Test
     fun `incomplete reminder starts slot-fill without navigating to chat`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
