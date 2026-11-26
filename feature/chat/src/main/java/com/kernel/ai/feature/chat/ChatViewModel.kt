@@ -64,7 +64,7 @@ import com.kernel.ai.core.skills.intent.PendingPlaceDidYouMean
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanAnswer
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanReply
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
-import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestion
+import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestionWithin
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -1812,9 +1812,7 @@ class ChatViewModel @Inject constructor(
         text: String,
     ): PendingPlaceDidYouMean? {
         val suggester = placeDidYouMeanSuggester ?: return null
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            placeDidYouMeanQuestion(suggester, route, text)
-        }
+        return placeDidYouMeanQuestionWithin(suggester, route, text)
     }
 
     private fun beginChatVoiceAttempt(): Long {

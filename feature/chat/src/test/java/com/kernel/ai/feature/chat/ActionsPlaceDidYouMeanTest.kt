@@ -148,10 +148,18 @@ class ActionsPlaceDidYouMeanTest {
         unmockkStatic(Log::class)
     }
 
+    /** The question's matcher runs on Dispatchers.Default in real time; pump the scheduler for ~1 s to let it land. */
+    private fun TestScope.settleRealTime() {
+        repeat(200) {
+            Thread.sleep(5)
+            runCurrent()
+        }
+    }
+
     @Test
     fun `voice near miss speaks the question and runs nothing until a yes`() = runTest(dispatcher) {
         viewModel.executeAction("navigate to Porirwa", InputMode.Voice)
-        advanceUntilIdle()
+        settleRealTime()
 
         coVerify(exactly = 1) { voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == prompt }) }
         coVerify(exactly = 0) { navigateSkill.execute(any()) }
@@ -163,7 +171,7 @@ class ActionsPlaceDidYouMeanTest {
     @Test
     fun `yes runs the suggested place once`() = runTest(dispatcher) {
         viewModel.executeAction("navigate to Porirwa", InputMode.Voice)
-        advanceUntilIdle()
+        settleRealTime()
         finishSpeech(prompt)
 
         viewModel.onSlotReply("Yes")
@@ -180,7 +188,7 @@ class ActionsPlaceDidYouMeanTest {
     @Test
     fun `no runs the heard place once`() = runTest(dispatcher) {
         viewModel.executeAction("navigate to Porirwa", InputMode.Voice)
-        advanceUntilIdle()
+        settleRealTime()
         finishSpeech(prompt)
 
         viewModel.onSlotReply("No")
@@ -197,7 +205,7 @@ class ActionsPlaceDidYouMeanTest {
     @Test
     fun `two silences re-ask then drop without running anything`() = runTest(dispatcher) {
         viewModel.executeAction("navigate to Porirwa", InputMode.Voice)
-        advanceUntilIdle()
+        settleRealTime()
         finishSpeech(prompt)
 
         silentReply()

@@ -2,6 +2,9 @@ package com.kernel.ai.core.skills.intent
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import com.kernel.ai.core.skills.QuickIntentRouter
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class PlaceDidYouMeanTest {
@@ -60,5 +63,46 @@ class PlaceDidYouMeanTest {
             suggestedUtterance("weather in Porirwa", "Porirwa", "Porirua"),
         )
         assertNull(suggestedUtterance("weather", "Porirwa", "Porirua"))
+    }
+
+    private fun navigateRoute(place: String) = QuickIntentRouter.RouteResult.RegexMatch(
+        intent = QuickIntentRouter.MatchedIntent(
+            intentName = "navigate_to",
+            params = mapOf("destination" to place),
+            source = "regex",
+        ),
+    )
+
+    @Test
+    fun questionIsAskedWhenMatcherIsFast() {
+        val question = runBlocking {
+            placeDidYouMeanQuestionWithin(suggester, navigateRoute("Porirwa"), "navigate to Porirwa")
+        }
+        assertEquals("Did you mean Porirua?", question?.prompt)
+        assertEquals("navigate to Porirua", question?.suggestedText)
+    }
+
+    @Test
+    fun slowMatcherGivesNoQuestionWithinBound() {
+        // The matcher blocks on a real thread; the bound must return without waiting for the rest of it.
+        val slow = PlaceDidYouMeanSuggester {
+            Thread.sleep(1_000)
+            PlaceSlotMatcher(nz, competitors)
+        }
+        val start = System.nanoTime()
+        val question = runBlocking {
+            placeDidYouMeanQuestionWithin(slow, navigateRoute("Porirwa"), "navigate to Porirwa", timeoutMs = 100)
+        }
+        assertNull(question)
+        assertTrue((System.nanoTime() - start) / 1_000_000 < 900)
+    }
+
+    @Test
+    fun failingMatcherGivesNoQuestion() {
+        val broken = PlaceDidYouMeanSuggester { error("asset missing") }
+        val question = runBlocking {
+            placeDidYouMeanQuestionWithin(broken, navigateRoute("Porirwa"), "navigate to Porirwa")
+        }
+        assertNull(question)
     }
 }

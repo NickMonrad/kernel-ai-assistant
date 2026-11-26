@@ -32,7 +32,7 @@ import com.kernel.ai.core.skills.intent.PendingPlaceDidYouMean
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanAnswer
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanReply
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
-import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestion
+import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestionWithin
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
@@ -1934,9 +1934,7 @@ class ActionsViewModel @Inject constructor(
     ): PendingPlaceDidYouMean? {
         if (!placeDidYouMeanEnabled || !spokenResponsesEnabled) return null
         val suggester = placeDidYouMeanSuggester ?: return null
-        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            placeDidYouMeanQuestion(suggester, route, text)
-        }
+        return placeDidYouMeanQuestionWithin(suggester, route, text)
     }
 
     /** Speaks the question and reopens the slot-reply mic for yes/no. Voice only; the caller checks. */

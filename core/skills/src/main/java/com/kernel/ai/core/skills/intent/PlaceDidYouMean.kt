@@ -1,8 +1,15 @@
 package com.kernel.ai.core.skills.intent
 
 import android.content.Context
+import android.util.Log
 import com.kernel.ai.core.skills.QuickIntentRouter
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,6 +23,9 @@ import javax.inject.Singleton
 internal object PlaceDidYouMeanConfig {
     /** Max normalised distance for a suggestion. */
     const val MAX_DISTANCE = 0.30
+
+    /** Longest the matcher may take before the question is dropped and the normal path runs. */
+    const val TIMEOUT_MS = 3_000L
 
     /** Required gap between the NZ top and the runner-up (any competitor). */
     const val MARGIN = 0.05
@@ -85,6 +95,40 @@ fun placeDidYouMeanQuestion(
     val suggestedText = suggestedUtterance(text, heard, suggested) ?: return null
     return PendingPlaceDidYouMean(originalText = text, suggestedText = suggestedText, suggestedPlace = suggested)
 }
+
+/**
+ * The matcher is a blocking computation that cannot be interrupted, so it runs in a scope the caller does
+ * not wait on. A timed-out or abandoned match finishes in the background and its result is dropped.
+ */
+private val matcherScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+/**
+ * [placeDidYouMeanQuestion] on Dispatchers.Default, bounded by [timeoutMs] of real time. A matcher that
+ * throws or runs past the bound gives null, so the caller takes the normal path and never goes silent.
+ * The bound runs on the Default dispatcher's clock, so it is real time regardless of the caller.
+ */
+suspend fun placeDidYouMeanQuestionWithin(
+    suggester: PlaceDidYouMeanSuggester,
+    route: QuickIntentRouter.RouteResult,
+    text: String,
+    timeoutMs: Long = PlaceDidYouMeanConfig.TIMEOUT_MS,
+): PendingPlaceDidYouMean? = withContext(Dispatchers.Default) {
+    // A failure is returned inside the Result: nothing is thrown into matcherScope.
+    val pending = matcherScope.async { runCatching { placeDidYouMeanQuestion(suggester, route, text) } }
+    try {
+        val result = withTimeoutOrNull(timeoutMs) { pending.await() }
+        if (result == null) {
+            Log.w(TAG, "Did-you-mean matcher gave no result within ${timeoutMs}ms; normal path")
+            null
+        } else {
+            result.onFailure { Log.w(TAG, "Did-you-mean matcher failed; normal path", it) }.getOrNull()
+        }
+    } finally {
+        pending.cancel()
+    }
+}
+
+private const val TAG = "KernelAI"
 
 /** Suggests NZ places for near-miss heard names. Matcher is loaded once from assets, lazily. */
 @Singleton
