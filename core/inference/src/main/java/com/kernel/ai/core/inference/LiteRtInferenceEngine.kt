@@ -341,13 +341,8 @@ internal class ThinkingStreamStateMachine(
         val complete: Boolean,
     )
 
-    private val structuredObserved = StringBuilder()
     private val structuredPending = StringBuilder()
-    private val rawObserved = StringBuilder()
     private val rawPending = StringBuilder()
-    private val emittedThinking = StringBuilder()
-    private val emittedStructuredThinking = StringBuilder()
-    private val emittedResponse = StringBuilder()
     private val malformedThoughtCandidate = StringBuilder()
     private var malformedReopenEligible = false
     private var rawMode = RawMode.VISIBLE
@@ -356,24 +351,21 @@ internal class ThinkingStreamStateMachine(
         val thinking = mutableListOf<String>()
         val response = mutableListOf<String>()
 
+        // Callbacks are per-token deltas, not cumulative snapshots (physical fixture
+        // physical_callback_fixture.json has 0 replayed events). Append verbatim;
+        // overlap-based de-duplication dropped digits and letters that repeat a tail.
         channelDelta
             ?.takeIf { it.isNotEmpty() }
             ?.let { channel ->
-                val novel = appendNovelInput(structuredObserved, channel)
-                if (novel.isNotEmpty()) {
-                    structuredPending.append(novel)
-                    processStructuredThinking(thinking)
-                }
+                structuredPending.append(channel)
+                processStructuredThinking(thinking)
             }
 
         rawMessage
             .takeIf { it.isNotEmpty() }
             ?.let { raw ->
-                val novel = appendNovelInput(rawObserved, raw)
-                if (novel.isNotEmpty()) {
-                    rawPending.append(novel)
-                    processRaw(thinking, response)
-                }
+                rawPending.append(raw)
+                processRaw(thinking, response)
             }
 
         return ThinkingStreamEmission(
@@ -439,12 +431,12 @@ internal class ThinkingStreamStateMachine(
 
             val marker = findStructuredMarker(text)
             if (marker == null) {
-                emitThinking(text, thinking, structured = true)
+                emitThinking(text, thinking)
                 structuredPending.clear()
                 return
             }
             if (marker.start > 0) {
-                emitThinking(text.substring(0, marker.start), thinking, structured = true)
+                emitThinking(text.substring(0, marker.start), thinking)
                 deletePrefix(structuredPending, marker.start)
                 continue
             }
@@ -596,21 +588,10 @@ internal class ThinkingStreamStateMachine(
     private fun emitThinking(
         candidate: String,
         thinking: MutableList<String>,
-        structured: Boolean = false,
     ) {
         val clean = stripThinkingSyntax(candidate)
-        if (clean.isEmpty()) return
-        val delta = stripReplayedPrefix(
-            current = clean,
-            emitted = emittedThinking.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty()) return
-
-        emittedThinking.append(delta)
-        if (structured) emittedStructuredThinking.append(delta)
-        if (thinkingEnabled) thinking += delta
+        if (clean.isEmpty() || !thinkingEnabled) return
+        thinking += clean
     }
 
     private fun emitResponse(
@@ -623,35 +604,8 @@ internal class ThinkingStreamStateMachine(
             warnAmbiguous(candidate.length)
             return
         }
-        val delta = stripReplayedPrefix(
-            current = candidate,
-            emitted = emittedResponse.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty() || delta.startsWith("<ctrl")) return
-        if (containsProtocolSyntaxOrPrefix(delta)) {
-            warnAmbiguous(delta.length)
-            return
-        }
-        emittedResponse.append(delta)
-        response += delta
-    }
-
-
-    private fun appendNovelInput(
-        observed: StringBuilder,
-        candidate: String,
-    ): String {
-        val prior = observed.toString()
-        val novel = stripReplayedPrefix(
-            current = candidate,
-            emitted = prior,
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (novel.isNotEmpty()) observed.append(novel)
-        return novel
+        if (candidate.startsWith("<ctrl")) return
+        response += candidate
     }
 
     private fun findStructuredMarker(text: String): MarkerMatch? =
@@ -908,45 +862,6 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     MALFORMED_THINK_CLOSE_MARKER,
     "<|think",
 )
-
-internal fun stripReplayedPrefix(
-    current: String,
-    emitted: String,
-    trimBoundaryWhitespace: Boolean = false,
-    allowOverlap: Boolean = false,
-    minOverlapLength: Int = 1,
-): String {
-    if (emitted.isEmpty()) return current
-    if (current.startsWith(emitted)) return current.removePrefix(emitted)
-
-    val currentTrimmed = current.trimEnd()
-    val emittedTrimmed = emitted.trimEnd()
-    if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
-        val remainder = currentTrimmed.removePrefix(emittedTrimmed)
-        return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
-    }
-    if (allowOverlap) {
-        val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
-        if (exactOverlapRemainder != current) {
-            return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
-        }
-        val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
-        if (trimmedOverlapRemainder != currentTrimmed) {
-            return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
-        }
-    }
-    return current
-}
-
-private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
-    val maxOverlap = minOf(current.length, emitted.length)
-    for (overlapLength in maxOverlap downTo minOverlapLength) {
-        if (emitted.endsWith(current.take(overlapLength))) {
-            return current.drop(overlapLength)
-        }
-    }
-    return current
-}
 
 /**
  * LiteRT-LM implementation of [InferenceEngine].
