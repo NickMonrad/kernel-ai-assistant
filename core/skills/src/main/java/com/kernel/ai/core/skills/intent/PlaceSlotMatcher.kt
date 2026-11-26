@@ -80,7 +80,7 @@ internal object PlaceSpelling {
  * The heard value is split into word windows of one to [MAX_WINDOW_WORDS] words. Each candidate's
  * distance is the smallest normalised edit distance over its spelling and its sound key, taken
  * over all windows. Competitors (Australian, world and other non-NZ names) take part in ranking
- * so that a closer competitor blocks a prompt.
+ * so that a closer competitor blocks a prompt; a competitor matching on sound alone does not.
  *
  * [suggest] returns the NZ name to offer as "Did you mean …?" only when it is the closest
  * candidate, within [maxDistance], and beats the runner-up by at least [margin]. It never
@@ -92,8 +92,11 @@ internal class PlaceSlotMatcher(nzNames: Collection<String>, competitorNames: Co
 
     private class Window(val folded: String, val sound: String)
 
-    /** A candidate's best distance over the heard windows. [exact] means a window spelled it. */
-    class Scored(val name: String, val nz: Boolean, val distance: Double, val exact: Boolean)
+    /**
+     * A candidate's distances over the heard windows. [distance] is the smaller of [spelling] (normalised
+     * Levenshtein on the folded spelling) and the sound-key distance. [exact] means a window spelled it.
+     */
+    class Scored(val name: String, val nz: Boolean, val distance: Double, val spelling: Double, val exact: Boolean)
 
     private val candidates: List<Candidate> = run {
         val seen = HashSet<String>()
@@ -108,16 +111,29 @@ internal class PlaceSlotMatcher(nzNames: Collection<String>, competitorNames: Co
         if (windows.isEmpty()) return emptyList()
         return candidates
             .map { score(it, windows) }
-            .sortedWith(compareBy<Scored>({ it.distance }, { !it.nz }, { it.name }))
+            .sortedWith(compareBy<Scored>({ it.distance }, { it.spelling }, { !it.nz }, { it.name }))
     }
 
-    /** The NZ name to offer as a suggestion for [heard], or null. Never a rewrite. */
+    /**
+     * The NZ name to offer as a suggestion for [heard], or null. Never a rewrite.
+     *
+     * Competitors take part only when spelling-plausible (spelling within [maxDistance]); a sound-only
+     * match neither wins nor blocks. Any exact match gives no suggestion. When the top two are tied on
+     * distance (within [TIE_EPSILON]), the margin is taken on spelling distance.
+     */
     fun suggest(heard: String, maxDistance: Double, margin: Double): Scored? {
-        val ranked = rank(heard)
+        val ranked = rank(heard).filter { it.nz || it.spelling <= maxDistance }
+        if (ranked.any { it.exact }) return null
         val top = ranked.firstOrNull() ?: return null
-        if (!top.nz || top.exact || top.distance > maxDistance) return null
-        val runnerUp = ranked.firstOrNull { it.name != top.name }?.distance ?: 1.0
-        return top.takeIf { runnerUp - top.distance >= margin }
+        if (!top.nz || top.distance > maxDistance) return null
+        val others = ranked.filter { it.name != top.name }
+        val runnerUp = others.firstOrNull()?.distance ?: 1.0
+        val gap = if (runnerUp - top.distance <= TIE_EPSILON) {
+            (others.minOfOrNull { it.spelling } ?: 1.0) - top.spelling
+        } else {
+            runnerUp - top.distance
+        }
+        return top.takeIf { gap >= margin }
     }
 
     private fun windows(heard: String): List<Window> {
@@ -135,18 +151,20 @@ internal class PlaceSlotMatcher(nzNames: Collection<String>, competitorNames: Co
     }
 
     private fun score(c: Candidate, windows: List<Window>): Scored {
-        var best = 1.0
+        var spelling = 1.0
+        var sound = 1.0
         var exact = false
         for (w in windows) {
             if (w.folded == c.folded) exact = true
             if (w.folded.length >= MIN_SPELLING_LETTERS && c.folded.length >= MIN_SPELLING_LETTERS) {
-                best = minOf(best, normalised(w.folded, c.folded))
+                spelling = minOf(spelling, normalised(w.folded, c.folded))
             }
             if (w.sound.length >= MIN_SOUND_KEY && c.sound.length >= MIN_SOUND_KEY) {
-                best = minOf(best, normalised(w.sound, c.sound))
+                sound = minOf(sound, normalised(w.sound, c.sound))
             }
         }
-        return Scored(c.name, c.nz, if (exact) 0.0 else best, exact)
+        if (exact) return Scored(c.name, c.nz, distance = 0.0, spelling = 0.0, exact = true)
+        return Scored(c.name, c.nz, distance = minOf(spelling, sound), spelling = spelling, exact = false)
     }
 
     private fun normalised(a: String, b: String): Double =
@@ -156,6 +174,7 @@ internal class PlaceSlotMatcher(nzNames: Collection<String>, competitorNames: Co
         const val MAX_WINDOW_WORDS = 3
         const val MIN_SPELLING_LETTERS = 4
         const val MIN_SOUND_KEY = 3
+        const val TIE_EPSILON = 0.02
         val WHITESPACE = Regex("\\s+")
 
         /** First words that make a phrase a description rather than a place name. */
