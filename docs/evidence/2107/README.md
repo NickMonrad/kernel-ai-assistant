@@ -129,13 +129,27 @@ Builds: `app-debug.apk` from `0e9c8a49`, installed with `adb install -r` on S21 
 - Reminder runs use the same wake and VoiceCommandActivity path and do transcribe. So the clip level is not the sole cause. Remaining candidates: command timing relative to ASR start (timer commands landed 2.0–2.1 s after wake; reminder commands 4.5 s after wake), or the timer command failing in VoiceCommandActivity. Not confirmed.
 - The earlier passing timer (`45bc7387`, Actions path, not wake) is a different path and is not evidence for this one.
 
-### #2083 chat check and S23U own-speaker: not run this session
+### Run 2026-11-27c (head `8809fff1`, code same as `0e9c8a49`; S21 reinstalled 05:11)
 
-- No verified driver procedure for these in this session. They remain open; the previous run's results (above) still stand.
+**Timer retest (S23U → S21): fail, 3 more runs.** Driver `run_flow_c.sh` (private copy with `CMD_DELAY`) placed the command at different offsets after the detected wake route:
+- timer-6: command 4.1 s after detection (`CMD_DELAY=3.0`). ASR focus 33.3–43.5 s, no transcript.
+- timer-7: command 6.5 s after wake start (`CMD_DELAY=4.0`). ASR focus 12.5–22.7 s, command at 17.1 s inside the window, no transcript.
+- timer-8: command 3.1 s after detection (`CMD_DELAY=2.6`). No slot question, driver timed out waiting for SlotReply.
+- No `NeedsSlot`, no `SlotReply`, no timer created in any run. Timer cause still not diagnosed; timing is not the cause (fails at 3–6.5 s). The owner's 4.5 s target was not hit exactly (offset was measured from detection, not from clip start, in two runs).
+
+**#2083 chat check (S21 chat screen, PTT tapped at (332,1955), S23U plays clips): partly run.**
+- "Set a reminder" from the S23U: transcribed, spoken slot question (43 chars) at 10.4 s, PTT mic reopened at 13.1 s.
+- Silence from the S23U: `silent retry 1/2` at 23.4 s, re-ask (71 chars) at 24.8 s, `silent retry 2/2` at 39.4 s, re-ask at 40.7 s, one more capture 44.9–55.2 s with no speech, then the flow stopped. Two re-asks and then stop, as specified.
+- LLM question check: **not verified.** A typed "help my plans" was taken as the pending reminder item (the chat slot was still open), so it tested the slot path, not an LLM question. A second attempt to open a new conversation landed on the Tools screen. No pass is claimed for "LLM question does not reopen the mic".
+- The reminder was not created (no time was given). 0 active reminders in the DB.
+
+**S23U own speaker, voice session without wake: fail.**
+- Session started by `am start -n ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity` on the S23U (not by the default assistant; the default assistant was not changed, it is Google's `GsaVoiceInteractionService`).
+- ASR (route `Asr4all`, mode `AlertCommand`) started at 29.4 s, but VLC playing `cmd_set_reminder.wav` at media 12 took audio focus at 33.2 s (`onAudioFocusChange(-1)`), which stopped the recognizer. No transcript, no `ADB_SLOT_STATE`. The reply clip at 58 s had no listener.
+- S21-speaker fallback not tried: the S23U would have to act as a wake-free listener, which earlier runs showed does not work.
 
 ### State and volumes
 
-- S21 media 2 and S23U media 4 restored after each run. `stay_on_while_plugged_in` = 2 on S23U.
-- No active test reminders; no timers created.
-- Private louder timer clip `cmd_set_timer_loud.wav` lives in `~/private-acoustic-fixtures/device-2107` (not committed).
-- Privacy: logs kept in `/tmp` only; no audio, transcripts, names, or screenshots committed.
+- S21 media 2, S23U media 4 restored. `stay_on_while_plugged_in` = 2 on S23U.
+- Staged `silence_2107.wav` removed from the S23U. No active reminders (DB: 0). No timers created.
+- Privacy: logs in `/tmp` only; no audio, transcripts, names committed. The one S21 screenshot (chat screen) was kept in `/tmp`, not committed.
