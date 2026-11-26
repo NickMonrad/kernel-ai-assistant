@@ -10,6 +10,7 @@ import com.kernel.ai.core.voice.InflectMicroOnnxRunner
 import com.kernel.ai.core.voice.InflectMicroTextFrontend
 import com.kernel.ai.core.voice.InflectOnnxSynthesis
 import com.kernel.ai.core.voice.InflectPhonemizer
+import com.kernel.ai.core.voice.SpeechCardText
 import java.io.BufferedOutputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -142,7 +143,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         val memoryBefore = Debug.MemoryInfo().also(Debug::getMemoryInfo)
         val startedAt = System.nanoTime()
         val normalizeStarted = System.nanoTime()
-        val normalized = InflectMicroTextFrontend.normalize(text)
+        val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
         val normalizeMs = elapsedMs(normalizeStarted)
         val phonemizeStarted = System.nanoTime()
         val phonemes = InflectMicroTextFrontend.applyPhonemeOverrides(
