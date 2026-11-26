@@ -73,6 +73,7 @@ class ActionsViewModelTest {
         every { voiceOutputController.events } returns emptyFlow()
         every { voiceOutputController.stop() } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns flowOf(false)
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
                 "run_intent" -> CapturingRunIntentSkill.default

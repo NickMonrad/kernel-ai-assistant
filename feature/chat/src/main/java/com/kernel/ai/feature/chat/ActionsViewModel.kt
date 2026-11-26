@@ -28,6 +28,11 @@ import com.kernel.ai.core.skills.slot.parseReminderScheduleReply
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.skills.intent.PendingPlaceDidYouMean
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanAnswer
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanReply
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
+import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestion
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
@@ -99,6 +104,7 @@ class ActionsViewModel @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val startListeningCuePlayer: StartListeningCuePlayer,
     private val voiceInputPreferences: com.kernel.ai.core.voice.VoiceInputPreferences,
+    private val placeDidYouMeanSuggester: PlaceDidYouMeanSuggester? = null,
 ) : ViewModel() {
 
     // ── Action history ──────────────────────────────────────────────────────
@@ -412,6 +418,10 @@ class ActionsViewModel @Inject constructor(
     private var recentVoiceCommand: String? = null
     private var recentVoiceCommandAtMs: Long = 0L
     private var spokenResponsesEnabled = true
+
+    /** #2079 experimental: place question awaiting yes/no/silence (voice only). Never acted on without a yes. */
+    private var pendingPlaceQuestion: PendingPlaceDidYouMean? = null
+    private var placeDidYouMeanEnabled = false
     /** Capture session this screen started; errors and notes are shown only for it (#1853). */
     private var actionsVoiceSessionId: Long? = null
     private var actionsVoiceAwaitingFinal = false
@@ -446,6 +456,12 @@ class ActionsViewModel @Inject constructor(
                     cancelPendingVoiceSpeech()
                     stopAllVoiceOutput()
                 }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.placeDidYouMeanEnabled.collect { enabled ->
+                placeDidYouMeanEnabled = enabled
+                if (!enabled) pendingPlaceQuestion = null
             }
         }
         viewModelScope.launch {
@@ -511,6 +527,10 @@ class ActionsViewModel @Inject constructor(
                             ?.let { voiceInputController.latestNoticeFor(it) } != null
                         when (event.mode) {
                             VoiceCaptureMode.SlotReply -> {
+                                if (pendingPlaceQuestion != null) {
+                                    onPlaceQuestionVoiceError(handedOff)
+                                    return@collect
+                                }
                                 val pending = _pendingSlot.value
                                 if (pending != null && pending.inputMode == InputMode.Voice &&
                                     slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES && !handedOff
@@ -651,7 +671,7 @@ class ActionsViewModel @Inject constructor(
                         }
                         if (
                             shouldAutoStartVoiceSlotReply &&
-                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            awaitingVoiceReply() &&
                             _voiceCaptureState.value == VoiceCaptureState.Idle &&
                             _slotPromptPlaybackStarted.value
                         ) {
@@ -661,7 +681,7 @@ class ActionsViewModel @Inject constructor(
                             pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
                                 delay(SLOT_REPLY_REARM_DELAY_MS)
                                 if (
-                                    _pendingSlot.value?.inputMode == InputMode.Voice &&
+                                    awaitingVoiceReply() &&
                                     _voiceCaptureState.value == VoiceCaptureState.Idle
                                 ) {
                                     startVoiceCapture(
@@ -673,7 +693,7 @@ class ActionsViewModel @Inject constructor(
                             }
                         } else if (
                             shouldAutoStartVoiceSlotReply &&
-                            _pendingSlot.value?.inputMode == InputMode.Voice &&
+                            awaitingVoiceReply() &&
                             _voiceCaptureState.value == VoiceCaptureState.Idle
                         ) {
                             Log.d(TAG, "ActionsViewModel: ignoring stale SpeakingStopped before slot prompt playback starts")
@@ -710,7 +730,7 @@ class ActionsViewModel @Inject constructor(
     }
 
     private fun openSlotReplyMic(userInitiated: Boolean) {
-        if (_pendingSlot.value == null) return
+        if (_pendingSlot.value == null && pendingPlaceQuestion == null) return
         if (!userInitiated && backgroundPaused) {
             Log.d(TAG, "ActionsViewModel: automatic slot-reply mic skipped, screen background-paused")
             return
@@ -1696,10 +1716,14 @@ class ActionsViewModel @Inject constructor(
      *
      * @param inputMode Carried into [PendingSlotState] for voice-readiness; no-op until #350.
      */
-    fun executeAction(query: String, inputMode: InputMode = InputMode.Text) {
+    fun executeAction(query: String, inputMode: InputMode = InputMode.Text) =
+        executeActionInternal(query, inputMode, replayOfPlaceQuestion = false)
+
+    /** [replayOfPlaceQuestion] routes the text of a yes/no answer: no duplicate check, no second place question. */
+    private fun executeActionInternal(query: String, inputMode: InputMode, replayOfPlaceQuestion: Boolean) {
         val normalizedQuery = if (inputMode == InputMode.Voice) normalizeVoiceCommand(query) else query.trim()
         if (normalizedQuery.isBlank()) return
-        if (inputMode == InputMode.Voice && shouldSuppressDuplicateVoiceCommand(normalizedQuery)) {
+        if (!replayOfPlaceQuestion && inputMode == InputMode.Voice && shouldSuppressDuplicateVoiceCommand(normalizedQuery)) {
             Log.w(TAG, "ActionsViewModel: suppressing duplicate rapid voice command \"$normalizedQuery\"")
             _voiceCaptureState.value = VoiceCaptureState.Idle
             return
@@ -1721,6 +1745,13 @@ class ActionsViewModel @Inject constructor(
                 _uiState.value = UiState.Executing
 
                 val routeResult = quickIntentRouter.route(normalizedQuery)
+                if (!replayOfPlaceQuestion && inputMode == InputMode.Voice) {
+                    val question = placeDidYouMeanQuestionFor(routeResult, normalizedQuery)
+                    if (question != null) {
+                        askPlaceQuestion(question)
+                        return@launch
+                    }
+                }
                 when (routeResult) {
                     is QuickIntentRouter.RouteResult.FallThrough -> {
                         Log.d(TAG, "ActionsViewModel: FallThrough for \"$normalizedQuery\" → navigating to chat")
@@ -1778,6 +1809,10 @@ class ActionsViewModel @Inject constructor(
      */
     fun onSlotReply(text: String) {
         cancelPendingVoiceSpeech()
+        pendingPlaceQuestion?.let { question ->
+            handlePlaceReply(text, question)
+            return
+        }
         val pending = _pendingSlot.value ?: return
         Log.d(TAG, "ADB_SLOT_STATE action=reply intent=${pending.request.intentName} slot=${pending.request.missingSlot.name} reply=\"$text\"")
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
@@ -1887,8 +1922,73 @@ class ActionsViewModel @Inject constructor(
         cancelPendingVoiceSlotReplyRestart()
         cancelPendingVoiceSpeech()
         _pendingSlot.value = null
+        pendingPlaceQuestion = null
         clearActionsVoiceCapture(discard = true)
         stopAllVoiceOutput(SpeechStopReason.USER)
+    }
+
+    /** #2079: the place question for a navigate_to or get_weather near miss, or null. Off unless the setting is on. */
+    private suspend fun placeDidYouMeanQuestionFor(
+        route: QuickIntentRouter.RouteResult,
+        text: String,
+    ): PendingPlaceDidYouMean? {
+        if (!placeDidYouMeanEnabled || !spokenResponsesEnabled) return null
+        val suggester = placeDidYouMeanSuggester ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            placeDidYouMeanQuestion(suggester, route, text)
+        }
+    }
+
+    /** Speaks the question and reopens the slot-reply mic for yes/no. Voice only; the caller checks. */
+    private fun askPlaceQuestion(question: PendingPlaceDidYouMean) {
+        pendingPlaceQuestion = question
+        slotReplyVoiceRetryCount = 0
+        _uiState.value = UiState.Idle
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        setSlotReplyAutoRearmArmed(true, "placeQuestion")
+        expectedSlotPromptSpeech = question.prompt
+        _slotPromptPlaybackStarted.value = false
+        speakForVoice(InputMode.Voice, question.prompt, spokenOverride = question.prompt)
+    }
+
+    /** True while a voice reply is expected for a slot or a place question; gates the mic re-arm. */
+    private fun awaitingVoiceReply(): Boolean =
+        _pendingSlot.value?.inputMode == InputMode.Voice || pendingPlaceQuestion != null
+
+    /** Yes runs the suggested utterance and no runs the heard text, both once; anything else is a new command. */
+    private fun handlePlaceReply(text: String, question: PendingPlaceDidYouMean) {
+        pendingPlaceQuestion = null
+        setSlotReplyAutoRearmArmed(false, "placeReply")
+        clearExpectedSlotPromptSpeech()
+        when (PlaceDidYouMeanReply.interpret(text)) {
+            PlaceDidYouMeanAnswer.Yes ->
+                executeActionInternal(question.suggestedText, InputMode.Voice, replayOfPlaceQuestion = true)
+            PlaceDidYouMeanAnswer.No ->
+                executeActionInternal(question.originalText, InputMode.Voice, replayOfPlaceQuestion = true)
+            PlaceDidYouMeanAnswer.Other ->
+                executeActionInternal(text, InputMode.Voice, replayOfPlaceQuestion = false)
+        }
+    }
+
+    /** A missed reply re-asks up to the slot budget, then drops the question without acting. */
+    private fun onPlaceQuestionVoiceError(handedOff: Boolean) {
+        val question = pendingPlaceQuestion ?: return
+        _voiceCaptureState.value = VoiceCaptureState.Idle
+        if (!handedOff && slotReplyVoiceRetryCount < SLOT_REPLY_MAX_VOICE_RETRIES) {
+            slotReplyVoiceRetryCount++
+            Log.d(TAG, "ActionsViewModel: place question reply missed, re-ask $slotReplyVoiceRetryCount/$SLOT_REPLY_MAX_VOICE_RETRIES")
+            val retry = "Sorry, I didn't catch that. ${question.prompt}"
+            setSlotReplyAutoRearmArmed(true, "placeQuestionRetry")
+            expectedSlotPromptSpeech = retry
+            _slotPromptPlaybackStarted.value = false
+            speakForVoice(InputMode.Voice, retry, spokenOverride = retry)
+            return
+        }
+        pendingPlaceQuestion = null
+        setSlotReplyAutoRearmArmed(false, "placeQuestionDropped")
+        clearExpectedSlotPromptSpeech()
+        val dropped = "Okay, I didn't act on that."
+        speakForVoice(InputMode.Voice, dropped, spokenOverride = dropped)
     }
 
     private fun primePendingSlot(

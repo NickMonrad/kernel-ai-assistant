@@ -64,7 +64,7 @@ import com.kernel.ai.core.skills.intent.PendingPlaceDidYouMean
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanAnswer
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanReply
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
-import com.kernel.ai.core.skills.intent.suggestedUtterance
+import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestion
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -1812,18 +1812,9 @@ class ChatViewModel @Inject constructor(
         text: String,
     ): PendingPlaceDidYouMean? {
         val suggester = placeDidYouMeanSuggester ?: return null
-        val intent = (route as? QuickIntentRouter.RouteResult.RegexMatch)?.intent ?: return null
-        val slot = when (intent.intentName) {
-            "navigate_to" -> "destination"
-            "get_weather" -> "location"
-            else -> return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            placeDidYouMeanQuestion(suggester, route, text)
         }
-        val heard = intent.params[slot]?.takeIf { it.isNotBlank() } ?: return null
-        val suggested = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            suggester.suggest(heard)
-        } ?: return null
-        val suggestedText = suggestedUtterance(text, heard, suggested) ?: return null
-        return PendingPlaceDidYouMean(originalText = text, suggestedText = suggestedText, suggestedPlace = suggested)
     }
 
     private fun beginChatVoiceAttempt(): Long {

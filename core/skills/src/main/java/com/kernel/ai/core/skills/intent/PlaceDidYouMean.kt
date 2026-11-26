@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.intent
 
 import android.content.Context
+import com.kernel.ai.core.skills.QuickIntentRouter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,6 +63,27 @@ fun suggestedUtterance(text: String, heardPlace: String, suggestedPlace: String)
     val start = text.indexOf(heardPlace, ignoreCase = true)
     if (heardPlace.isBlank() || start < 0) return null
     return text.substring(0, start) + suggestedPlace + text.substring(start + heardPlace.length)
+}
+
+/**
+ * The "Did you mean" question for [route] when it is a navigate_to destination or get_weather location
+ * that is a near miss of an NZ place, else null. Blocking: call off the main thread. Nothing is rewritten.
+ */
+fun placeDidYouMeanQuestion(
+    suggester: PlaceDidYouMeanSuggester,
+    route: QuickIntentRouter.RouteResult,
+    text: String,
+): PendingPlaceDidYouMean? {
+    val intent = (route as? QuickIntentRouter.RouteResult.RegexMatch)?.intent ?: return null
+    val slot = when (intent.intentName) {
+        "navigate_to" -> "destination"
+        "get_weather" -> "location"
+        else -> return null
+    }
+    val heard = intent.params[slot]?.takeIf { it.isNotBlank() } ?: return null
+    val suggested = suggester.suggest(heard) ?: return null
+    val suggestedText = suggestedUtterance(text, heard, suggested) ?: return null
+    return PendingPlaceDidYouMean(originalText = text, suggestedText = suggestedText, suggestedPlace = suggested)
 }
 
 /** Suggests NZ places for near-miss heard names. Matcher is loaded once from assets, lazily. */

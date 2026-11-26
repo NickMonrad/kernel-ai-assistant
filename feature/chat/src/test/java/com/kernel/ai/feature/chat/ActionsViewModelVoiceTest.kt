@@ -143,6 +143,7 @@ class ActionsViewModelVoiceTest {
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
+        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns flowOf(false)
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
