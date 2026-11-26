@@ -24,6 +24,10 @@ import org.junit.jupiter.api.Test
  */
 class InflectReplyStreamTest {
     private val longReply = (1..12).joinToString(" ") { "This is sentence number $it of the reply." }
+    /** Three sentences of about 70 characters each, so each becomes its own speech chunk (limit 120). */
+    private val threeChunks = listOf("Alpha", "Broken", "Gamma").joinToString(" ") {
+        "$it ${"padding ".repeat(8).trim()}."
+    }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private class FakeTrack(private val onWrite: (Int) -> Unit) : InflectPcmTrack {
@@ -55,6 +59,8 @@ class InflectReplyStreamTest {
         val firstWriteEntered = CountDownLatch(1)
         /** When set, the first write blocks until the test releases it. */
         var blockFirstWrite: CountDownLatch? = null
+        /** When set, the write with this 1-based index throws, as a device failure would. */
+        var failWriteAt: Int? = null
 
         override fun open(pitch: Float): InflectPcmTrack {
             openError?.let { throw it }
@@ -63,6 +69,7 @@ class InflectReplyStreamTest {
                     firstWriteEntered.countDown()
                     blockFirstWrite?.await(5, TimeUnit.SECONDS)
                 }
+                if (count == failWriteAt) throw IllegalStateException("device lost")
             }.also { tracks += it }
         }
 
@@ -83,35 +90,41 @@ class InflectReplyStreamTest {
     }
 
     /** One reply wired to the shared [generation], which plays the controller's role of stop/replace counter. */
-    private inner class Harness(val sink: FakeSink, val hooks: FakeHooks, val generation: AtomicLong) {
+    private inner class Harness(
+        val sink: FakeSink,
+        val hooks: FakeHooks,
+        val generation: AtomicLong,
+        unavailable: VoiceOutputResult.Unavailable? = null,
+    ) {
         val synthCalls = AtomicInteger()
         var synthesizer: suspend (String) -> Float = { synthCalls.get().toFloat() }
+        var phonemizer: (String) -> String = { it }
         val myGeneration = generation.incrementAndGet()
         val stream = InflectReplyStream(
             spokenText = "reply",
             generation = myGeneration,
             isCurrent = { generation.get() == myGeneration },
-            unavailable = null,
+            unavailable = unavailable,
             synthesize = { phonemes ->
                 synthCalls.incrementAndGet()
                 val index = synthesizer(phonemes)
                 FloatArray(1000) { index }
             },
-            phonemizeChunk = { it },
+            phonemizeChunk = { phonemizer(it) },
             sink = sink,
             hooks = hooks,
             gain = 1f,
             pitch = 1f,
             scope = scope,
         )
-
     }
 
     private fun harness(
         sink: FakeSink = FakeSink(),
         hooks: FakeHooks = FakeHooks(),
         generation: AtomicLong = AtomicLong(0),
-    ) = Harness(sink, hooks, generation)
+        unavailable: VoiceOutputResult.Unavailable? = null,
+    ) = Harness(sink, hooks, generation, unavailable)
 
     @Test
     fun `chunks play in order on one track and the track drains on the final append`() = runBlocking {
@@ -216,7 +229,7 @@ class InflectReplyStreamTest {
     }
 
     @Test
-    fun `a chunk failure mid-reply skips that append and keeps playing the rest`() = runBlocking {
+    fun `a failed append does not stop later appends from playing`() = runBlocking {
         val sink = FakeSink()
         val h = harness(sink)
         h.synthesizer = {
@@ -233,6 +246,65 @@ class InflectReplyStreamTest {
         assertEquals(2, track.writes.size)
         assertTrue(track.drained)
     }
+
+    @Test
+    fun `a failed chunk inside one append is skipped and the rest of that append plays`() = runBlocking {
+        val sink = FakeSink()
+        val h = harness(sink)
+        h.synthesizer = {
+            if (it.contains("Broken")) throw IllegalStateException("bad symbol")
+            h.synthCalls.get().toFloat()
+        }
+
+        val result = h.stream.append(threeChunks, isFinal = true)
+        h.stream.awaitPlayback()
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        val track = sink.tracks.single()
+        assertEquals(listOf(1f, 3f), track.writes)
+        assertTrue(track.drained)
+    }
+
+    @Test
+    fun `a phonemizer failure skips only its chunk and the rest of the append plays`() = runBlocking {
+        val sink = FakeSink()
+        val h = harness(sink)
+        h.phonemizer = {
+            if (it.contains("Broken")) throw IllegalStateException("phonemizer rejected")
+            it
+        }
+
+        val result = h.stream.append(threeChunks, isFinal = true)
+        h.stream.awaitPlayback()
+
+        assertEquals(VoiceOutputResult.Spoken, result)
+        assertEquals(listOf(1f, 2f), sink.tracks.single().writes)
+    }
+
+    @Test
+    fun `a preparation failure stays silent until the final append reports it for the fallback`() = runBlocking {
+        val sink = FakeSink()
+        val h = harness(sink, unavailable = VoiceOutputResult.Unavailable("models missing"))
+
+        assertEquals(VoiceOutputResult.Spoken, h.stream.append(longReply, isFinal = false))
+        assertEquals(VoiceOutputResult.Unavailable("models missing"), h.stream.append("", isFinal = true))
+        assertEquals(0, h.synthCalls.get())
+        assertTrue(sink.tracks.isEmpty())
+    }
+
+    @Test
+    fun `a write failure after audio started is reported as spoken so the fallback cannot repeat it`() =
+        runBlocking {
+            val sink = FakeSink().apply { failWriteAt = 2 }
+            val h = harness(sink)
+
+            val result = h.stream.append(longReply, isFinal = true)
+            h.stream.awaitPlayback()
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            assertEquals(VoiceOutputResult.Spoken, h.stream.playbackResult())
+            assertTrue(sink.tracks.single().discarded)
+        }
 
     @Test
     fun `a failure before any audio is reported on the final append for the fallback`() = runBlocking {
@@ -275,13 +347,17 @@ class InflectReplyStreamTest {
     }
 
     @Test
-    fun `a track that fails to open ends the reply without throwing to the caller`() = runBlocking {
+    fun `a track that fails to open reports Unavailable for the fallback and does not throw`() = runBlocking {
         val sink = FakeSink(openError = IllegalStateException("AudioTrack refused"))
         val hooks = FakeHooks()
         val h = harness(sink, hooks)
 
         val result = h.stream.append(longReply, isFinal = true)
         h.stream.awaitPlayback()
+        assertEquals(
+            VoiceOutputResult.Unavailable("Inflect playback failed: AudioTrack refused"),
+            h.stream.playbackResult(),
+        )
 
         assertEquals(VoiceOutputResult.Spoken, result)
         assertTrue(sink.tracks.isEmpty())

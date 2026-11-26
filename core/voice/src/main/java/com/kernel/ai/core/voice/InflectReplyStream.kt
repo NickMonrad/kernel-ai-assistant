@@ -40,10 +40,10 @@ internal interface InflectReplyHooks {
  * One reply's streaming pipeline. Text is normalized, split into speech chunks, phonemized and synthesized in order.
  * Waveforms go through a one-slot channel to a single track; playback starts with the first queued chunk.
  *
- * Failure contract: a chunk-level synthesis or phonemizer failure skips the rest of that append and is logged.
- * Once audio is queued, no append returns Unavailable, so the caller cannot restart a reply that already played.
- * The final append returns Unavailable only when nothing was queued, so the Android TTS fallback speaks the
- * buffered text once.
+ * Failure contract: a speech chunk that fails to phonemize or synthesize is logged and skipped; the rest of the
+ * append still plays. A preparation failure is reported on the final append only, so the Android TTS fallback speaks
+ * the buffered text once. Once audio is queued, no append returns Unavailable, so the caller cannot restart a reply
+ * that already played. [playbackResult] reports Unavailable only when playback failed before any audio was written.
  *
  * Cancellation contract: [cancel] (caller cancelled) finishes queued audio and synthesizes nothing more, like
  * Sherpa. [abort] (the controller's stop, which bumps the generation first) silences the reply at once.
@@ -69,14 +69,16 @@ internal class InflectReplyStream(
     private var playback: Job? = null
     private var queuedChunks = 0
     @Volatile private var lastSynthesisError: String? = null
+    @Volatile private var audioWritten = false
+    @Volatile private var playbackFailure: VoiceOutputResult.Unavailable? = null
 
     override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = withContext(Dispatchers.IO) {
-        val result = appendText(text)
-        if (!isFinal) return@withContext result
+        appendText(text)
+        if (!isFinal) return@withContext VoiceOutputResult.Spoken
         closeAudio()
-        if (result is VoiceOutputResult.Unavailable) return@withContext result
         if (queuedChunks > 0 || !isCurrent()) return@withContext VoiceOutputResult.Spoken
-        VoiceOutputResult.Unavailable(lastSynthesisError ?: "Inflect normalization produced no synthesis chunks.")
+        unavailable
+            ?: VoiceOutputResult.Unavailable(lastSynthesisError ?: "Inflect normalization produced no synthesis chunks.")
     }
 
     /** Caller-cancel path: finishes queued audio, synthesizes nothing more. */
@@ -97,40 +99,60 @@ internal class InflectReplyStream(
         job?.join()
     }
 
-    /** Streaming replies report playback problems through logs only; the caller has already returned. */
-    fun playbackResult(): VoiceOutputResult = VoiceOutputResult.Spoken
+    /**
+     * Speak-path result once playback has ended. Unavailable only when playback failed before any audio was
+     * written, so the caller's Android TTS fallback cannot repeat audio that already played.
+     */
+    fun playbackResult(): VoiceOutputResult = playbackFailure ?: VoiceOutputResult.Spoken
 
     private fun closeAudio() {
         if (closed.compareAndSet(false, true)) audio.close()
     }
 
-    private suspend fun appendText(text: String): VoiceOutputResult {
-        unavailable?.let {
-            closeAudio()
-            return it
-        }
-        if (closed.get()) return VoiceOutputResult.Spoken
+    private suspend fun appendText(text: String) {
+        // A preparation failure stays silent here; the final append reports it (see append).
+        if (unavailable != null || closed.get()) return
         if (!isCurrent()) {
             closeAudio()
-            return VoiceOutputResult.Spoken
+            return
         }
-        try {
-            val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
-            if (normalized.isBlank()) return VoiceOutputResult.Spoken
-            for (chunk in InflectMicroTextFrontend.phonemizeSpeechChunks(normalized, phonemize = phonemizeChunk)) {
-                if (closed.get()) return VoiceOutputResult.Spoken
-                val waveform = synthesize(chunk.phonemes) ?: return VoiceOutputResult.Spoken
-                if (!enqueue(fadeChunkEdges(waveform))) return VoiceOutputResult.Spoken
+        val normalized = try {
+            InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
+        } catch (error: Exception) {
+            skipChunk(error)
+            return
+        }
+        if (normalized.isBlank()) return
+        for (speechChunk in InflectMicroTextFrontend.speechChunks(normalized)) {
+            if (closed.get()) return
+            val pieces = try {
+                InflectMicroTextFrontend.phonemizeChunks(speechChunk, phonemize = phonemizeChunk)
+            } catch (error: Exception) {
+                skipChunk(error)
+                continue
+            }
+            for (piece in pieces) {
+                if (closed.get()) return
+                val waveform = try {
+                    synthesize(piece.phonemes) ?: return
+                } catch (error: CancellationException) {
+                    // A superseded or aborted reply unwinds quietly; a cancelled caller propagates.
+                    if (isCurrent()) throw error
+                    return
+                } catch (error: Exception) {
+                    skipChunk(error)
+                    continue
+                }
+                if (!enqueue(fadeChunkEdges(waveform))) return
                 queuedChunks++
             }
-        } catch (error: CancellationException) {
-            // A superseded or aborted reply unwinds quietly; a cancelled caller propagates.
-            if (isCurrent()) throw error
-        } catch (error: Exception) {
-            Log.e(TAG, "Inflect chunk synthesis failed; skipping the rest of this append", error)
-            lastSynthesisError = "Inflect synthesis failed: ${error.message}"
         }
-        return VoiceOutputResult.Spoken
+    }
+
+    /** Logs one failed speech chunk; the reply continues with the next chunk. */
+    private fun skipChunk(error: Exception) {
+        Log.e(TAG, "Inflect chunk failed; skipping it and continuing the reply", error)
+        lastSynthesisError = "Inflect synthesis failed: ${error.message}"
     }
 
     /** Sends one waveform and starts playback. False when the reply was aborted or its playback failed. */
@@ -162,6 +184,7 @@ internal class InflectReplyStream(
                 if (!isCurrent()) break
                 val active = track ?: openTrack().also { track = it }
                 active.write(waveform, gain, isCurrent)
+                audioWritten = true
             }
             track?.let { active ->
                 if (isCurrent()) active.drain(isCurrent) else active.discard()
@@ -171,6 +194,7 @@ internal class InflectReplyStream(
             throw error
         } catch (error: Exception) {
             Log.e(TAG, "Inflect playback failed; the rest of this reply is dropped", error)
+            if (!audioWritten) playbackFailure = VoiceOutputResult.Unavailable("Inflect playback failed: ${error.message}")
             track?.discard()
             audio.cancel()
         } finally {
