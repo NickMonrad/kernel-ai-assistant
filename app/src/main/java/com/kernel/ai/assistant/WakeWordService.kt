@@ -71,6 +71,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
@@ -868,13 +869,21 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
-        // #2109: the notification's Pause and Resume actions arrive here, after the foreground promotion.
+        // #2109: the notification's Pause and Resume actions arrive here, after the foreground promotion. They act
+        // only on a set-up service. A Pause on a fresh instance has nothing to pause, and listening would undo it, so
+        // the service stops. A Resume falls through to the normal start path.
+        val setUp = eventCollectorJob?.isActive == true
         when (intent?.action) {
             ACTION_PAUSE -> {
+                if (!setUp) {
+                    Log.i(TAG, "WakeWordService: pause action on a service that is not set up — stopping")
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 pauseByUser()
                 return START_STICKY
             }
-            ACTION_RESUME -> {
+            ACTION_RESUME -> if (setUp) {
                 resumeByUser()
                 return START_STICKY
             }
@@ -1260,36 +1269,48 @@ class WakeWordService : Service() {
     private fun currentMicClients(): List<MicRecordingClient> =
         getSystemService(AudioManager::class.java)?.activeRecordingConfigurations?.map { it.toMicClient() }.orEmpty()
 
-    /** Re-arms the detector from a caller outside [micLock]. The re-arm itself checks every condition (#2109). */
-    private fun requestRearm() {
-        serviceScope.launch { micLock.withLock { rearmDetectorLocked() } }
+    /**
+     * Runs [block] under [micLock], queued in call order (see [launchQueuedUnder]). Callers outside the lock use this,
+     * so a pause and a resume cannot race each other (#2109).
+     */
+    private fun launchUnderMicLock(block: () -> Unit) {
+        serviceScope.launchQueuedUnder(micLock, Dispatchers.Default, block)
     }
 
+    /** Re-arms the detector from a caller outside [micLock]. The re-arm itself checks every condition (#2109). */
+    private fun requestRearm() = launchUnderMicLock { rearmDetectorLocked() }
+
     /** Releases the detector from a caller outside [micLock], so a start cannot race the stop (#2109). */
-    private fun requestDetectorRelease() {
-        serviceScope.launch { micLock.withLock { wakeWordDetector.stop() } }
-    }
+    private fun requestDetectorRelease() = launchUnderMicLock { wakeWordDetector.stop() }
 
     /** The notification's Pause action: release the mic until the user resumes (#2109). */
     private fun pauseByUser() {
         if (!userPause.pause()) return
         Log.i(TAG, "WakeWordService: paused by user — releasing wake mic")
+        JandalEvents.record("service", "wake_user_pause", "state" to "paused")
+        AcousticJournalBridge.record(type = AcousticEventType.USER_PAUSED)
         requestDetectorRelease()
         refreshNotification()
     }
 
-    /** The notification's Resume action: clear the user pause and re-arm (#2109). */
+    /** The notification's Resume action: clear the user pause, then probe at once (#2109). */
     private fun resumeByUser() {
         if (!userPause.resume()) return
         Log.i(TAG, "WakeWordService: resumed by user — re-arming wake word detection")
+        JandalEvents.record("service", "wake_user_pause", "state" to "resumed")
+        AcousticJournalBridge.record(type = AcousticEventType.USER_RESUMED)
         refreshNotification()
-        requestRearm()
+        launchUnderMicLock {
+            // A silence hold is the one pause Resume overrides; a recorder on another source still keeps the mic.
+            if (contentionGate.paused) contentionGate.onResumeRequested(currentMicClients()) else rearmDetectorLocked()
+        }
     }
 
     /**
-     * Re-arms [wakeWordDetector] with the standard callbacks. The caller holds [micLock]: the user pause,
-     * the contention gate and the detector change only under that lock, so the checks below still hold when
-     * `start()` runs (#2109). Callers outside the lock use [requestRearm].
+     * Re-arms [wakeWordDetector] with the standard callbacks. The caller holds [micLock], so the contention gate and
+     * the detector change only under that lock. [WakeUserPause] is written on the main thread and read here; it is
+     * volatile. A pause that lands after this check queues its release behind this re-arm, and that release stops
+     * the detector (#2109). Callers outside the lock use [requestRearm].
      */
     private fun rearmDetectorLocked() {
         // #2109: the user paused Hey Jandal from the notification. Only its Resume action re-arms.

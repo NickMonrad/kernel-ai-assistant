@@ -18,8 +18,8 @@ Timeline lines: `s21-audio-recording-events.txt`, `s23u-audio-recording-events.t
 
 ## Not verified
 
-- **Samsung Voice Recorder (S21): tested with the notification Pause action.** See "Pause action run" below.
-- **Wake phrase after re-arm:** the re-arm is shown by detector start and `recording started` logs only. No spoken "Hey Jandal" was run, so wake detection after re-arm is unverified.
+- **Samsung Voice Recorder (S21):** covered only with the notification Pause action; see "Pause action run" below.
+- **Wake phrase after re-arm:** one synthetic clip was detected after Resume (section 10 of `s21-pause-resume-run.txt`). No human speaker, distance or room test.
 - **Phone call:** not tested.
 
 ## Other contender found
@@ -28,15 +28,15 @@ On the S21 at 20:59:33 `com.samsung.android.bixby.wakeup` (uid 1000) captured MI
 
 ## Known flap
 
-At camera start, both phones show one short release/re-arm/release (S21 54.499 → 54.553 → 54.560; S23U 30.105 → 30.199 → 30.200). The re-arm starts the detector, which holds the capture open about 12–18 ms before the release (review measurement). The detector's model load is about 40 ms per start. Nothing is recorded from it. The silence hold (`WakeMicContentionGate.SILENCE_BACKOFF_MS`, 10 s) removes the flap for a silence-caused release; this build has not been re-measured on the camera path.
+Camera run on this build (section 7 of `s21-pause-resume-run.txt`) shows one release, not a flap. The 10 s silence hold removes the flap for a silence-caused release; the re-measured camera-start timing on the S21 is not separately recorded.
 
 ## Update: source filter and Samsung Voice Recorder (S21)
 
 ### Always-on source filter (owner rule, #2109)
-Other apps' clients on `VOICE_RECOGNITION` never pause Jandal (`WakeMicContentionGate.ALWAYS_ON_SOURCES`). Recorders on MIC/CAMCORDER and calls on VOICE_COMMUNICATION still pause it. Tested in `WakeMicContentionGateTest` (16 tests), with `WakeUserPauseTest` (3) and `WakeMicYieldGateTest` (10) still passing.
+Other apps' clients on `VOICE_RECOGNITION` do not pause Jandal by their presence (`WakeMicContentionGate.ALWAYS_ON_SOURCES`). If the audio server silences Jandal's capture while such a client is open, Jandal releases and probes again after a hold: 10 s, doubling to a 120 s cap while the silence repeats. Recorders on MIC/CAMCORDER and calls on VOICE_COMMUNICATION still pause it.
 
 Limit: `AudioRecordingConfiguration` exposes the client's source, session id and silenced flag publicly. It does not expose the client uid or package (no public getter in the API 35 reference). The system listener `com.samsung.android.bixby.wakeup` (uid 1000) captured on **MIC**, so the source filter does not exclude it. Excluding it needs the uid, which needs a hidden API or a different signal. This is not built.
-HOTWORD is a hidden constant, so the filter lists only the public VOICE_RECOGNITION.
+The filter also ignores the hidden HOTWORD source (1999), which is not a public constant.
 
 ### Samsung Voice Recorder on S21 with Hey Jandal on (`s21-recorder-*`)
 - Granted RECORD_AUDIO and READ_MEDIA_AUDIO to `com.sec.android.app.voicenote` (owner-approved test-phone grant). Without READ_MEDIA_AUDIO it showed "allow permission in Settings".
@@ -57,7 +57,7 @@ Build: this branch, installed on the S21 (`s21-pause-resume-run.txt` has the log
 |---|---|
 | Pause tapped | Jandal releases the mic (`paused by user — releasing wake mic`, 07:36:31.785). Notification: "Paused. Tap Resume to listen for Hey Jandal." |
 | Samsung Voice Recorder records while paused | Yes. `AnotherRecordActive: false`, `setRecorderState - state : 2`. A 57.96 s clip saved (not kept on the device). Waveform shown in the recorder screen. |
-| Recorder stop | The recorder logs `Enable System Sound` and `isSaveEnable`, but its MIC session stays open after stop (riid 91946991, uid 10279, still active 40 s later; no `rec stop`). Jandal stays paused. Notification: "Paused while another app records". |
+| Recorder stop | The recorder logs `Enable System Sound` and `isSaveEnable`, but its MIC session stays open after stop (riid 91946991, uid 10279, still active 40 s later; no `rec stop`). Jandal stays paused. Notification: user-pause text ("Paused. Tap Resume to listen for Hey Jandal.") until Resume. |
 | Resume tapped | Jandal re-syncs and stays paused, because the recorder still held the mic. This is correct behaviour for that state. |
 | Recorder released (`am force-stop`) | Jandal re-arms: VOICE_RECOGNITION session for uid 10649 at 07:39:19; notification "Listening for wake word…". |
 

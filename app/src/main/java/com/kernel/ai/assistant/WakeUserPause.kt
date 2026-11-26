@@ -7,7 +7,8 @@ package com.kernel.ai.assistant
  * only: it survives screen-off, but a reboot or a service restart starts listening again.
  */
 internal class WakeUserPause {
-    var paused: Boolean = false
+    /** Volatile: written on the main thread by the notification action, read under the wake mic lock. */
+    @Volatile var paused: Boolean = false
         private set
 
     /** Returns true when this call changed the state. */

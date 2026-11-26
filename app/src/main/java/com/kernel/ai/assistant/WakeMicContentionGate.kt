@@ -14,14 +14,15 @@ internal data class MicRecordingClient(val sessionId: Int, val source: Int, val 
  * VOICE_COMMUNICATION, ...) and pause Jandal. Jandal's own captures, identified by [ownSessionIds]
  * (the wake detector and the speech-to-text recorders), never pause us unless the audio server silenced one.
  *
- * A release caused by the audio server silencing our capture is held until no other client remains and
- * [SILENCE_BACKOFF_MS] has passed since the silence. The client that silenced us may be on an always-on
- * source, or may not have registered yet. Re-arming as soon as the list looks empty restarts the capture
- * into the same silence, so the hold stops that flap (#2109).
+ * A release caused by the audio server silencing our capture is held for [silenceHoldMs], then the detector
+ * probes by re-arming, whatever always-on clients remain. A probe that is silenced again doubles the hold up
+ * to [SILENCE_BACKOFF_MAX_MS]; a probe that survives one hold resets it to [SILENCE_BACKOFF_MS]. A non-always-on
+ * recorder still keeps Jandal paused for as long as it records. A user Resume calls [onResumeRequested], which
+ * probes at once (#2109).
  *
  * [rearmAllowed] is false while a voice session or wake handoff owns the mic; the transition out of
  * contention then does not re-arm, and that owner re-arms on its own terminal event. [rearmMic] must
- * still refuse to take the mic while [paused] is set, because the voice path calls it independently.
+ * still refuse to take the mic while the user pause is set, because the voice path calls it independently.
  */
 internal class WakeMicContentionGate(
     private val releaseMic: () -> Unit,
@@ -39,8 +40,19 @@ internal class WakeMicContentionGate(
     /** Clock time of the release caused by the audio server silencing our capture; null for other pauses. */
     private var silencedAtMs: Long? = null
 
+    /** Hold after the next silence. Doubles when a probe is silenced again, resets when a probe survives. */
+    private var silenceHoldMs: Long = SILENCE_BACKOFF_MS
+
+    /** Clock time the current probe re-arm started; null when no probe is pending survival. */
+    private var probeStartedAtMs: Long? = null
+
     /** Called with the full active-client list on every recording-configuration change, and on re-sync. */
-    fun onRecordingClients(clients: List<MicRecordingClient>) {
+    fun onRecordingClients(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = false)
+
+    /** The user pressed Resume: re-arm now unless another recorder holds the mic (#2109). */
+    fun onResumeRequested(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = true)
+
+    private fun evaluate(clients: List<MicRecordingClient>, probeNow: Boolean) {
         val own = ownSessionIds()
         val ownClients = clients.filter { it.sessionId in own }
         val others = clients.filter { it.sessionId !in own }
@@ -50,29 +62,49 @@ internal class WakeMicContentionGate(
         if (!paused) {
             if (contended) {
                 paused = true
-                silencedAtMs = if (silenced) clockMs() else null
+                if (silenced) holdAfterSilence() else silencedAtMs = null
                 releaseMic()
+                return
+            }
+            probeStartedAtMs?.let { started ->
+                if (clockMs() - started >= silenceHoldMs) {
+                    silenceHoldMs = SILENCE_BACKOFF_MS
+                    probeStartedAtMs = null
+                }
             }
             return
         }
         if (contended) return
         silencedAtMs?.let { since ->
-            // Any remaining client, including an always-on one, may be the silencer: wait for it to go.
-            if (others.isNotEmpty()) return
-            val remainingMs = since + SILENCE_BACKOFF_MS - clockMs()
-            if (remainingMs > 0) {
+            val remainingMs = since + silenceHoldMs - clockMs()
+            if (remainingMs > 0 && !probeNow) {
                 scheduleRecheck(remainingMs)
                 return
             }
+            // The hold has passed (or the user asked): probe. The survival check resets the hold later.
+            probeStartedAtMs = clockMs()
+            scheduleRecheck(silenceHoldMs)
         }
         paused = false
         silencedAtMs = null
         if (rearmAllowed()) rearmMic()
     }
 
+    private fun holdAfterSilence() {
+        val started = probeStartedAtMs
+        val probeFailed = started != null && clockMs() - started < silenceHoldMs
+        silenceHoldMs = if (probeFailed) minOf(silenceHoldMs * 2, SILENCE_BACKOFF_MAX_MS) else SILENCE_BACKOFF_MS
+        probeStartedAtMs = null
+        silencedAtMs = clockMs()
+        scheduleRecheck(silenceHoldMs)
+    }
+
     companion object {
-        /** Hold after the audio server silences our capture, before re-arming with no other client present (#2109). */
+        /** First hold after the audio server silences our capture, and the hold a surviving probe resets to (#2109). */
         const val SILENCE_BACKOFF_MS: Long = 10_000L
+
+        /** Longest hold between silenced probes, so a long-running always-on listener is re-checked at least this often. */
+        const val SILENCE_BACKOFF_MAX_MS: Long = 120_000L
 
         /**
          * The hidden `MediaRecorder.AudioSource.HOTWORD` constant. The SDK does not expose it, so its value is

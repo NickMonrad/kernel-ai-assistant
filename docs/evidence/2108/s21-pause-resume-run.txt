@@ -37,13 +37,13 @@ KernelAI 07:39:19.931  WakeWordDetector: models loaded
 Notification after re-arm: "Listening for wake word…" (action "Pause")
 
 ## 7. Camcorder (check c), same build, Jandal listening, not paused
-07:41:28.372  KernelAI: WakeWordService: another app is recording — releasing wake mic  (once)
-audio server 07:41:04: MIC client uid 1000 com.samsung.android.bixby.wakeup (system listener, known limit; Jandal released for it)
-audio server 07:41:19+: CAMCORDER client uid 10100 com.sec.android.app.camera (recording)
-camcorder stop (tap stop, ~07:41:45)
-07:41:53.732  KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
-audio server: VOICE_RECOGNITION client uid 10649 ai.jandal.assistant.debug (re-armed)
-Releases in this window: 1. No release/re-arm thrash.
+Raw audio-server lines (`s21-cam-audio5.txt`, `rec` events; log lines from `s21-pause-resume-run.txt`):
+- 07:40:57.642 Jandal's wake capture (VOICE_RECOGNITION, uid 10649) reports `silenced`. Bixby (`com.samsung.android.bixby.wakeup`, uid 1000, MIC) registers at 07:40:57.645. Jandal's capture stops at 07:40:57.655.
+- 07:41:26.246 Bixby's MIC session stops (about 28.6 s after it started). Jandal's new capture starts at 07:41:26.375 (129 ms later).
+- 07:41:28.366 Jandal's capture is silenced again, with no other app client yet. The release is logged at 07:41:28.372 as `another app is recording — releasing wake mic`. That log text is the generic contention message and was used for this silence-caused release too.
+- 07:41:28.411 CAMCORDER (uid 10100, com.sec.android.app.camera) starts recording. Jandal's capture is already stopped (07:41:28.390).
+- 07:41:53.678 camcorder stops. Jandal's capture starts at 07:41:53.889 (211 ms later, `starting 3-stage ONNX pipeline` at 07:41:53.732).
+Releases in this window: 2 (07:40:57.655 and 07:41:28.390), both silence-caused. No release/re-arm thrash after the camcorder starts.
 
 ## 8. Voice session (check d)
 07:42:17.165  KernelAI: WakeWordService: yielding mic to voice session

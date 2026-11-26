@@ -127,18 +127,62 @@ class WakeMicContentionGateTest {
     }
 
     @Test
-    fun `silenced, then only a VOICE_RECOGNITION silencer remains, stays paused until it leaves and the back-off passes`() {
+    fun `an always-on silencer does not extend the hold, the probe re-arms at the back-off`() {
         gate.onRecordingClients(listOf(ownClient(silenced = true)))
         gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
         assertTrue(gate.paused)
         assertEquals(0, rearmed)
 
-        gate.onRecordingClients(emptyList())
-        assertTrue(gate.paused)
-        assertEquals(listOf(WakeMicContentionGate.SILENCE_BACKOFF_MS), scheduled)
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
+    }
 
+    @Test
+    fun `a silenced probe doubles the hold up to the cap while the always-on listener stays`() {
+        val holds = mutableListOf<Long>()
+        var at = 0L
+        repeat(6) {
+            now = at
+            scheduled.clear()
+            gate.onRecordingClients(listOf(ownClient(silenced = true), otherClient(voiceRecognition)))
+            val hold = scheduled.single()
+            holds += hold
+            at += hold
+            now = at
+            gate.onRecordingClients(listOf(otherClient(voiceRecognition)))
+            assertFalse(gate.paused)
+        }
+        assertEquals(listOf(10_000L, 20_000L, 40_000L, 80_000L, 120_000L, 120_000L), holds)
+        assertEquals(6, released)
+        assertEquals(6, rearmed)
+    }
+
+    @Test
+    fun `a probe that survives one hold resets the hold to the first back-off`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
         now = WakeMicContentionGate.SILENCE_BACKOFF_MS
         gate.onRecordingClients(emptyList())
+        assertFalse(gate.paused)
+
+        now = 2 * WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(emptyList())
+
+        scheduled.clear()
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        assertEquals(listOf(WakeMicContentionGate.SILENCE_BACKOFF_MS), scheduled)
+    }
+
+    @Test
+    fun `a user resume probes ahead of the hold, but a recorder on MIC still keeps the mic`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 1_000L
+        gate.onResumeRequested(listOf(otherClient(mic)))
+        assertTrue(gate.paused)
+        assertEquals(0, rearmed)
+
+        gate.onResumeRequested(emptyList())
         assertFalse(gate.paused)
         assertEquals(1, rearmed)
     }
@@ -149,7 +193,7 @@ class WakeMicContentionGateTest {
         now = 4_000L
         gate.onRecordingClients(emptyList())
         assertTrue(gate.paused)
-        assertEquals(listOf(WakeMicContentionGate.SILENCE_BACKOFF_MS - 4_000L), scheduled)
+        assertEquals(WakeMicContentionGate.SILENCE_BACKOFF_MS - 4_000L, scheduled.last())
 
         now = WakeMicContentionGate.SILENCE_BACKOFF_MS
         gate.onRecordingClients(emptyList())
