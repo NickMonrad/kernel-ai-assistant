@@ -56,3 +56,18 @@ Attempted the two-turn reminder flow ("set a reminder" → "put the bins out" �
 - **Not yet explained:** the S23U does not detect wake clips played by the S21 at media volume 10 or 15, although the S21 VLC started playback (18:09:42, 18:12:18). Speaker placement or mic sensitivity are candidates; not checked.
 - **Volumes:** S21 media 2 before and after; S23U media 4 before and after. The S21 Jandal process was stopped for run 12 and not relaunched.
 - **Privacy:** no audio, transcripts, names, or screenshots committed. Logs are kept in `/tmp` only.
+
+## Final matrix (2026-11-26, head `eed81f02`): partial, not a pass
+
+| Run | Player → listener | Result |
+|---|---|---|
+| reminder 1 | S23U → S21 | **Failed.** Wake detected on S21 (18:46:49). "Set a reminder" routed FallThrough → chat; the chat LLM dispatched `add_reminder` with no params. No `mode=SlotReply` mic opened; no reminder created. |
+| timer 2 | S23U → S21 | **Passed.** NeedsSlot → slot sheet; `SlotReply` mic opened 0.35 s after playback stopped (18:50:12.01). "Ten seconds" normalised to 10 seconds; `set_timer` completed at 18:50:16. 10 s timer; expired, nothing to delete. |
+| S23U evidence | S21 → S23U, S21 media 15 | **Failed.** Hey Jandal enabled (pref `hey_jandal_enabled` = true). S23U WakeWordService started its detector only after an explicit app relaunch and backgrounding; it did not detect the S21 wake clip. Voice session launched via `VoiceCommandActivity`; command played inside its capture window (18:55:50), S23U reported "No speech heard" at 18:55:59. Acoustic path S21 → S23U not working at this placement and volume. |
+| #2083 chat check | not run | Depends on an audio path; not attempted. |
+
+- **Reminder runs 2 and 3: not run.** Run 1 shows a deterministic FallThrough, so a repeat would repeat it.
+- **Root cause of reminder failure:** a bare "set a reminder" matches no `add_reminder` pattern in `QuickIntentRouter`. The `add_reminder` contract requires `day` and `time` in addition to `item`, so the owner's flow ("at five pm" alone) cannot complete. Blocked on a product decision: bare reminder should ask for `item`; `day` required, or default to today when only a time is given.
+- **eed81f02 coverage:** the in-place fix covers only `RegexMatch`/`ClassifierMatch`. The device path is FallThrough, so the fix does not reach it.
+- **Volumes and state:** S21 media 2 and S23U media 4 restored; stay-awake 2 on both. S21 Jandal relaunched; S21 staged clips removed. S23U Jandal left running, not in a call.
+- **Privacy:** no audio, transcripts, or screenshots committed. Logs in `/tmp` only.
