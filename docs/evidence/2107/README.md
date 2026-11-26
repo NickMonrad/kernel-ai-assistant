@@ -40,3 +40,19 @@ Build: `fix/2082-2083-slot-followup-mic` at `b92cadfd` (debug build, `ai.jandal.
 - **#2083 chat one-shot reopen: not verified on device.** The one-shot starts from a voice transcript in chat, and this run had no audio path to the S21 mic. Unit tests only: `./gradlew :feature:chat:testDebugUnitTest --tests '*ChatViewModelVoiceTest*' --tests '*ActionsViewModelVoiceTest*'` at `b92cadfd`: ChatViewModelVoiceTest 91 tests and ActionsViewModelVoiceTest 176 tests, 0 failures, 0 errors (run 2026-11-26 07:49 AEST).
 - **"Hey Jandal" audio trigger: not exercised** (see Method).
 - **S23U primary evidence: missing.** Policy requires it for High risk. Needs a follow-up S23U run (or an owner decision that S21 suffices).
+
+## Runs 9 to 13 (2026-11-26, head `eed81f02`): audio path blocked, no matrix results
+
+Attempted the two-turn reminder flow ("set a reminder" → "put the bins out" → "at five pm") and the timer diagnostic ("set a timer" → "ten seconds") with acoustic clips played over the air. No run produced a transcript or a `mode=SlotReply` open, so no mic-open delay was measured and no reminder or timer was created.
+
+| Run | Player → listener | Result |
+|---|---|---|
+| 9, 10 | S23U → S21 | Wake clip detected on the S21. Command clip never transcribed. Voice session closed after its 10 s window. |
+| 11 | S23U → S21 (proven timer command) | Same as 9, 10. The command also fails with a known-good clip, so the reminder clip is not the cause. |
+| 12 | S21 → S23U (S21 Jandal stopped) | S23U did not detect the wake clip. No KernelAI lines in the window. |
+| 13 | S21 → S23U, S21 media 15 | S23U still did not detect the wake clip. |
+
+- **Cause found for runs 9 to 11:** the S23U's own Jandal `WakeWordService` (foreground, Hey Jandal enabled) detects the clip it plays, starts its own voice session, and takes audio focus. VLC pauses (`AUDIOFOCUS_LOSS_TRANSIENT`), so the command clip is lost. The player must not run the wake service.
+- **Not yet explained:** the S23U does not detect wake clips played by the S21 at media volume 10 or 15, although the S21 VLC started playback (18:09:42, 18:12:18). Speaker placement or mic sensitivity are candidates; not checked.
+- **Volumes:** S21 media 2 before and after; S23U media 4 before and after. The S21 Jandal process was stopped for run 12 and not relaunched.
+- **Privacy:** no audio, transcripts, names, or screenshots committed. Logs are kept in `/tmp` only.
