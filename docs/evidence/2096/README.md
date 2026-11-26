@@ -78,4 +78,26 @@ Not verified on the S21 in this step:
 - First-audio latency on the S23U: the S23U was not connected for this step, so only the S21 playback check was run.
 - The S21 first-chunk time (1.96 s, 3.02 s) is not comparable with the S23U harness numbers above (different SoC, and the harness excludes AudioTrack).
 
-Listening run (S23U playback, S21 mic): three long replies played, two takes recorded; audio kept outside git in the private fixtures folder, no audio committed here. Agent did not listen; only silence-detection pause timing was measured. Mid-reply Stop not run on this device.
+Listening run (S23U playback, S21 mic): three long replies played, two takes recorded; audio kept outside git in the private fixtures folder, no audio committed here. Agent did not listen; only silence-detection pause timing was measured. Mid-reply Stop for that run was not done; the review-fix build's Stop runs are below.
+
+## Review-fix build on S23U (`37716f9170`)
+
+Build: `37716f9170` (HEAD of `fix/2096-inflect-long-reply-chunks`), debug APK built from that commit, no timing patch. Device: S23U `RFCW11265XH`, debug package `ai.jandal.assistant.debug`, lastUpdateTime 2026-11-26 17:34:22. Lock `/tmp/jandal-s23u.lock` owned by `claude-2096-review2`, released after the run. `stay_on_while_plugged_in` was 2 before and after. Media volume 4/15, not changed. Voice: Inflect Micro, Downloaded, selected under Voice → Speaking.
+
+Reply: one ~1,300-character answer about tides, spoken via the message's Speak control. It contained 1234567 km, 98765432 people and 3.14159; the model wrote "3.1459" in its text. Log line: `SpeakingStarted engine=inflect chars=1306`.
+
+| Run | Speak tap (epoch s) | First sound (SpeakingStarted, epoch s) | Tap to first sound | Stop tap (epoch s) | Stop after first sound | Audio focus |
+|---|---|---|---|---|---|---|
+| 1 | 1795679072.107 | 1795679072.799 | 0.69 s | 1795679089.021 | ~16.2 s | not captured |
+| 2 | 1795679103.079 | 1795679103.301 | 0.22 s | 1795679106.300 | ~3.0 s | request 17:45:03.301, abandon 17:45:06.296 |
+| 3 | not logged | 1795679114.940 | n/a | 1795679120.918 | ~6.0 s | stack shows ai.jandal (USAGE_ASSISTANT/CONTENT_TYPE_SPEECH, GAIN_TRANSIENT_MAY_DUCK) at +6 s; no ai.jandal entry after Stop; abandon 17:45:20.939 |
+| 4 (natural finish) | 1795679134.063 | 1795679134.281 | 0.22 s | none | none | request 17:45:34.280, abandon 17:47:16.229 (~102 s, reply finished) |
+
+- Three mid-reply Stops (runs 1–3). After each Stop the UI returned to idle; the next Speak tap started a new reply (runs 2→3→4).
+- Audio focus is requested with `USAGE_ASSISTANT/CONTENT_TYPE_SPEECH` and abandoned on Stop and on normal completion.
+- Tap to first sound measures the adb tap timestamp to the `SpeakingStarted` log, which is written when the track opens, before the first write. It includes adb dispatch overhead and does not measure the sound leaving the speaker.
+
+Not measured or not verified on this build:
+- Longest inter-chunk pause: not measured. The stock build logs no per-chunk write timing; the timing patch used on the S21 was not applied here, so no pause number is reported.
+- Stop latency to silence, and the audible result of the numbers: not heard. Only UI state, log order and focus state were checked.
+- Chunk-failure fallback on device: not exercised (unit-tested only).
