@@ -130,7 +130,8 @@ object EnglishSpeechTextNormaliser {
     private val hyphenPhone = Regex("""(?<![\p{N}.,:/$])(0\d{2,3}|\d{4})-(\d{3})-(\d{3,4})(?!\p{N}|[.,]\p{N}|[:/-])""")
     private val hyphenPair = Regex("""\b(\d{3})-(\d{4})\b""")
     private val decade = Regex("""(?<![\p{L}\p{N}.,])((?:1[1-9]|20)\d0)s(?![\p{L}\p{N}])""")
-    private val shortDecade = Regex("""(?<![\p{L}\p{N}.,])((?:[Tt]he\s+)?)('?)([1-9]0)s(?![\p{L}\p{N}])""")
+    /** Two-digit decades need "the" or an apostrophe before them: "the 90s", "'90s", "the '80s". A bare "30s" is seconds. */
+    private val shortDecade = Regex("""(?<![\p{L}\p{N}.,])((?:[Tt]he\s+)'?|')([1-9]0)s(?![\p{L}\p{N}])""")
     private val multiDot = Regex("""\b\d+(?:\.\d+){2,}\b""")
     private val ordinal = Regex("""\b(\d{1,3}(?:,\d{3})+|\d{1,18})(st|nd|rd|th)\b""", RegexOption.IGNORE_CASE)
     // #1486 grouped-digit identifiers: only runs of THREE OR MORE space-separated integer
@@ -198,13 +199,8 @@ object EnglishSpeechTextNormaliser {
         }
         value = decade.replace(value) { match -> pluralDecade(yearWords(match.groupValues[1].toInt())) }
         value = shortDecade.replace(value) { match ->
-            val words = pluralDecade(cardinal(match.groupValues[3].toLong()))
-            val lead = match.groupValues[1]
-            when {
-                lead.isNotEmpty() -> "$lead$words"
-                match.groupValues[2].isNotEmpty() -> "the $words"
-                else -> words
-            }
+            val words = pluralDecade(cardinal(match.groupValues[2].toLong()))
+            if (match.groupValues[1].startsWith("T")) "The $words" else "the $words"
         }
         value = multiDot.replace(value) { match ->
             match.value.split('.').joinToString(" point ") { integerWords(it) }

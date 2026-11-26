@@ -120,6 +120,15 @@ class EnglishSpeechTextNormaliserTest {
     }
 
     @Test
+    fun seconds_after_a_number_are_seconds_and_decades_need_the_or_an_apostrophe_or_four_digits() {
+        assertEquals("wait thirty seconds", kokoroText("wait 30s"))
+        assertEquals("a forty five seconds clip", kokoroText("a 45s clip"))
+        assertEquals("the nineties", kokoroText("the 90s"))
+        assertEquals("the eighties", kokoroText("the '80s"))
+        assertEquals("nineteen nineties", kokoroText("1990s"))
+    }
+
+    @Test
     fun times_and_timer_phrasings() {
         assertEquals("Sunrise seven oh five a m.", kokoroText("Sunrise 7:05 am."))
         assertEquals("Timer set for two minutes thirty seconds.", kokoroText("Timer set for 2 minutes 30 seconds."))
