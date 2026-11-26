@@ -91,7 +91,7 @@ Not verified:
 - Samsung Voice Recorder on this build. Its results are from the earlier build (sections above).
 - The S21 missed the clip played from the S23U in both attempts. The cause is not established (speaker placement, volume, or the clip). The result is asymmetric, so treat it as a real gap.
 
-Incident: for one playback attempt I granted VLC storage access on the S21. VLC then scanned the storage tree (about 280 "cannot open DVD" log lines under `/storage/emulated/0/Indici/`). No file there was opened by this run. The permission was revoked and VLC force-stopped. VLC's media library may hold entries for those paths.
+Incident: for one playback attempt I granted VLC storage access on the S21. VLC then scanned shared storage (about 280 "cannot open DVD" log lines). No file in that scan was opened by this run. The permission was revoked and VLC force-stopped. VLC's media library may hold entries from that scan.
 
 Stream volumes, ringer, zen mode and stay-on were restored and checked against the values recorded before the run on both phones.
 

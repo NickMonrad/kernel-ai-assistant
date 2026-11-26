@@ -63,14 +63,13 @@ Spoken wake, clip played on the S21 (VLC, S21 media stream 15), fixture natural_
   RecordActivityMonitor: VOICE_RECOGNITION uid 11001 after re-arm.
 
 ## Incident (S21, VLC storage access)
-- For one playback attempt I granted org.videolan.vlc READ_EXTERNAL_STORAGE on the S21 so it could read /sdcard/Download. VLC then scanned the storage tree: about 280 "libvlc demux: cannot open DVD" lines, including paths under /storage/emulated/0/Indici/.
-- No file under that tree was opened or read by this run. The permission was revoked and VLC was force-stopped.
-- Its media library may hold entries for those paths. Owner decision: whether to clear VLC data on the S21.
+- For one playback attempt I granted VLC storage access on the S21. VLC then scanned shared storage: about 280 "libvlc demux: cannot open DVD" lines. No file in that scan was opened or read by this run. The permission was revoked and VLC was force-stopped.
+- VLC's media library may hold entries from that scan. Owner decision: whether to clear VLC data on the S21.
 - A READ_MEDIA_AUDIO grant to VLC was also made and revoked (no effect).
 
 ## Cleanup
 - Camcorder clips created by the run were deleted on both phones (S21: 20261126_181952.mp4 and 20261126_182206.mp4; S23U: 20261126_182321.mp4 and 20261126_182412.mp4). The older DCIM files were not touched.
-- Playback clip removed from /sdcard/Download (S23U, S21) and /data/local/tmp (S21).
+- Playback clips removed from both phones (S23U, S21).
 - Stream 3 restored: S21 = 2, S23U = 4 (both were raised to 15 for playback).
 - After the run: S21 stay-on 2, ringer 2, zen 0, streams 1..5 = 0/11/2/11/11 (matches baseline). S23U stay-on 2, ringer 0, zen 0, streams 1..5 = 0/0/4/1/0 (matches baseline).
 - Both debug apps left installed and running with wake listening.

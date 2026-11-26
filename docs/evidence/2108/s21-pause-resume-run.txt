@@ -52,7 +52,7 @@ Back pressed 07:42:22: 07:42:22.165 KernelAI: WakeWordDetector: starting 3-stage
 audio server: VOICE_RECOGNITION client uid 10649 (re-armed)
 
 ## Cleanup
-Camcorder clip /sdcard/DCIM/Camera/20261126_074128.mp4 and recorder clip (private folder) deleted after the checks. stay_on_while_plugged_in = 2 and mode_ringer = 2 unchanged.
+Camcorder clip and recorder clip (private folder) deleted after the checks. stay_on_while_plugged_in = 2 and mode_ringer = 2 unchanged.
 Not verified: phone call; stream volume restoration of streams 1, 2, 5 (pre-run values not recorded).
 
 ## 9. Recorder normal flow, no force-stop (check 1), 2026-11-26
@@ -65,7 +65,7 @@ Resume tapped 07:58:47.141: re-armed at once (VOICE_RECOGNITION uid 10649, detec
 Result: Stop, Home, Back and a Recents swipe do not close the recorder's MIC session within the windows tested. Only force-stop did. Jandal waits for the mic to be free and then re-arms on Resume.
 
 ## 10. Wake phrase after re-arm (check 2)
-Clip: espeak-ng "Hey Jandal", 3.2 s, 16 kHz mono (synthetic voice, not a human speaker; host file, not kept on the device). Pushed to S23U `/sdcard/Download/hey-jandal.wav` and played in VLC (`org.videolan.vlc`) on the S23U. S23U media volume raised to 10 for playback and set back to 4. VLC audio focus 07:59:22.4 to 07:59:25.6.
+Clip: espeak-ng "Hey Jandal", 3.2 s, 16 kHz mono (synthetic voice, not a human speaker; host file, not kept on the device). Pushed to the S23U and played in VLC (`org.videolan.vlc`) on the S23U. S23U media volume raised to 10 for playback and set back to 4. VLC audio focus 07:59:22.4 to 07:59:25.6.
 S21 (Jandal re-armed, not paused): 07:59:24.112 `WakeWordDetector: detected (high confidence=0.7921766)`. Then `WakeWordService: yielding mic to voice session` 07:59:24.393. Models reloaded and re-armed 07:59:46.913; VOICE_RECOGNITION uid 10649 active at the end of the check.
 Earlier attempt (07:59:11, screenshot) opened the S23U "Open with" chooser and did not play; no detection in that window.
 S21 media volume: 2 of 15 (unchanged at the end of this run).
