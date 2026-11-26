@@ -107,8 +107,35 @@ Driver: the private driver counted `mode=SlotReply` lines, and each capture logs
 
 - S23U played the clips and was also the listener. Wake overlay route `none`; no wake detection on the S23U. No command captured.
 
+## Run 2026-11-27b (head `0e9c8a49`, reinstalled on both phones 04:47; S23U → S21)
+
+Builds: `app-debug.apk` from `0e9c8a49`, installed with `adb install -r` on S21 (`lastUpdateTime` 04:47:42) and S23U (04:47:52). The earlier installs were replaced by another agent's builds (S21 04:31, S23U 04:44). The APK was built after the `origin/main` merge.
+
+### Reminder: pass (3 valid runs, both follow-up mic opens)
+
+| Run | Item reply heard | Time reply heard | Result |
+|---|---|---|---|
+| reminder-6 | "Put the b there" | "And 5 PM" | `complete`, `paramKeys=[item,time]`, reminder at 17:00 today |
+| reminder-7 | "What the pen there" | "And 5 PM" | `complete`, `paramKeys=[item,time]`, reminder at 17:00 today |
+| reminder-8 | "What the benz" | "In 5 PM" | `complete`, `paramKeys=[item,time]`, reminder at 17:00 today |
+
+- Each run: `NeedsSlot for "Set a reminder"` → item sheet → `startVoiceCapture mode=SlotReply` → item reply → time mic opened → time reply → `NativeIntentHandler.handle: intent=add_reminder paramKeys=[item,time]`.
+- Item text is still misheard by STT in every run. The confirmation wording was not logged, so the "today" text is unverified.
+- All three test reminders deleted via the to-do list; DB check shows 0 ACTIVE rows with `dueAt`.
+
+### Timer: failed (4 runs, not diagnosed)
+
+- timer-4 (`cmd_set_timer.wav`, peak 7744) and timer-5 (`cmd_set_timer_loud.wav`, same clip scaled ×2.88 to peak 22272, matching the reminder command level) both: wake detected (`WakeWordDetector: detected`), `wake overlay route=DIRECT_ACTIVITY`, VoiceCommandActivity opened, Asr4all requested audio focus, then released after ~10 s. No STT line, no `ADB_SLOT_STATE`, no timer.
+- Reminder runs use the same wake and VoiceCommandActivity path and do transcribe. So the clip level is not the sole cause. Remaining candidates: command timing relative to ASR start (timer commands landed 2.0–2.1 s after wake; reminder commands 4.5 s after wake), or the timer command failing in VoiceCommandActivity. Not confirmed.
+- The earlier passing timer (`45bc7387`, Actions path, not wake) is a different path and is not evidence for this one.
+
+### #2083 chat check and S23U own-speaker: not run this session
+
+- No verified driver procedure for these in this session. They remain open; the previous run's results (above) still stand.
+
 ### State and volumes
 
-- S21 media 2 (unchanged). S23U media 4 (restored after each run). `stay_on_while_plugged_in` = 2 on S23U.
-- No active test reminders. No timers created.
+- S21 media 2 and S23U media 4 restored after each run. `stay_on_while_plugged_in` = 2 on S23U.
+- No active test reminders; no timers created.
+- Private louder timer clip `cmd_set_timer_loud.wav` lives in `~/private-acoustic-fixtures/device-2107` (not committed).
 - Privacy: logs kept in `/tmp` only; no audio, transcripts, names, or screenshots committed.
