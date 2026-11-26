@@ -1,0 +1,73 @@
+S21 R5CR605B71K, debug build installed with `adb -s R5CR605B71K install -r` (lastUpdateTime 2026-11-26 07:36:05).
+Jandal running with the notification shade expanded; Pause action tapped; Samsung Voice Recorder (com.sec.android.app.voicenote) used.
+
+## 1. Pause (user action)
+KernelAI 07:36:31.785  WakeWordService: paused by user — releasing wake mic
+Notification text: "Paused. Tap Resume to listen for Hey Jandal." action "Resume"
+
+## 2. Recorder starts while Jandal is paused
+VR#Recorder 07:37:15.127  AnotherRecordActive: false
+VR#Recorder 07:37:15.734  setRecorderState - state : 2   (recording)
+KernelAI 07:37:15.726  WakeWordService: another app is recording — releasing wake mic
+  (contention callback while already paused; detector already stopped; no re-arm, user pause holds)
+Screenshot: recorder shows 00:51.9 elapsed with a live waveform.
+
+## 3. Recorder stop
+VR#Recorder 07:38:14.163  getDuration - mRecordEndTime= 57961 - mRecordStartTime= 0
+VR#Recorder 07:38:14.165  Enable System Sound
+VR#Recorder 07:38:14.229  isSaveEnable - mRecordEndTime= 57961   (clip saved, 57.96 s; not kept on device)
+Notification after stop: "Paused. Tap Resume to listen for Hey Jandal." (user pause still active)
+
+## 4. Recorder MIC session after stop
+RecordActivityMonitor 07:38:52, riid 91946991 active? true,
+  source client=MIC, uid:10279, pack:com.sec.android.app.voicenote
+  (session still open 40 s after the recorder's stop; no `rec stop` event for riid 91946991)
+Notification after Home press: "Paused while another app records" (action "Pause")
+
+## 5. Resume (user action)
+KernelAI 07:38:33.557  WakeWordService: resumed by user — re-arming wake word detection
+KernelAI 07:38:33.576  WakeWordService: another app is recording — re-syncing before re-arm
+  (the recorder's session was still open, so contention held wake paused; this is the correct result)
+
+## 6. Recorder session released (am force-stop com.sec.android.app.voicenote)
+RecordActivityMonitor 07:39:24, riid 91947007 active? true,
+  source client=VOICE_RECOGNITION, uid:10649, pack:ai.jandal.assistant.debug (Jandal re-armed)
+KernelAI 07:39:19.811  WakeWordDetector: starting 3-stage ONNX pipeline
+KernelAI 07:39:19.931  WakeWordDetector: models loaded
+Notification after re-arm: "Listening for wake word…" (action "Pause")
+
+## 7. Camcorder (check c), same build, Jandal listening, not paused
+Raw audio-server lines (`s21-cam-audio5.txt`, `rec` events; log lines from `s21-pause-resume-run.txt`):
+- 07:40:57.642 Jandal's wake capture (VOICE_RECOGNITION, uid 10649) reports `silenced`. Bixby (`com.samsung.android.bixby.wakeup`, uid 1000, MIC) registers at 07:40:57.645. Jandal's capture stops at 07:40:57.655.
+- 07:41:26.246 Bixby's MIC session stops (about 28.6 s after it started). Jandal's new capture starts at 07:41:26.375 (129 ms later).
+- 07:41:28.366 Jandal's capture is silenced again, with no other app client yet. The release is logged at 07:41:28.372 as `another app is recording — releasing wake mic`. That log text is the generic contention message and was used for this silence-caused release too.
+- 07:41:28.411 CAMCORDER (uid 10100, com.sec.android.app.camera) starts recording. Jandal's capture is already stopped (07:41:28.390).
+- 07:41:53.678 camcorder stops. Jandal's capture starts at 07:41:53.889 (211 ms later, `starting 3-stage ONNX pipeline` at 07:41:53.732).
+Releases in this window: 2 (07:40:57.655 and 07:41:28.390), both silence-caused. No release/re-arm thrash after the camcorder starts.
+
+## 8. Voice session (check d)
+07:42:17.165  KernelAI: WakeWordService: yielding mic to voice session
+audio server: MIC client uid 10649 ai.jandal.assistant.debug (voice session)
+Back pressed 07:42:22: 07:42:22.165 KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+audio server: VOICE_RECOGNITION client uid 10649 (re-armed)
+
+## Cleanup
+Camcorder clip and recorder clip (private folder) deleted after the checks. stay_on_while_plugged_in = 2 and mode_ringer = 2 unchanged.
+Not verified: phone call; stream volume restoration of streams 1, 2, 5 (pre-run values not recorded).
+
+## 9. Recorder normal flow, no force-stop (check 1), 2026-11-26
+Pause 07:49:59.806 (released). Record started 07:50:12.7 (MIC uid 10279, `AnotherRecordActive: false`). Stop 07:50:29.0 (`setRecorderState - state : 3`).
+Home (+0 s): recorder MIC session open for 118 s+ (polled to +118 s, last sample still open).
+Back (separate cycle, stop 07:55:47.8): session open for 97 s+ (polled to +97 s).
+Recents swipe (task removed, recorder process pid 22927 still alive, 07:52–07:53): session open for 75 s+, still open at about 3.5 min after the first Stop.
+`am force-stop com.sec.android.app.voicenote` 07:57:43: session closed at once. Jandal logged `paused by user — not re-arming` (no re-arm while paused).
+Resume tapped 07:58:47.141: re-armed at once (VOICE_RECOGNITION uid 10649, detector started 07:58:47.179).
+Result: Stop, Home, Back and a Recents swipe do not close the recorder's MIC session within the windows tested. Only force-stop did. Jandal waits for the mic to be free and then re-arms on Resume.
+
+## 10. Wake phrase after re-arm (check 2)
+Clip: espeak-ng "Hey Jandal", 3.2 s, 16 kHz mono (synthetic voice, not a human speaker; host file, not kept on the device). Pushed to the S23U and played in VLC (`org.videolan.vlc`) on the S23U. S23U media volume raised to 10 for playback and set back to 4. VLC audio focus 07:59:22.4 to 07:59:25.6.
+S21 (Jandal re-armed, not paused): 07:59:24.112 `WakeWordDetector: detected (high confidence=0.7921766)`. Then `WakeWordService: yielding mic to voice session` 07:59:24.393. Models reloaded and re-armed 07:59:46.913; VOICE_RECOGNITION uid 10649 active at the end of the check.
+Earlier attempt (07:59:11, screenshot) opened the S23U "Open with" chooser and did not play; no detection in that window.
+S21 media volume: 2 of 15 (unchanged at the end of this run).
+Distance between S23U and S21 was not measured. Only one playback, so this is one detection, not a rate.
+Phones left: S21 recorder force-stopped (process restarts on next launch); S23U awake and unlocked at the start and end of the check (not monitored continuously).

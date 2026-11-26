@@ -187,11 +187,14 @@ requests and could be killed at the receiver completion deadline.
 | `STT_PARTIAL` | Partial STT result (no transcript text) | `length` (chars) |
 | `STT_FINAL` | Final STT result (no transcript text) | `length` (chars) |
 | `STT_ERROR` | STT error | stable `category` |
+| `STT_ASR4ALL_FALLBACK` | Recogniser failed; capture moved to asr4all for the session | stable `reason`, `mode` |
 | `COMMAND_ROUTING_RESULT` | Final transcript handoff result | `outcome`, optional stable `category` |
 | `SESSION_COMPLETED` | Voice session ended normally | — |
 | `SESSION_CANCELLED` | Voice session cancelled | stable `category` |
 | `DETECTOR_REARMED` | Detector re-armed after session end | — |
 | `SERVICE_ERROR` | Wake service cannot run or re-arm | stable `category` |
+| `USER_PAUSED` | User paused Hey Jandal from the notification; wake capture released until Resume | — |
+| `USER_RESUMED` | User resumed Hey Jandal from the notification; wake capture re-armed | — |
 | `DETECTOR_ERROR` | Fatal detector error (ONNX/AudioRecord) | stable `category` |
 
 ### Snapshot-since contract

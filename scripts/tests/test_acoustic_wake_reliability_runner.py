@@ -302,7 +302,10 @@ class SnapshotContractTests(unittest.TestCase):
         self.assertIn("COMMAND_ROUTING_RESULT", all_types)
         self.assertIn("CUE_PLAYBACK_STARTED", all_types)
         self.assertIn("CUE_PLAYBACK_ERROR", all_types)
-        self.assertEqual(len(all_types), 24)
+        self.assertIn("STT_ASR4ALL_FALLBACK", all_types)
+        self.assertIn("USER_PAUSED", all_types)
+        self.assertIn("USER_RESUMED", all_types)
+        self.assertEqual(len(all_types), 27)
         for index, event_type in enumerate(all_types, 1):
             self.assertEqual(runner.validate_snapshot_envelope(envelope([event(index, event_type)]))["events"][0]["t"], event_type)
         bad = event(1, "STT_READY")
