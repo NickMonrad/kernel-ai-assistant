@@ -149,6 +149,21 @@ class LiteRtInferenceEngineCancellationTest {
         assertFalse(inferenceEngine.isGenerating.value)
         verify(exactly = 1) { InferenceGenerationService.stop(context) }
         verify(exactly = 1) { InferenceGenerationService.start(context) }
+        verify(exactly = 0) { InferenceGenerationService.stopAfterReply(any()) }
+    }
+
+    @Test
+    fun `normal completion ends the reply with stopAfterReply and never a plain stop`() = runBlocking {
+        val result = async { inferenceEngine.generate("completed request").toList() }
+        val callback = nextCallback()
+        callback.onDone()
+
+        val results = withTimeout(3_000) { result.await() }
+        assertEquals(1, results.count { it is GenerationResult.Complete })
+        assertFalse(inferenceEngine.isGenerating.value)
+        verify(exactly = 1) { InferenceGenerationService.start(context) }
+        verify(exactly = 1) { InferenceGenerationService.stopAfterReply(context) }
+        verify(exactly = 0) { InferenceGenerationService.stop(context) }
     }
 
     private suspend fun nextCallback(): MessageCallback = withTimeout(3_000) { callbacks.receive() }

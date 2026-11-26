@@ -1005,7 +1005,7 @@ class LiteRtInferenceEngine @Inject constructor(
         private val terminalLock = Any()
         private var terminal = false
         private val resetConversationAfterToolAbort = AtomicBoolean(false)
-        private val completedNormally = AtomicBoolean(false)
+        private val normalCompletion = AtomicBoolean(false)
 
         fun whileActive(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
@@ -1039,8 +1039,8 @@ class LiteRtInferenceEngine @Inject constructor(
 
         fun requiresConversationReset(): Boolean = resetConversationAfterToolAbort.get()
 
-        /** True only when the stream finished normally: cancellation, tool abort and error leave it false. */
-        fun endsAsSpokenReply(): Boolean = completedNormally.get()
+        /** True only when the reply finished normally: cancellation, tool abort and error leave it false. */
+        fun completedNormally(): Boolean = normalCompletion.get()
 
         fun finish(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
@@ -1052,9 +1052,9 @@ class LiteRtInferenceEngine @Inject constructor(
             }
         }
 
-        /** Normal completion: [finish] that also marks the stream as a finished reply. */
+        /** Normal completion: [finish] that also marks the reply as completed normally. */
         fun finishNormally(block: () -> Unit): Boolean = finish {
-            completedNormally.set(true)
+            normalCompletion.set(true)
             block()
         }
 
@@ -1531,13 +1531,13 @@ class LiteRtInferenceEngine @Inject constructor(
         val lockReleased = AtomicBoolean(false)
         var serviceStarted = false
 
-        fun releaseGenerationLock(stream: ActiveStreamGeneration?, lingerForReply: Boolean = false) {
+        fun releaseGenerationLock(stream: ActiveStreamGeneration?, lingerAfterCompletion: Boolean = false) {
             if (!lockReleased.compareAndSet(false, true)) return
             activeStreamGeneration.compareAndSet(stream, null)
             _isGenerating.value = false
             try {
                 if (serviceStarted) {
-                    if (lingerForReply) InferenceGenerationService.stopAfterReply(context)
+                    if (lingerAfterCompletion) InferenceGenerationService.stopAfterReply(context)
                     else InferenceGenerationService.stop(context)
                 }
             } finally {
@@ -1905,7 +1905,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.e(TAG, "Failed to reset conversation after tool-result abort", e)
                 throw e
             } finally {
-                releaseGenerationLock(stream, lingerForReply = stream.endsAsSpokenReply())
+                releaseGenerationLock(stream, lingerAfterCompletion = stream.completedNormally())
             }
         }
     }.flowOn(LlmDispatcher)
@@ -2068,7 +2068,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
                     currentCoroutineContext().ensureActive()
                     conversationDirty = true
-                    InferenceGenerationService.start(context)
+                    InferenceGenerationService.startInternal(context)
                     serviceStarted = true
                     sendMessage { callback ->
                         conv.sendMessageAsync(
@@ -2091,7 +2091,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 } finally {
                     _isGenerating.value = false
                     try {
-                        if (serviceStarted) InferenceGenerationService.stop(context)
+                        if (serviceStarted) InferenceGenerationService.stopInternal(context)
                     } finally {
                         generationMutex.unlock()
                     }
@@ -2202,7 +2202,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             val TEXT_FALLBACK_MAX_CHARS = 2000
                             val responseBuilder = StringBuilder()
                             currentCoroutineContext().ensureActive()
-                            InferenceGenerationService.start(context)
+                            InferenceGenerationService.startInternal(context)
                             serviceStarted = true
                             conv.sendMessageAsync(
                                 Contents.of(Content.Text(prompt)),
@@ -2326,7 +2326,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                 } finally {
                     try {
-                        if (serviceStarted) InferenceGenerationService.stop(context)
+                        if (serviceStarted) InferenceGenerationService.stopInternal(context)
                     } finally {
                         generationMutex.unlock()
                     }

@@ -36,9 +36,9 @@ class ReplyLingerGateTest {
     )
 
     @Test
-    fun `spoken reply ending screen-off lingers for the cap then stops`() {
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
+    fun `completed reply ending screen-off lingers for the cap then stops`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
 
         assertTrue(gate.isLingering)
         assertEquals(LINGER_MS, delays.pending.single().delayMs)
@@ -51,27 +51,27 @@ class ReplyLingerGateTest {
     }
 
     @Test
-    fun `linger expiry does not stop the service when a new generation has started`() {
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
-        // A generation starts while the linger is pending; the start cancels it, so nothing fires.
-        gate.onGenerationStart()
+    fun `linger expiry does not stop the service when a new reply has started`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
+        // A reply starts while the linger is pending; the start cancels it, so nothing fires.
+        gate.onReplyStart()
 
         assertFalse(gate.isLingering)
         assertTrue(delays.pending.single().cancelled)
         assertEquals(0, stops)
 
-        // Even if the cancelled action were run, it must not stop a running generation.
+        // Even if the cancelled action were run, it must not stop a running reply.
         delays.pending.single().action()
         assertEquals(0, stops)
     }
 
     @Test
-    fun `new start cancels a pending linger and the later end lingers again`() {
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
+    fun `new reply start cancels a pending linger and the later end lingers again`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
 
         assertEquals(2, delays.pending.size)
         assertTrue(delays.pending[0].cancelled)
@@ -83,11 +83,11 @@ class ReplyLingerGateTest {
 
     @Test
     fun `cancel path stops at once and cancels any pending linger`() {
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
-        gate.onGenerationStart()
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
+        gate.onReplyStart()
 
-        gate.onGenerationEnd(lingerForReply = false)
+        gate.onReplyEnd(lingerAfterCompletion = false)
 
         assertEquals(1, stops)
         assertFalse(gate.isLingering)
@@ -96,17 +96,58 @@ class ReplyLingerGateTest {
     @Test
     fun `reply ending with the screen on stops at once`() {
         screenOff = false
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = true)
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
 
         assertEquals(1, stops)
         assertTrue(delays.pending.isEmpty())
     }
 
     @Test
-    fun `generation that is not a spoken reply stops at once with the screen off`() {
-        gate.onGenerationStart()
-        gate.onGenerationEnd(lingerForReply = false)
+    fun `reply that did not complete normally stops at once with the screen off`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = false)
+
+        assertEquals(1, stops)
+        assertTrue(delays.pending.isEmpty())
+    }
+
+    @Test
+    fun `internal generation ending during a reply linger leaves the linger to its deadline`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
+
+        // Chat title generation runs during the linger: it neither cancels nor ends the linger.
+        gate.onInternalStart()
+        assertTrue(gate.isLingering)
+        gate.onInternalEnd()
+
+        assertEquals(0, stops)
+        assertTrue(gate.isLingering)
+        assertFalse(delays.pending.single().cancelled)
+
+        delays.fireLive()
+        assertEquals(1, stops)
+    }
+
+    @Test
+    fun `internal generation still running at the linger deadline does not stop the service early`() {
+        gate.onReplyStart()
+        gate.onReplyEnd(lingerAfterCompletion = true)
+        gate.onInternalStart()
+
+        delays.fireLive()
+        assertEquals(0, stops)
+
+        // The service stops when the internal generation ends, since no linger is left.
+        gate.onInternalEnd()
+        assertEquals(1, stops)
+    }
+
+    @Test
+    fun `internal generation with no reply linger stops at once`() {
+        gate.onInternalStart()
+        gate.onInternalEnd()
 
         assertEquals(1, stops)
         assertTrue(delays.pending.isEmpty())

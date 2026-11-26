@@ -65,11 +65,15 @@ internal fun interface CancelDelayed {
 /**
  * Decides when the generation service stops (#2000).
  *
- * A generation that ends with the screen off or locked, and whose reply will be spoken, keeps the service
- * promoted for [lingerMs]. That covers the gap before speech starts; the speech itself is foreground-scheduled
- * by SpeechPlaybackService (mediaPlayback), not by this service. Any other end stops the service at once, and
- * a new generation cancels a pending linger. The linger is the only time-based hold, so a stuck speech state
- * cannot keep this service up.
+ * A reply that completes normally with the screen off or locked keeps the service promoted for [lingerMs]
+ * (`lingerAfterCompletion`). That covers the gap before speech starts; the speech itself is foreground-scheduled
+ * by SpeechPlaybackService (mediaPlayback), not by this service. The engine does not know whether a reply will be
+ * spoken, so the linger applies to every completed reply, typed or spoken. Any other reply end stops the service at
+ * once, and a new reply cancels a pending linger.
+ *
+ * Internal generations (chat title, meal planner, note title) never cancel a pending linger, and they do not stop
+ * the service while one is pending: the linger runs to its deadline. The linger is the only time-based hold, so a
+ * stuck speech state cannot keep this service up.
  */
 internal class ReplyLingerGate(
     private val lingerMs: Long,
@@ -85,19 +89,25 @@ internal class ReplyLingerGate(
     val isLingering: Boolean
         get() = synchronized(lock) { pendingLinger != null }
 
-    fun onGenerationStart() {
+    /** A reply starts: it cancels any pending linger. */
+    fun onReplyStart() {
         synchronized(lock) {
             generationRunning = true
             cancelLinger()
         }
     }
 
-    /** Ends a generation. [lingerForReply] is true only for a reply that will be spoken. */
-    fun onGenerationEnd(lingerForReply: Boolean) {
+    /** An internal generation starts: a pending linger is left to run. */
+    fun onInternalStart() {
+        synchronized(lock) { generationRunning = true }
+    }
+
+    /** Ends a reply. [lingerAfterCompletion] is true only when the reply completed normally. */
+    fun onReplyEnd(lingerAfterCompletion: Boolean) {
         synchronized(lock) {
             generationRunning = false
             cancelLinger()
-            if (!lingerForReply || !isScreenOffOrLocked()) {
+            if (!lingerAfterCompletion || !isScreenOffOrLocked()) {
                 stopService()
             } else {
                 pendingLinger = schedule(lingerMs) {
@@ -107,6 +117,14 @@ internal class ReplyLingerGate(
                     }
                 }
             }
+        }
+    }
+
+    /** Ends an internal generation. A pending linger keeps the service up until its deadline. */
+    fun onInternalEnd() {
+        synchronized(lock) {
+            generationRunning = false
+            if (pendingLinger == null) stopService()
         }
     }
 
@@ -196,8 +214,19 @@ class InferenceGenerationService : Service() {
             stopService = { stopNow(checkNotNull(appContext)) },
         )
 
+        /** Starts the service for a reply. Cancels a pending linger. */
         fun start(context: Context) {
-            gate.onGenerationStart()
+            gate.onReplyStart()
+            startService(context)
+        }
+
+        /** Starts the service for an internal generation (title, meal planner, note title). Leaves a pending linger alone. */
+        fun startInternal(context: Context) {
+            gate.onInternalStart()
+            startService(context)
+        }
+
+        private fun startService(context: Context) {
             try {
                 lifecycle.start {
                     context.startForegroundService(
@@ -210,20 +239,26 @@ class InferenceGenerationService : Service() {
             }
         }
 
-        /** Ends the generation's use of the service now: cancel, tool abort, internal generation. */
+        /** Ends a reply now: cancel, tool abort, error. */
         fun stop(context: Context) {
             appContext = context.applicationContext
-            gate.onGenerationEnd(lingerForReply = false)
+            gate.onReplyEnd(lingerAfterCompletion = false)
         }
 
         /**
-         * Ends a generation whose reply will be spoken. With the screen off or locked the service stays promoted
-         * for [REPLY_LINGER_MS] unless another generation starts (#2000).
+         * Ends a reply that completed normally. With the screen off or locked the service stays promoted
+         * for [REPLY_LINGER_MS] unless another reply starts (#2000).
          */
         fun stopAfterReply(context: Context) {
             appContext = context.applicationContext
-            gate.onGenerationEnd(lingerForReply = true)
+            gate.onReplyEnd(lingerAfterCompletion = true)
             if (gate.isLingering) Log.i(TAG, "Reply ended with screen off or locked; service kept promoted for ${REPLY_LINGER_MS}ms")
+        }
+
+        /** Ends an internal generation. A pending reply linger runs to its deadline instead of stopping the service. */
+        fun stopInternal(context: Context) {
+            appContext = context.applicationContext
+            gate.onInternalEnd()
         }
 
         private fun isScreenOffOrLocked(context: Context): Boolean {
