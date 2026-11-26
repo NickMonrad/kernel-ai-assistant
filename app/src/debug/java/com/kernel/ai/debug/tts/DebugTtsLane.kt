@@ -7,8 +7,9 @@ import org.json.JSONObject
 object DebugTtsLanes {
     const val INFLECT_MICRO_V2 = "inflect-micro-v2"
     const val KOKORO_ET = "kokoro_et"
+    const val KOKORO_ET_INT8 = "kokoro_et_int8"
 
-    val ids: Set<String> = setOf(INFLECT_MICRO_V2, KOKORO_ET)
+    val ids: Set<String> = setOf(INFLECT_MICRO_V2, KOKORO_ET, KOKORO_ET_INT8)
 }
 
 /**
