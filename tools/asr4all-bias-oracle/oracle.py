@@ -433,7 +433,8 @@ def boundary_check(clip: Clip, a: int, b: int, name_words: int) -> str | None:
 
 
 def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, beta: float,
-             gold: list[str], clip: Clip, exact: dict[str, int]) -> dict:
+             gold: list[str], clip: Clip, exact: dict[str, int], *, margin_min: float = MARGIN,
+             boundary: bool = True, competitor_margin: bool = True) -> dict:
     """Decision for one clip at one β: the step-2 rule, no prior. Score = raw + β·n.
 
     Checks, in order:
@@ -441,7 +442,8 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
         equals a rewritable name -> rewrite to that name (canonical spelling only), unless the name is a
         homograph (GeoNames AU or foreign city name): then veto, reason homograph;
       - the overall top must be rewritable with Score > 0 (competitor or impostor top -> no rewrite);
-      - accept only if the top beats the runner-up of any kind by MARGIN and its span ends at a word boundary
+      - accept only if the top beats the runner-up by margin_min (competitor runner-ups count only if
+        competitor_margin) and its span ends at a word boundary
         covering at most name words + 1 words; otherwise outcome "suggest" (Did you mean X?), reason = the check.
     rw_top is the best rewritable entry by Score (the rank-1 measure, reporting only).
     """
@@ -456,6 +458,8 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
     top = int(np.argmax(best_any))
     rest = best_any.copy()
     rest[top] = NEG
+    if not competitor_margin:
+        rest[kinds == "comp"] = NEG
     margin = float(best_any[top] - rest.max())
     reason: str | None = None
     hit = exact.get(clip.slot_text) if clip.slot_text else None
@@ -477,7 +481,10 @@ def evaluate(raw: np.ndarray, ra: np.ndarray, rb: np.ndarray, entries: Entries, 
         else:
             row = int(arg_any[top])
             name_words = len(lexicon.fold(entries.names[top]).split())
-            reason = "margin" if margin < MARGIN else boundary_check(clip, int(ra[row]), int(rb[row]), name_words)
+            if margin < margin_min:
+                reason = "margin"
+            elif boundary:
+                reason = boundary_check(clip, int(ra[row]), int(rb[row]), name_words)
             outcome = "suggest" if reason else "accept"
     # the place text the rewrite would replace: the exact slot on an exact hit, else the top's matched frames
     row_top = int(arg_any[top])
@@ -510,6 +517,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="place candidates JSON with role/prio (default: lexicon.NZ_PLACES, all rewritable)")
     ap.add_argument("--impostors", type=Path, help="impostor list JSON (default: lexicon.IMPOSTORS)")
     ap.add_argument("--betas", default="4", help="β values; the step-2 rule fixes β = 4.0")
+    ap.add_argument("--margin", type=float, default=MARGIN, help="accept margin in score units (tuning only)")
+    ap.add_argument("--no-boundary", action="store_true", help="skip the word-boundary and word-count checks")
+    ap.add_argument("--competitor-margin-ignored", action="store_true",
+                    help="competitor runner-ups do not count in the margin test (they are never rewrite targets)")
     ap.add_argument("--out", type=Path, required=True, help="private output dir")
     args = ap.parse_args(argv)
 
@@ -542,7 +553,9 @@ def main(argv: list[str] | None = None) -> int:
             if span is not None:
                 raw, ra, rb = raw_scores(dump, entries, span)
                 for beta in betas:
-                    row[f"b{beta:g}"] = evaluate(raw, ra, rb, entries, beta, lab["gold"], clip, exact)
+                    row[f"b{beta:g}"] = evaluate(raw, ra, rb, entries, beta, lab["gold"], clip, exact,
+                                                 margin_min=args.margin, boundary=not args.no_boundary,
+                                                 competitor_margin=not args.competitor_margin_ignored)
             rows.append(row)
 
     tag = f"{args.slot}.{args.gate}"

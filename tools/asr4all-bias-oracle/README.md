@@ -26,12 +26,12 @@ The tool reads logits that the host harness dumps.
 ANDROID_HOME=$HOME/Android/Sdk ASR4ALL_HARNESS_CONFIG=/abs/path/bias-oracle-dump.json \
   ./gradlew :core:voice:testDebugUnitTest --tests 'com.kernel.ai.core.voice.asr4all.host.Asr4AllHostHarnessTest'
 
-# 2. score (labels and place list are private; see Data). The step-2 rule: β 4.0, margin 1.0.
+# 2. score (labels and place list are private; see Data). The step-2 rule: β 4.0, margin 1.0. The frozen current rule (amendment 6) is β 5, margin 1.0, boundary on, competitors counted: use `--betas 5` for it.
 python3 tools/asr4all-bias-oracle/oracle.py \
   --dumps /abs/out/bias-oracle-dump \
   --model M=/abs/models/asr4all-m --model L=/abs/models/asr4all-l \
   --labels /abs/private/bias-oracle-labels.json \
-  --places /abs/private/nz_places_rw.json --betas 4 \
+  --places /abs/private/nz_geonames_places.json --betas 4 \
   --slot full --gate v2 --out /abs/private/oracle-out
 
 # 3. checks (fixture check needs the M model dir with config.json and merges.txt)
@@ -151,6 +151,10 @@ python3 tools/asr4all-bias-oracle/build_place_candidates.py \
   --glossary-places tools/asr4all-bias-oracle/data/glossary_places.txt \
   --out /abs/private/nz_places_rw.json
 ```
+
+This is the LINZ-only list (4,334 rows, sha256 `69be8242…`). It is not the scored asset. The scored asset is
+`nz_geonames_places.json` (sha256 `fd1b0904…`, 21,140 rows): this list plus AU competitors and homograph flags
+from GeoNames (see "AU competitors and homograph names" below). Step 2 above uses that asset.
 
 The output is `{"header": {...}, "places": [...]}`. The header records the licence text and URL, the layer,
 the export date, the source sha256 (computed from the file read), and what was changed: filtered by feature
@@ -367,6 +371,8 @@ Gold correct output (informational; no recall threshold was pre-registered), cor
 | trigger | L | 3/7 | 3/8 |
 | trigger | M | 1/8 | 5/7 |
 
+Total: 37 of 94 correct output (M 7/7/6, L 5/6/6) = 34 accepted (31 rewrites + 3 identity accepts) + 3 already-correct cells where the margin check gave a suggestion. At β 3 and β 4: 33 of 94 correct output, 30 accepted.
+
 Gold misses at β 5 (owner, all six cells; 57 misses of 94 cell-lines): 27 `suggest` (24 margin, 3 boundary; a "Did you mean X?" prompt, no rewrite), 19 competitor abstains, 9 impostor tops, 2 vetoes.
 False-boost lines: every class (AU city, foreign city, POI, address, suburb, NZ already-correct, gate trap) has zero non-identity rewrites in every slot and size.
 
@@ -446,6 +452,221 @@ recordings, so it can neither show nor rule out this failure. Owner decision sti
 Recall is low at β 5, as in the real set.
 
 Listening set (not scored, not in git): six owner sentences rendered in the same ICL mode, kept privately.
+
+## Tuning (pre-registered amendments 5–6; result: current rule kept; it fails both hard constraints)
+
+Pre-registration: `HELDOUT-PREREG-v3-amendment-5.md` (before any tuning audio) and `HELDOUT-PREREG-v3-amendment-6.md`
+(frozen decision, after the sweep). Both sit in this folder with amendments 1–4. Amendment 6 ends with review
+corrections that supersede its body where they differ. The owner's real recordings are not a blind set: they were
+scored for β 5 and share their 50 script texts with the tuning set. Disclosed in both amendments.
+
+**Verdict.** No config meets both hard constraints (0 gold substitutions, 0 non-identity false-boost rewrites). The
+frozen rule (β 5, margin 1.0, boundary on, competitor runner-ups counted) is kept by the amendment 5 fallback. That is
+the pre-registered fallback, not a validation. On the tuning set the kept rule fails both constraints: 6 gold
+substitutions and 6 false-boost rewrites. Only a fresh held-out test can validate it.
+
+**Intelligibility exclusion** (faster-whisper medium.en word ratio < 0.60, applied before scoring): 25 of 226
+generated clips excluded (12 clean, 13 noisy). Reported per source and per class, as amendment 5 requires:
+
+| Source | Excluded |
+|---|---|
+| owner lines (36) | 7 of 144 clips |
+| gap lines (14) | 18 of 82 clips |
+
+| Class (clean + noisy) | Excluded / generated |
+|---|---|
+| gold, bare name | 13 / 16 |
+| gold, navigation | 9 / 62 |
+| gold, weather | 2 / 68 |
+| suburb / locality | 1 / 8 |
+| Other classes (AU competitor city, POI, gate trap, foreign city, contact / address, NZ already correct) | 0 (0 / 16, 0 / 16, 0 / 20, 0 / 8, 0 / 4, 0 / 8) |
+
+The bare-name class is mostly lost: 13 of 16 clips are excluded, leaving 3 for scoring. The tuning set therefore says
+almost nothing about bare-name lines. Bare name is the class that failed on the synthetic gap set (see above).
+
+**Tuning set after exclusion:** 201 clips (101 clean, 100 noisy) × six cells. Cell-rows are not independent: one
+clip contributes up to six.
+
+**Baseline (current rule), tuning set, Wilson 95%:**
+
+- Gold correct 283/672 (42.1%, 38.4–45.9).
+- Gold substitutions 6/672 (0.9%, 0.4–1.9). Distinct clips: **2** noisy size-L clips, from 2 lines, each in all three slots.
+- False-boost rewrites 6/444 (1.4%, 0.6–2.9). Distinct clips: **1** noisy clip (NZ already-correct class), both sizes, all three slots.
+- Gold misses (389): competitor abstain 202, impostor top 107, suggest margin 56, suggest word_count 12, suggest boundary 6, substitution 6.
+
+| Cell | Gold correct | Gold substitutions | Non-gold rewrites |
+|---|---|---|---|
+| L full | 49/122 (40.2%, 31.9–49.0) | 2/122 (1.6%, 0.5–5.8) | 1/79 (1.3%, 0.2–6.8) |
+| L hint | 53/122 (43.4%, 35.0–52.3) | 2/122 (1.6%, 0.5–5.8) | 1/79 (1.3%, 0.2–6.8) |
+| L trigger | 37/88 (42.0%, 32.3–52.5) | 2/88 (2.3%, 0.6–7.9) | 1/65 (1.5%, 0.3–8.2) |
+| M full | 51/122 (41.8%, 33.4–50.7) | 0/122 (0.0%, 0.0–3.1) | 1/79 (1.3%, 0.2–6.8) |
+| M hint | 52/122 (42.6%, 34.2–51.5) | 0/122 (0.0%, 0.0–3.1) | 1/79 (1.3%, 0.2–6.8) |
+| M trigger | 41/96 (42.7%, 33.3–52.7) | 0/96 (0.0%, 0.0–3.8) | 1/63 (1.6%, 0.3–8.5) |
+
+Per class, clean / noisy (Wilson 95%; zero counts show the upper bound):
+
+- Gold navigation: 67/162 (41.4%, 34.1–49.1) clean; 49/156 (31.4%, 24.6–39.1) noisy, all 6 substitutions.
+- Gold weather: 85/173 (49.1%, 41.8–56.5) clean; 74/169 (43.8%, 36.5–51.3) noisy; 0 substitutions.
+- Gold bare name: 6/8 (75.0%, 40.9–92.9) clean; 2/4 (50.0%, 15.0–85.0) noisy; 0 substitutions. Too few to judge.
+- Non-gold rewrites, clean: AU competitor city 0/48 (≤7.4%), POI 0/48 (≤7.4%), gate trap 0/48 (≤7.4%), suburb / locality 0/17 (≤18.4%), foreign city 0/23 (≤14.3%), contact / address 0/12 (≤24.2%), NZ already correct 0/24 (≤13.8%).
+- Non-gold rewrites, noisy: AU competitor city 0/48 (≤7.4%), POI 0/48 (≤7.4%), gate trap 0/48 (≤7.4%), suburb / locality 0/23 (≤14.3%), foreign city 0/21 (≤15.5%), contact / address 0/12 (≤24.2%), NZ already correct 6/24 (25.0%, 12.0–44.9): the one noisy clip.
+
+**Sweep: all 80 configs** (aggregates over the six cells; 672 gold cell-rows, 444 non-gold cell-rows).
+`compM` = competitor runner-up counted in the margin test; `compIgn` = ignored; `bd` = boundary check on; `nobd` = off.
+The current rule is `b5_m1_bd_compM`.
+
+| Config | Gold correct /672 | Gold substitutions | False-boost rewrites /444 |
+|---|---|---|---|
+| b3_m0.5_bd_compM | 234 | 0 | 6 |
+| b3_m0.5_bd_compIgn | 268 | 0 | 6 |
+| b3_m0.5_nobd_compM | 237 | 0 | 6 |
+| b3_m0.5_nobd_compIgn | 274 | 0 | 6 |
+| b3_m1_bd_compM | 226 | 0 | 6 |
+| b3_m1_bd_compIgn | 264 | 0 | 6 |
+| b3_m1_nobd_compM | 229 | 0 | 6 |
+| b3_m1_nobd_compIgn | 270 | 0 | 6 |
+| b3_m1.5_bd_compM | 210 | 0 | 6 |
+| b3_m1.5_bd_compIgn | 261 | 0 | 6 |
+| b3_m1.5_nobd_compM | 213 | 0 | 6 |
+| b3_m1.5_nobd_compIgn | 267 | 0 | 6 |
+| b3_m2_bd_compM | 201 | 0 | 6 |
+| b3_m2_bd_compIgn | 260 | 0 | 6 |
+| b3_m2_nobd_compM | 204 | 0 | 6 |
+| b3_m2_nobd_compIgn | 266 | 0 | 6 |
+| b4_m0.5_bd_compM | 273 | 0 | 6 |
+| b4_m0.5_bd_compIgn | 307 | 0 | 6 |
+| b4_m0.5_nobd_compM | 286 | 0 | 6 |
+| b4_m0.5_nobd_compIgn | **320** | 0 | 6 |
+| b4_m1_bd_compM | 259 | 0 | 6 |
+| b4_m1_bd_compIgn | 305 | 0 | 6 |
+| b4_m1_nobd_compM | 272 | 0 | 6 |
+| b4_m1_nobd_compIgn | 318 | 0 | 6 |
+| b4_m1.5_bd_compM | 246 | 0 | 6 |
+| b4_m1.5_bd_compIgn | 296 | 0 | 6 |
+| b4_m1.5_nobd_compM | 256 | 0 | 6 |
+| b4_m1.5_nobd_compIgn | 306 | 0 | 6 |
+| b4_m2_bd_compM | 233 | 0 | 6 |
+| b4_m2_bd_compIgn | 290 | 0 | 6 |
+| b4_m2_nobd_compM | 241 | 0 | 6 |
+| b4_m2_nobd_compIgn | 300 | 0 | 6 |
+| b5_m0.5_bd_compM | 288 | 11 | 6 |
+| b5_m0.5_bd_compIgn | 325 | 17 | 6 |
+| b5_m0.5_nobd_compM | 306 | 11 | 6 |
+| b5_m0.5_nobd_compIgn | 343 | 17 | 6 |
+| **b5_m1_bd_compM (current)** | 283 | 6 | 6 |
+| b5_m1_bd_compIgn | 325 | 15 | 6 |
+| b5_m1_nobd_compM | 301 | 6 | 6 |
+| b5_m1_nobd_compIgn | 343 | 15 | 6 |
+| b5_m1.5_bd_compM | 270 | 3 | 6 |
+| b5_m1.5_bd_compIgn | 321 | 15 | 6 |
+| b5_m1.5_nobd_compM | 288 | 3 | 6 |
+| b5_m1.5_nobd_compIgn | 339 | 15 | 6 |
+| b5_m2_bd_compM | 259 | 0 | 6 |
+| b5_m2_bd_compIgn | 321 | 15 | 6 |
+| b5_m2_nobd_compM | 277 | 0 | 6 |
+| b5_m2_nobd_compIgn | 339 | 15 | 6 |
+| b6_m0.5_bd_compM | 297 | 17 | 0 |
+| b6_m0.5_bd_compIgn | 328 | 17 | 0 |
+| b6_m0.5_nobd_compM | 323 | 17 | 0 |
+| b6_m0.5_nobd_compIgn | 354 | 17 | 0 |
+| b6_m1_bd_compM | 282 | 14 | 0 |
+| b6_m1_bd_compIgn | 324 | 17 | 0 |
+| b6_m1_nobd_compM | 308 | 14 | 0 |
+| b6_m1_nobd_compIgn | 350 | 17 | 0 |
+| b6_m1.5_bd_compM | 275 | 11 | 0 |
+| b6_m1.5_bd_compIgn | 323 | 17 | 0 |
+| b6_m1.5_nobd_compM | 298 | 11 | 0 |
+| b6_m1.5_nobd_compIgn | 346 | 17 | 0 |
+| b6_m2_bd_compM | 257 | 9 | 0 |
+| b6_m2_bd_compIgn | 323 | 17 | 0 |
+| b6_m2_nobd_compM | 280 | 9 | 0 |
+| b6_m2_nobd_compIgn | 346 | 17 | 0 |
+| b7_m0.5_bd_compM | 292 | 16 | 0 |
+| b7_m0.5_bd_compIgn | 324 | 17 | 0 |
+| b7_m0.5_nobd_compM | 328 | 16 | 0 |
+| b7_m0.5_nobd_compIgn | 360 | 17 | 0 |
+| b7_m1_bd_compM | 275 | 11 | 0 |
+| b7_m1_bd_compIgn | 320 | 17 | 0 |
+| b7_m1_nobd_compM | 305 | 11 | 0 |
+| b7_m1_nobd_compIgn | 356 | 17 | 0 |
+| b7_m1.5_bd_compM | 255 | 9 | 0 |
+| b7_m1.5_bd_compIgn | 320 | 17 | 0 |
+| b7_m1.5_nobd_compM | 285 | 9 | 0 |
+| b7_m1.5_nobd_compIgn | 356 | 17 | 0 |
+| b7_m2_bd_compM | 239 | 9 | 0 |
+| b7_m2_bd_compIgn | 316 | 14 | 0 |
+| b7_m2_nobd_compM | 269 | 9 | 0 |
+| b7_m2_nobd_compIgn | 352 | 14 | 0 |
+
+Reading the sweep:
+
+- 34 configs have 0 gold substitutions; 32 have 0 false-boost rewrites; none has both.
+- 11 configs are at least as good as the current rule on substitutions and rewrites and have more correct accepts. All 11 keep the same single-clip rewrite (6). Nine have 0 substitutions, so they miss the both-zero rule by that one clip; the other two keep 3 or 6 substitutions.
+- Best of the 11: β 4, margin 0.5, boundary off, competitor runner-ups ignored: 320/672 correct (47.6%, against 283 for the current rule), 0 substitutions, 6 false-boost rewrites.
+- 309 of the 389 baseline misses are competitor abstains (202) or impostor tops (107). Margin and boundary settings do not change those outcomes. Large recall gains need a different rule, with its own pre-registration and tuning set; a grid change cannot reach them.
+
+**Owner real recordings, re-scored once with the frozen rule** (oracle `8e616943…`, asset `fd1b0904…`; reuse disclosed).
+The six cells share the same 16 gold lines (about 10 distinct places) and 20 non-gold lines, so cell-rows are correlated.
+Per cell, β 5:
+
+| Cell | Accepted | Gold substitutions | Non-gold rewrites |
+|---|---|---|---|
+| L full | 5/16 (31.2%, 14.2–55.6) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
+| L hint | 6/16 (37.5%, 18.5–61.4) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
+| L trigger | 6/15 (40.0%, 19.8–64.3) | 0/15 (≤20.4%) | 0/17 (≤18.4%) |
+| M full | 6/16 (37.5%, 18.5–61.4) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
+| M hint | 6/16 (37.5%, 18.5–61.4) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
+| M trigger | 5/15 (33.3%, 15.2–58.3) | 0/15 (≤20.4%) | 0/17 (≤18.4%) |
+
+- Per line (union over the six cells): 0 of 16 gold lines had any substitution (≤19.4%); 0 of 20 non-gold lines had a non-identity rewrite (≤16.1%). Identity rewrites (case or macron only) occur on 8 non-gold cell-lines and are not counted, as in v3.
+- Accepted: 34 of 94 gold cell-lines (36.2%): 31 rewrites and 3 identity accepts. Correct output is 37 of 94 (table above); the other 3 are already-correct cells with a margin suggestion. The earlier pooled figures (0/94, upper 3.9%; 0/114, upper 3.3%; Wilson 30.1–49.5%) are withdrawn: they treat correlated cell-lines as independent.
+- β 3 and β 4: 33/94 correct output at each (30 accepted), 0 substitutions, 0 rewrites (per-clip rows).
+- The kept rule is the v3 rule, so this re-score cannot change it. A fresh owner recording of new lines is still the clean check, and it has not been done.
+
+## Scoring time and rewrite-or-suggest (review corrections, 27 Nov 2026; aggregates)
+
+Scripts (private inputs, aggregate output only): `time_scoring.py` (criterion 6 timing) and `suggest_figure.py`
+(rewrite-or-suggest counts). Reproduce:
+
+```bash
+python3 tools/asr4all-bias-oracle/time_scoring.py --dumps DIR --model M=DIR --model L=DIR --labels LABELS --places PLACES
+python3 tools/asr4all-bias-oracle/suggest_figure.py --run OUT/owner-full --run OUT/owner-hint --run OUT/owner-trigger
+```
+
+**Scoring time, PC (criterion 6, a reporting item).** Frozen rule, β 5, hint slot, gate v2, 72 owner dumps (36 per
+size). Timed: greedy decode, slot, span scores and decision, from logits already in memory. Three timings per dump, median per dump; candidate segmentation and dump loading are outside the timer. Three runs of the script, each with other work on the machine (load average about 10–14; not controlled). PC, not the S21.
+
+| Candidate set | Names | Variants | p95 across three runs |
+|---|---|---|---|
+| Full: 167 rewritable, 20,951 competitors, 130 impostors | 21,248 | 70,617 | 1.4–1.8 s |
+| Rewritable + impostors only: 167 + 144 impostors | 311 | 959 | 53–73 ms |
+
+Three runs (full p95, rewritable + impostors p95): 1,441 ms and 57.3 ms; 1,536 ms and 73.0 ms; 1,782 ms and 52.8 ms.
+
+- The second row is a timing probe, not an accuracy claim. Its impostor count is higher because 14 impostor names
+  fold to the same spelling as a rewritable or competitor name and are dropped from the full set.
+- The full set's p95 is 28–36 times the 50 ms S21 target, before phone overhead. Removing the competitors alone leaves p95 at 53–73 ms, not reliably under target; a smaller K or other work is also needed.
+- Criterion 6 was never reported in the v1–v3 runs. The S21 ≤ 50 ms condition is a separate step-2 condition and is
+  not tested.
+
+**Rewrite-or-suggest (information only).** No threshold was pre-registered. At β 5, over the owner recordings
+(six cell-lines per clip, scored clips only). Correct = a rewrite to the gold place, or a "Did you mean <place>?"
+suggestion that names it. Not blind: these recordings were used to choose β 5.
+
+| Cell | Gold lines | Accepted (31 rewrites + 3 identity) | Suggestion correct | Wrong-place rewrite or suggestion | Non-gold lines | Non-gold suggestion | Non-gold rewrites (of which non-identity) |
+|---|---|---|---|---|---|---|---|
+| full M | 16 | 6 | 5 | 0 | 20 | 0 | 2 (0) |
+| full L | 16 | 5 | 5 | 0 | 20 | 0 | 2 (0) |
+| hint M | 16 | 6 | 5 | 0 | 20 | 0 | 1 (0) |
+| hint L | 16 | 6 | 5 | 0 | 20 | 0 | 1 (0) |
+| trigger M | 15 | 5 | 5 | 0 | 17 | 0 | 1 (0) |
+| trigger L | 15 | 6 | 5 | 0 | 17 | 0 | 1 (0) |
+| Total | 94 | 34 | 30 | 0 | 114 | 0 | 8 (0) |
+
+- Rewrite or suggestion correct: 64 of 94 (68.1%). Accepted (rewrite alone): 34 of 94 (36.2%).
+- The remaining 30 gold cell-lines get no action: 19 competitor abstains, 9 impostor tops, 2 vetoes.
+- Non-gold: no suggestion on any of 114 cell-lines. The 8 rewrites are all identity (case or macron only).
+- Correct output: the navigate/weather table above sums to 37 (M 7/7/6, L 5/6/6): the 34 accepted plus 3 already-correct cells (one each in M full, M hint and M trigger) where the margin check gives a suggestion. Those 3 are in the suggestion column, so the 30 suggestions include them.
 
 ## Privacy
 
