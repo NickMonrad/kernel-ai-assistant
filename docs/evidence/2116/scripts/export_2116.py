@@ -59,6 +59,7 @@ def _lstm_decomposition():
 
 
 USE_LSTM_DECOMPOSITION = os.environ.get("KOKORO_LSTM_DECOMP", "1") == "1"
+STATIC_TOKENS = False
 
 
 def quantize_dynamic_int8(module, example_inputs, dynamic_shapes):
@@ -85,7 +86,8 @@ def export_duration_predictor(precision: str, min_tokens: int):
     dp = _dp.DurationPredictorWrapper(model).eval()
     inputs = _dp.build_inputs("inp-128", torch.float32)
     t = Dim("t", min=min_tokens, max=MAX_TOKENS)
-    dynamic_shapes = ({1: t}, {1: t}, None, None)
+    # Fallback (--static-tokens): fixed token length MAX_TOKENS, no dynamic dim; the lane must pad inputs to 128.
+    dynamic_shapes = None if STATIC_TOKENS else ({1: t}, {1: t}, None, None)
     if precision == "int8":
         exported = quantize_dynamic_int8(dp, inputs, dynamic_shapes)
     else:
@@ -101,7 +103,8 @@ def export_synthesizer(precision: str, min_tokens: int):
     inputs = _syn.build_inputs("inp-128", torch.float32, max_duration=MAX_DURATION)
     t = Dim("t", min=min_tokens, max=MAX_TOKENS)
     k = Dim("k", min=MIN_DURATION, max=MAX_DURATION)
-    dynamic_shapes = ({1: t}, {1: t}, {0: k}, {1: t}, None)
+    # Fallback (--static-tokens): token axis fixed at 128 (inputs are padded); duration axis stays dynamic.
+    dynamic_shapes = (None, None, {0: k}, None, None) if STATIC_TOKENS else ({1: t}, {1: t}, {0: k}, {1: t}, None)
     if precision == "int8":
         exported = quantize_dynamic_int8(syn, inputs, dynamic_shapes)
     else:
@@ -116,7 +119,10 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--only", choices=["duration_predictor", "synthesizer"], default=None)
     parser.add_argument("--min-tokens", type=int, default=MIN_TOKENS, help="lower bound of the dynamic token axis")
+    parser.add_argument("--static-tokens", action="store_true", help="export the duration predictor at a fixed 128 tokens")
     args = parser.parse_args()
+    global STATIC_TOKENS
+    STATIC_TOKENS = args.static_tokens
     os.makedirs(args.out, exist_ok=True)
     torch.manual_seed(0)
     jobs = {

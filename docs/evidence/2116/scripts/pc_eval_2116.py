@@ -93,10 +93,11 @@ def load_voice(name: str) -> np.ndarray:
 
 
 class Pair:
-    def __init__(self, dp_path: Path, syn_path: Path):
+    def __init__(self, dp_path: Path, syn_path: Path, pad_to: int | None = None):
         rt = Runtime.get()
         self.dp = rt.load_program(str(dp_path)).load_method("forward")
         self.syn = rt.load_program(str(syn_path)).load_method("forward")
+        self.pad_to = pad_to  # fixed-token-length exports (--static-tokens) take inputs padded to this length
 
 
 def is_letter(ch):
@@ -152,8 +153,9 @@ def synth_chunk(pair: Pair, phonemes: str, voice: np.ndarray, speed: float = 1.0
             continue
         ids[nxt] = t
         nxt += 1
-    tokens = torch.tensor([ids], dtype=torch.int64)
-    mask = torch.zeros((1, n), dtype=torch.bool)
+    L = pair.pad_to or n
+    tokens = torch.tensor([ids + [0] * (L - n)], dtype=torch.int64)
+    mask = torch.zeros((1, L), dtype=torch.bool)
     mask[0, : min(len(ph) + 2, n)] = True
     rows = voice.shape[0]
     vrow = max(0, min(len(ph) - 1, n - 1, rows - 1))
@@ -163,7 +165,7 @@ def synth_chunk(pair: Pair, phonemes: str, voice: np.ndarray, speed: float = 1.0
     spd = torch.tensor([speed], dtype=torch.float32)
     t0 = time.perf_counter()
     pred, feats = pair.dp.execute([tokens, mask, vhalf, spd])
-    durs = pred.to(torch.int64).numpy().astype(np.int64)
+    durs = pred.to(torch.int64).numpy().astype(np.int64).reshape(-1)[:n]
     total = int(durs.sum())
     clamped = min(max(total, MIN_DUR), MAX_DUR)
     if clamped != total and total > 0:
@@ -223,9 +225,13 @@ def cmd_synth(args):
     results = {}
     for spec in args.models:
         name, paths = spec.split("=", 1)
+        pad_to = None
+        if "@" in paths:
+            paths, pad = paths.rsplit("@", 1)
+            pad_to = int(pad)
         dp_path, syn_path = [Path(p) for p in paths.split(",")] if "," in paths else (
             Path(paths) / "duration_predictor_std_xnnpack_fp32.pte", Path(paths) / "synthesizer_std_xnnpack_fp32.pte")
-        pair = Pair(dp_path, syn_path)
+        pair = Pair(dp_path, syn_path, pad_to)
         for voice_name in args.voices:
             voice = load_voice(voice_name)
             for si, ci, text in chunks:
