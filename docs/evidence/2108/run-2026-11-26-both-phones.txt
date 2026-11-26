@@ -1,0 +1,76 @@
+#2108 / #2109 device run, 2026-11-26 AEST, build 984707d0 (debug APK, adb -s <serial> install -r)
+S21 = R5CR605B71K, S23U = RFCW11265XH. Only KernelAI, WakeWordDiag and audio-server lines are copied here.
+Pause and Resume were sent through the Hey Jandal notification's own Pause/Resume action (shade expanded, action tapped by coordinates from a uiautomator dump; no screenshots taken or committed).
+
+Baseline (read before any change)
+S21:  stay_on_while_plugged_in=2  mode_ringer=2  zen_mode=0  streams 1..5 = 0 / 11 / 2 / 11 / 11
+S23U: stay_on_while_plugged_in=2  mode_ringer=0  zen_mode=0  streams 1..5 = 0 / 0 / 4 / 1 / 0
+
+## S21 (R5CR605B71K)
+
+Before: VOICE_RECOGNITION uid 10649 open, silenced:false.
+
+18:19:26.385 I KernelAI: WakeWordService: paused by user — releasing wake mic
+  RecordActivityMonitor: no Jandal client after the release.
+
+Camcorder (CAMCORDER uid 10100) started while paused:
+18:19:52.428 I KernelAI: WakeWordService: another app is recording — releasing wake mic
+  Camcorder stopped. Jandal did not re-arm while paused.
+18:20:23.633 I KernelAI: WakeWordService: paused by user — not re-arming
+
+18:20:49.200 I KernelAI: WakeWordService: resumed by user — re-arming wake word detection
+18:20:49.262 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+18:20:49.408 I KernelAI: WakeWordDetector: models loaded
+  RecordActivityMonitor: VOICE_RECOGNITION uid 10649, silenced:false.
+
+Spoken wake, clip played on the S23U (VLC, media stream 15), fixture natural_wake.wav:
+  Attempt 1 (about 18:21:06): WakeWordDiag gateExitSummary gen=2 stage3Evals=160 maxConfidence=0.0999 — not detected.
+18:21:47.984 D WakeWordDiag: gateExitSummary gen=2 stage3Evals=96 maxConfidence=0.3033 — not detected (attempt 2).
+  Threshold 0.65. No yield. Result: miss in both attempts.
+
+Camcorder while listening (not paused):
+18:22:06.841 I KernelAI: WakeWordService: audio server silenced wake capture — releasing wake mic
+18:22:16.891 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5
+  Release to re-arm: 10.05 s. The camcorder stop tap time is not logged; the re-arm is after it.
+  RecordActivityMonitor: VOICE_RECOGNITION uid 10649 after re-arm.
+
+## S23U (RFCW11265XH)
+
+18:22:38.302 I KernelAI: WakeWordService: starting wake word detection (app launched for this run; wake listening from start)
+Before: VOICE_RECOGNITION uid 11001, silenced:false.
+
+18:23:01.584 I KernelAI: WakeWordService: paused by user — releasing wake mic
+  RecordActivityMonitor: no client after the release.
+
+Camcorder (CAMCORDER uid 10103) started while paused:
+18:23:21.399 I KernelAI: WakeWordService: another app is recording — releasing wake mic
+18:23:33.496 I KernelAI: WakeWordService: paused by user — not re-arming (after camcorder stop)
+
+18:23:55.706 I KernelAI: WakeWordService: resumed by user — re-arming wake word detection
+18:23:55.722 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+  RecordActivityMonitor: VOICE_RECOGNITION uid 11001, silenced:false.
+
+Camcorder while listening (not paused):
+18:24:12.698 I KernelAI: WakeWordService: audio server silenced wake capture — releasing wake mic
+18:24:22.725 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+  Release to re-arm: 10.03 s.
+
+Spoken wake, clip played on the S21 (VLC, S21 media stream 15), fixture natural_wake.wav:
+18:25:54.228 I KernelAI: WakeWordDetector: detected (high confidence=0.7936276)
+18:25:54.336 I KernelAI: WakeWordService: yielding mic to voice session
+  Back pressed on the S23U after the voice session (press time not logged).
+18:26:04.487 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+  RecordActivityMonitor: VOICE_RECOGNITION uid 11001 after re-arm.
+
+## Incident (S21, VLC storage access)
+- For one playback attempt I granted org.videolan.vlc READ_EXTERNAL_STORAGE on the S21 so it could read /sdcard/Download. VLC then scanned the storage tree: about 280 "libvlc demux: cannot open DVD" lines, including paths under /storage/emulated/0/Indici/.
+- No file under that tree was opened or read by this run. The permission was revoked and VLC was force-stopped.
+- Its media library may hold entries for those paths. Owner decision: whether to clear VLC data on the S21.
+- A READ_MEDIA_AUDIO grant to VLC was also made and revoked (no effect).
+
+## Cleanup
+- Camcorder clips created by the run were deleted on both phones (S21: 20261126_181952.mp4 and 20261126_182206.mp4; S23U: 20261126_182321.mp4 and 20261126_182412.mp4). The older DCIM files were not touched.
+- Playback clip removed from /sdcard/Download (S23U, S21) and /data/local/tmp (S21).
+- Stream 3 restored: S21 = 2, S23U = 4 (both were raised to 15 for playback).
+- After the run: S21 stay-on 2, ringer 2, zen 0, streams 1..5 = 0/11/2/11/11 (matches baseline). S23U stay-on 2, ringer 0, zen 0, streams 1..5 = 0/0/4/1/0 (matches baseline).
+- Both debug apps left installed and running with wake listening.

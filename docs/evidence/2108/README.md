@@ -61,7 +61,7 @@ Build: this branch, installed on the S21 (`s21-pause-resume-run.txt` has the log
 | Resume tapped | Jandal re-syncs and stays paused, because the recorder still held the mic. This is correct behaviour for that state. |
 | Recorder released (`am force-stop`) | Jandal re-arms: VOICE_RECOGNITION session for uid 10649 at 07:39:19; notification "Listening for wake word…". |
 
-Camcorder and voice session on this build (`s21-pause-resume-run.txt` sections 7–8): camcorder start releases the mic once (no thrash) and Jandal re-arms after the camcorder stops (07:41:53). A voice session yields the mic and Jandal re-arms 5 s after it closes (07:42:22).
+Camcorder and voice session on this build (`s21-pause-resume-run.txt` sections 7–8): camcorder start releases the mic once (no thrash) and Jandal re-arms after the camcorder stops (07:41:53). Voice session: yield 07:42:17.165, re-arm 07:42:22.165, the same second as Back. The 5 s is the session length, not a re-arm delay.
 
 Recorder normal flow, no force-stop (`s21-pause-resume-run.txt` section 9): Stop, Home, Back and a Recents swipe do not close the recorder's MIC session. Windows tested: 118 s+ (Home), 97 s+ (Back), 75 s+ after the swipe (about 3.5 min after Stop in total). Only `am force-stop` closed it. Jandal stays paused until the mic is free, then re-arms on Resume (07:58:47, immediate). Documented as expected: Jandal waits for the mic.
 
@@ -71,3 +71,35 @@ Not verified in this run:
 - Human speaker and distance or room tests; the wake rate.
 - Phone call. Camcorder and voice session were run earlier (sections 7–8).
 - Stream volumes 1, 2 and 5 changed by the recorder's start (`Disable System Sound`); pre-run values not recorded, so restoration is not verified. Current: stream 1 = 0, stream 2 = 11, stream 3 = 2, stream 4 = 11, stream 5 = 11. `mode_ringer` = 2 and `zen_mode` = 0 (unchanged). `stay_on_while_plugged_in` = 2 (unchanged).
+
+## Run 2026-11-26: both phones, build 984707d0
+
+Full filtered log lines and timestamps: `run-2026-11-26-both-phones.txt`. Pause and Resume were sent through the notification's own action buttons. No screenshots were taken or committed.
+
+| Check | S21 (R5CR605B71K) | S23U (RFCW11265XH) |
+|---|---|---|
+| Pause from the notification releases the mic | yes, 18:19:26.385 | yes, 18:23:01.584 |
+| Camcorder while paused: Jandal stays off | yes, 18:19:52.428 contention release; `not re-arming` 18:20:23.633 | yes, 18:23:21.399; `not re-arming` 18:23:33.496 |
+| Resume from the notification re-arms | yes, 18:20:49.200 (detector 18:20:49.262) | yes, 18:23:55.706 (detector 18:23:55.722) |
+| Camcorder while listening: silence-caused release and re-arm | yes: release 18:22:06.841 with the new message `audio server silenced wake capture — releasing wake mic`; re-arm 18:22:16.891 (10.05 s) | yes: release 18:24:12.698; re-arm 18:24:22.725 (10.03 s) |
+| Spoken wake after Resume, clip from the other phone at media stream 15 | no. S23U clip, two playbacks: maxConfidence 0.0999 and 0.3033, threshold 0.65 | yes. S21 clip: detected 18:25:54.228 (high confidence 0.7936), yielded 18:25:54.336, re-armed 18:26:04.487 after Back |
+
+Not verified:
+
+- Human speaker and distance or room tests. One clip per direction, so no wake rate.
+- Phone call.
+- Samsung Voice Recorder on this build. Its results are from the earlier build (sections above).
+- The S21 missed the clip played from the S23U in both attempts. The cause is not established (speaker placement, volume, or the clip). The result is asymmetric, so treat it as a real gap.
+
+Incident: for one playback attempt I granted VLC storage access on the S21. VLC then scanned the storage tree (about 280 "cannot open DVD" log lines under `/storage/emulated/0/Indici/`). No file there was opened by this run. The permission was revoked and VLC force-stopped. VLC's media library may hold entries for those paths.
+
+Stream volumes, ringer, zen mode and stay-on were restored and checked against the values recorded before the run on both phones.
+
+### Owner decisions (not decided in this run)
+
+- Samsung Voice Recorder holds the mic after Stop until its process dies. Accept, or change?
+- The user pause is memory-only. It survives screen-off, not reboot or a service restart. Accept?
+- Bixby (`com.samsung.android.bixby.wakeup`) and other system MIC listeners have no uid in the public API, so the source filter cannot exclude them. Jandal pauses while they are open. Accept?
+- Silence-caused release probes again after a 10 s hold, doubling to a 120 s cap while the silence repeats. Accept, or change the cap?
+- Both phones now have evidence, but the S21-hears-S23U wake miss is open. Accept this PR with that gap, or block on it?
+- Clear VLC's media-library data on the S21 after the scan incident?
