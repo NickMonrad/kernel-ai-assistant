@@ -8,7 +8,6 @@ import com.kernel.ai.core.executorch.TensorDim
 import com.kernel.ai.core.executorch.TensorSpec
 import com.kernel.ai.core.voice.EnglishSpeechTextNormaliser
 import com.kernel.ai.core.voice.SpeechCardText
-import com.kernel.ai.core.voice.SpeechTextNormaliser
 import com.kernel.ai.debug.tts.DebugTtsLane
 import com.kernel.ai.debug.tts.sha256Of
 import com.kernel.ai.debug.tts.DebugTtsLanes
@@ -32,7 +31,6 @@ class KokoroEtDebugLane(
     private val modelDirectory: File,
     private val voiceName: String,
     private val phonemizer: KokoroPhonemizer,
-    private val normaliser: SpeechTextNormaliser = EnglishSpeechTextNormaliser,
     private val threads: Int = DEFAULT_THREADS,
 ) : DebugTtsLane {
     private var durationModel: ExecuTorchModel? = null
@@ -75,7 +73,7 @@ class KokoroEtDebugLane(
     }
 
     /** Text as the phonemiser receives it: [SpeechCardText] card cleanup, then the shared number normaliser (#2115). */
-    internal fun spokenText(text: String): String = normaliser.normalize(SpeechCardText.speakable(text))
+    internal fun spokenText(text: String): String = EnglishSpeechTextNormaliser.normalize(SpeechCardText.speakable(text))
 
     /** Normalised text through the phonemiser. Internal so the Kokoro-path test can observe its input. */
     internal fun phonemize(text: String): PhonemizedText = phonemizer.phonemize(spokenText(text))

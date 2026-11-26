@@ -105,7 +105,7 @@ Keep Kokoro as a debug-only lane. Do not offer it as a selectable voice. Revisit
 
 ## Known defects and gaps
 
-- **Digit normalisation missing.** "It happened in 1999." phonemises to `ˌɪt hˈæpənd ɪn nˌIntˈin nˈIndinˈIn`. Not fixed.
+- **Digit normalisation (fixed in #2115).** "It happened in 1999." now reaches the phonemiser as "It happened in nineteen ninety nine." through the shared `EnglishSpeechTextNormaliser`. Before #2115 it phonemised to `ˌɪt hˈæpənd ɪn nˌIntˈin nˈIndinˈIn`.
 - **Listening set not done.** 16 WAVs rendered on PC (not device output) to `/home/lokhor/private-acoustic-fixtures/kokoro-executorch-1557/` (outside the repo, not uploaded). Not listened to, not ASR-checked.
 - **Phrase 2 PC equivalence marginal** (31.76 dB).
 - **Dead work.** `NativeKokoroPhonemizer.kt` computes `words` that the lane never uses. Not removed in this PR.

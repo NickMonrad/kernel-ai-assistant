@@ -11,14 +11,6 @@ import java.text.Normalizer
  */
 object InflectMicroTextFrontend {
     private val whitespace = Regex("\\s+")
-    private val letterNames = mapOf(
-        'A' to "ay", 'B' to "bee", 'C' to "see", 'D' to "dee", 'E' to "ee",
-        'F' to "eff", 'G' to "gee", 'H' to "aitch", 'I' to "eye", 'J' to "jay",
-        'K' to "kay", 'L' to "ell", 'M' to "em", 'N' to "en", 'O' to "oh",
-        'P' to "pee", 'Q' to "cue", 'R' to "ar", 'S' to "ess", 'T' to "tee",
-        'U' to "you", 'V' to "vee", 'W' to "double you", 'X' to "ex", 'Y' to "why",
-        'Z' to "zee",
-    )
 
     private val abbreviations = listOf(
         "Dr." to "doctor", "Mr." to "mister", "Mrs." to "missus", "Ms." to "miss",
@@ -67,7 +59,7 @@ object InflectMicroTextFrontend {
         ) { match -> EnglishSpeechTextNormaliser.expandDigits(match.groupValues[1]) }
         value = EnglishSpeechTextNormaliser.normalize(value)
         value = value.replace(Regex("\\b[A-Z]{2,}\\b")) { match ->
-            match.value.map { letterNames[it] ?: it.toString() }.joinToString(" ")
+            match.value.map { EnglishSpeechTextNormaliser.letterName(it) }.joinToString(" ")
         }
 
         value = value.replace(Regex(",(?:\\s*,)+"), ",")
@@ -171,9 +163,9 @@ object InflectMicroTextFrontend {
         val digits = match.groupValues[2]
         val suffix = match.groupValues[3]
         val pieces = buildList {
-            if (prefix.isNotEmpty()) add(letterNames[prefix[0].uppercaseChar()]!!)
+            if (prefix.isNotEmpty()) add(EnglishSpeechTextNormaliser.letterName(prefix[0]))
             add(if (digits.length == 3 || digits.startsWith('0')) EnglishSpeechTextNormaliser.expandDigits(digits) else EnglishSpeechTextNormaliser.numberToWords(digits.toLong()))
-            if (suffix.isNotEmpty()) add(letterNames[suffix[0].uppercaseChar()]!!)
+            if (suffix.isNotEmpty()) add(EnglishSpeechTextNormaliser.letterName(suffix[0]))
         }
         return pieces.joinToString(" ")
     }

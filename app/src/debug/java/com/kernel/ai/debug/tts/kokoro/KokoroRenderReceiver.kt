@@ -12,18 +12,25 @@ import java.io.File
  * baseline lane takes (SpeechCardText, the shared number normaliser, phonemis, Kokoro). Nothing is played.
  * Writes `files/kokoro_render_<out>.wav` (24 kHz mono) and logs `spoken text="..."` under tag KokoroRenderReceiver.
  *
+ * The broadcast result is 0 on success, 1 when the render fails (the message carries the exception), and 2 when
+ * `text` is missing. `am broadcast` prints it as `Broadcast completed: result=<code>, data="<message>"`.
+ *
  *   adb -s <serial> shell am broadcast -n ai.jandal.assistant.debug/com.kernel.ai.debug.tts.kokoro.KokoroRenderReceiver \
  *       --es text "Mon 23 Nov: 27°C, 92% rain" --es out weather
  */
 class KokoroRenderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // goAsync gives a background broadcast about 60 s (10 s for a foreground one) before the system may kill the
+        // process. Model load plus a long render can exceed that. Accepted for a debug tool; do not use it for timing.
+        val pendingResult = goAsync()
         val text = intent.getStringExtra(EXTRA_TEXT)
         val out = intent.getStringExtra(EXTRA_OUT) ?: "render"
         if (text.isNullOrBlank()) {
             Log.e(TAG, "missing --es $EXTRA_TEXT")
+            pendingResult.setResult(RESULT_MISSING_TEXT, "missing --es $EXTRA_TEXT", null)
+            pendingResult.finish()
             return
         }
-        val pendingResult = goAsync()
         val filesDir = context.filesDir
         Thread({
             var phonemizer: NativeKokoroPhonemizer? = null
@@ -38,14 +45,14 @@ class KokoroRenderReceiver : BroadcastReceiver() {
                 val samples = created.renderSamples(text)
                 val file = File(filesDir, "kokoro_render_$out.wav")
                 SampleWav.writeFile(file, samples, KokoroTts.SAMPLE_RATE_HZ)
-                Log.i(
-                    TAG,
-                    "wrote ${file.absolutePath} samples=${samples.size} " +
-                        "durationS=${"%.3f".format(samples.size.toDouble() / KokoroTts.SAMPLE_RATE_HZ)}",
-                )
+                val message = "wrote ${file.absolutePath} samples=${samples.size} " +
+                    "durationS=${"%.3f".format(samples.size.toDouble() / KokoroTts.SAMPLE_RATE_HZ)}"
+                Log.i(TAG, message)
+                pendingResult.setResult(RESULT_OK, message, null)
             } catch (e: Throwable) {
                 // Includes UnsatisfiedLinkError when libkokoro_phonemis.so is absent: log, do not crash the process.
                 Log.e(TAG, "kokoro render failed", e)
+                pendingResult.setResult(RESULT_FAILED, "kokoro render failed: $e", null)
             } finally {
                 lane?.close()
                 phonemizer?.close()
@@ -59,5 +66,8 @@ class KokoroRenderReceiver : BroadcastReceiver() {
         const val EXTRA_TEXT = "text"
         const val EXTRA_OUT = "out"
         const val VOICE = "af_heart"
+        const val RESULT_OK = 0
+        const val RESULT_FAILED = 1
+        const val RESULT_MISSING_TEXT = 2
     }
 }

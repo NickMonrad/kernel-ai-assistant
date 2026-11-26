@@ -26,7 +26,7 @@ class KokoroEtDebugLaneTest {
 
         assertEquals(
             listOf(
-                "It happened in one thousand nine hundred and ninety nine. " +
+                "It happened in nineteen ninety nine. " +
                     "Monday the twenty third of November: twenty seven degrees, ninety two percent rain.",
             ),
             phonemizer.inputs,

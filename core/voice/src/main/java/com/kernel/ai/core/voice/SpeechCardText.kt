@@ -8,7 +8,8 @@ package com.kernel.ai.core.voice
  * Page links are removed first ([SpeechLinkText], #2041).
  *
  * Plain numbers, times and money are deliberately NOT expanded here. Each engine's own preparation owns
- * that (SherpaSpeechText for Piper/Kokoro, InflectMicroTextFrontend for Inflect, eSpeak for Android TTS),
+ * that (SherpaSpeechText for Piper, EnglishSpeechTextNormaliser for the Kokoro ExecuTorch lane and, through
+ * InflectMicroTextFrontend, for Inflect, eSpeak for Android TTS),
  * so nothing is converted twice. The function is idempotent.
  */
 object SpeechCardText {
