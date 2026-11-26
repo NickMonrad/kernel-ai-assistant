@@ -71,3 +71,44 @@ Attempted the two-turn reminder flow ("set a reminder" → "put the bins out" �
 - **eed81f02 coverage:** the in-place fix covers only `RegexMatch`/`ClassifierMatch`. The device path is FallThrough, so the fix does not reach it.
 - **Volumes and state:** S21 media 2 and S23U media 4 restored; stay-awake 2 on both. S21 Jandal relaunched; S21 staged clips removed. S23U Jandal left running, not in a call.
 - **Privacy:** no audio, transcripts, or screenshots committed. Logs in `/tmp` only.
+
+## Run 2026-11-27 (fix head `73104f9eff`, S23U → S21): reminder routing and creation pass; timer and S23U own-speaker fail; #2083 inconclusive
+
+Build: branch head with the bare-reminder fix (`a4c5642c`), installed on both phones with `adb install -r`. S21 `lastUpdateTime` 04:01:16 and S23U 03:53:15. **Earlier S21 runs in this session (reminder 1 and 1b) are invalid:** another agent's build replaced the S21 app at 03:42, before this run took the S21 lock. Those runs tested the wrong code; their FallThrough result does not apply to this branch.
+
+Driver: the private driver counted `mode=SlotReply` lines, and each capture logs that string twice. The second reply clip therefore played during the first capture. Runs 2 onward used a fixed copy that counts `startVoiceCapture mode=SlotReply` (private, not committed). Run 2 is invalid for that reason.
+
+### Reminder flow (S23U → S21, owner clips, 3 valid runs)
+
+| Run | Result |
+|---|---|
+| 2 (04:01) | Bare "Set a reminder" → `NeedsSlot` (item). Prompt played; reply heard as "Depends there. At 5 PM" (overlapping clips, invalid). No reminder created. |
+| 3 (04:02) | Command heard as "See a reminder" (classifier `add_reminder`, in-place slot sheet). Item heard as "There". Time "And 5 PM". `complete` with `paramKeys=[item,time]`. One reminder created, `dueAt` 17:00 today (default day). Deleted. |
+| 4 (04:05) | Item "Put the bens out"; time "And 5 PM"; `complete`. Reminder created, `dueAt` 17:00 today. Deleted. |
+| 5 (04:08) | Item "What the ben out"; time "And 5 PM"; `complete`. Reminder created, `dueAt` 17:00 today. Deleted. |
+
+- Routing: all three bare commands reached the item slot sheet (`NeedsSlot`), not chat fallthrough. This is the owner fix.
+- Day default: all created reminders resolved to 17:00 on the test day, the next occurrence of the time.
+- Confirmation text: the spoken confirmation was not logged. Only `SpeakingStarted chars=50` was logged, so the "today" wording is not verified on device.
+- STT quality: item replies were misheard in 4 of 4 attempts ("There", "Put the bens out", "What the ben out"). Item text is therefore not verified against the spoken words.
+- Cleanup: all three reminders deleted through the to-do list UI. Database check: `list_items` with `dueAt` has no `ACTIVE` rows.
+
+### Timer (10 s, S23U → S21): failed twice
+
+- Runs `timer-2` (04:10) and `timer-3` (04:11): wake detected, VoiceCommandActivity opened, command clip played. No ASR result, no `ActionsViewModel` or timer lines. Activity closed after about 10 s. No timer created, so nothing to cancel.
+- The earlier pass (head `45bc7387`, prior run) does not cover this build. Cause not diagnosed.
+
+### #2083 chat one-shot (S21 chat PTT, one turn): inconclusive
+
+- Single PTT turn with the reminder command. STT "A reminder" went to a confirmation fast path, then the LLM fallthrough answer. TTS ended at 04:15:03.
+- No follow-up mic opened after TTS ended. This matches the fix, but the slot follow-up path in chat was not exercised. One sample only, so this is not a pass.
+
+### S23U own speaker: failed
+
+- S23U played the clips and was also the listener. Wake overlay route `none`; no wake detection on the S23U. No command captured.
+
+### State and volumes
+
+- S21 media 2 (unchanged). S23U media 4 (restored after each run). `stay_on_while_plugged_in` = 2 on S23U.
+- No active test reminders. No timers created.
+- Privacy: logs kept in `/tmp` only; no audio, transcripts, names, or screenshots committed.
