@@ -48,7 +48,7 @@ class InflectMicroTextFrontendTest {
     fun normalize_matches_pinned_num2words_parity_vectors() {
         val vectors = mapOf(
             "105" to "one hundred and five",
-            "1/21/2026" to "January twenty first twenty twenty six",
+            "1/21/2026" to "the twenty first of January, twenty twenty six",
             "21st" to "twenty first",
             "105th" to "one hundred and fifth",
             "\$105.05" to "one hundred and five dollars and five cents",
@@ -95,23 +95,23 @@ class InflectMicroTextFrontendTest {
             Triple(
                 "Booked for 2026-11-26, about 3-5 days away.",
                 "Booked for two thousand and twenty six-eleven-twenty six, about three-five days away.",
-                "Booked for November twenty sixth twenty twenty six, about three to five days away.",
+                "Booked for the twenty sixth of November, twenty twenty six, about three to five days away.",
             ),
             Triple("3-5 days", "three-five days", "three to five days"),
             Triple("5–10 km", "five-ten km", "five to ten km"),
-            Triple("1/21/2026", "January twenty first two thousand and twenty six", "January twenty first twenty twenty six"),
-            Triple("Qwen3 runs on 1080p.", "Qwen three runs on 1080p.", "Qwen three runs on one thousand and eighty pee."),
+            Triple("1/21/2026", "January twenty first two thousand and twenty six", "the twenty first of January, twenty twenty six"),
+            Triple("Qwen3 runs on 1080p.", "Qwen three runs on 1080p.", "Qwen three runs on ten eighty p."),
             Triple("mp3 files, 4K and 3D", "mp3 files, 4K and 3D", "em pee three files, four kay and three dee"),
             Triple("H2O and B12 and 4B", "H2O and B12 and 4B", "aitch two oh and bee twelve and four bee"),
             Triple(
                 "1.50 and 1.0 and 3.10",
                 "one point five oh and one point zero and three point one oh",
-                "one point five and one point zero and three point one",
+                "one point five and one point oh and three point one",
             ),
             // Unchanged, kept as the boundary of the change.
             Triple("1300 people", "one thousand three hundred people", "one thousand three hundred people"),
             Triple("2025", "two thousand and twenty five", "two thousand and twenty five"),
-            Triple("203-0678", "two oh three, zero six seven eight", "two oh three, zero six seven eight"),
+            Triple("203-0678", "two oh three, zero six seven eight", "two oh three, oh six seven eight"),
             Triple("Use 2 500 ml bottles", "Use two five hundred ml bottles", "Use two five hundred ml bottles"),
             Triple("\$49.95", "forty nine dollars and ninety five cents", "forty nine dollars and ninety five cents"),
         )
@@ -153,10 +153,10 @@ class InflectMicroTextFrontendTest {
     @Test
     fun normalize_expands_grouped_digit_sequence_digit_by_digit() {
         val normalized = InflectMicroTextFrontend.normalize("1300 555 019")
-        assertEquals("one three zero zero, five five five, zero one nine", normalized)
+        assertEquals("one three oh oh, five five five, oh one nine", normalized)
         assertFalse(normalized.contains("one thousand"))
         assertFalse(normalized.contains("nineteen"))
-        assertTrue(normalized.contains("zero one nine"))
+        assertTrue(normalized.contains("oh one nine"))
     }
 
     @Test
@@ -223,7 +223,7 @@ class InflectMicroTextFrontendTest {
             InflectMicroTextFrontend.normalize("2025"),
         )
         assertEquals(
-            "two oh three, zero six seven eight",
+            "two oh three, oh six seven eight",
             InflectMicroTextFrontend.normalize("203-0678"),
         )
         assertEquals(
