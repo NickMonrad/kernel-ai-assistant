@@ -92,7 +92,6 @@ class VoiceViewModelTest {
     private val voicePitch = MutableStateFlow(1.0f)
     private val voiceGain = MutableStateFlow(1.5f)
     private val autoSpeak = MutableStateFlow(true)
-    private val placeDidYouMeanEnabled = MutableStateFlow(false)
     private val maxSpokenSentences = MutableStateFlow(0)
     private val activeSpeakerId = MutableStateFlow(0)
     private val selectedKokoroVoice = MutableStateFlow(SherpaKokoroVoice.KokoroMultiLangInt8)
@@ -199,7 +198,6 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.voicePitch } returns voicePitch
         every { voiceOutputPreferences.voiceGain } returns voiceGain
         every { voiceOutputPreferences.autoSpeak } returns autoSpeak
-        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns placeDidYouMeanEnabled
         every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
         every { voiceOutputPreferences.activeSpeakerId } returns activeSpeakerId
         every { voiceOutputPreferences.selectedKokoroVoice } returns selectedKokoroVoice
@@ -211,7 +209,6 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setVoicePitch(any()) } just Runs
         coEvery { voiceOutputPreferences.setVoiceGain(any()) } just Runs
         coEvery { voiceOutputPreferences.setAutoSpeak(any()) } just Runs
-        coEvery { voiceOutputPreferences.setPlaceDidYouMeanEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
         coEvery { voiceOutputPreferences.setActiveSpeakerId(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
