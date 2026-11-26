@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -39,5 +40,16 @@ class WakeMicActionQueueTest {
         joinAll(pause, resume)
         assertEquals(listOf("pause", "resume"), order, "resume must wait behind the pause that holds the lock")
         assertTrue(running, "pause then resume must leave the detector running")
+    }
+
+    @Test
+    fun `the lock is taken before launchQueuedUnder returns, even when the scope's dispatcher has not run`() {
+        // The StandardTestDispatcher is never advanced, so the coroutine cannot run before the call returns.
+        val scope = CoroutineScope(StandardTestDispatcher())
+        val lock = Mutex()
+
+        scope.launchQueuedUnder(lock, Dispatchers.Default) { }
+
+        assertTrue(lock.isLocked, "the queued action must hold the lock as soon as launchQueuedUnder returns")
     }
 }

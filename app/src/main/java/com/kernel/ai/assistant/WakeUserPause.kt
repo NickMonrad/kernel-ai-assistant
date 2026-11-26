@@ -1,5 +1,7 @@
 package com.kernel.ai.assistant
 
+import com.kernel.ai.core.inference.diagnostics.JandalEvents
+
 /**
  * The user's "Pause Hey Jandal" choice from the foreground notification (#2109).
  *
@@ -43,3 +45,10 @@ internal fun wakeNotificationText(userPaused: Boolean, cameraSuspended: Boolean,
         otherAppRecording -> NOTIFICATION_TEXT_OTHER_APP_RECORDING
         else -> NOTIFICATION_TEXT_LISTENING
     }
+
+/**
+ * Journals a user pause or resume to the support export (#2109). `paused` is a Boolean, so the export reads
+ * `wake_user_pause paused=true` or `paused=false`. Strings are always redacted.
+ */
+internal fun recordWakeUserPauseEvent(paused: Boolean) =
+    JandalEvents.record("service", "wake_user_pause", "paused" to paused)

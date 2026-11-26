@@ -800,7 +800,10 @@ class WakeWordService : Service() {
                     MicContention.SILENCED -> "WakeWordService: audio server silenced wake capture — releasing wake mic"
                 },
             )
-            recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
+            // A silence probe repeats every 10 to 120 s, and a release while the user has paused is expected (#2109).
+            if (cause == MicContention.OTHER_APP && !userPause.paused) {
+                recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
+            }
             wakeWordDetector.stop()
             refreshNotification()
         },
@@ -1292,7 +1295,7 @@ class WakeWordService : Service() {
     private fun pauseByUser() {
         if (!userPause.pause()) return
         Log.i(TAG, "WakeWordService: paused by user — releasing wake mic")
-        JandalEvents.record("service", "wake_user_pause", "state" to "paused")
+        recordWakeUserPauseEvent(paused = true)
         AcousticJournalBridge.record(type = AcousticEventType.USER_PAUSED)
         requestDetectorRelease()
         refreshNotification()
@@ -1302,7 +1305,7 @@ class WakeWordService : Service() {
     private fun resumeByUser() {
         if (!userPause.resume()) return
         Log.i(TAG, "WakeWordService: resumed by user — re-arming wake word detection")
-        JandalEvents.record("service", "wake_user_pause", "state" to "resumed")
+        recordWakeUserPauseEvent(paused = false)
         AcousticJournalBridge.record(type = AcousticEventType.USER_RESUMED)
         refreshNotification()
         launchUnderMicLock {
