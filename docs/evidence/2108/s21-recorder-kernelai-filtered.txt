@@ -1,0 +1,21 @@
+11-25 22:36:43.831 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:36:43.893 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:36:54.167 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:36:57.736 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:36:57.790 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:37:07.996 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:09.970 D/KernelAI( 5842): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:37:20.808 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:37:20.844 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:37:31.039 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:34.626 I/KernelAI( 5842): WakeWordService: yielding mic to voice session
+11-25 22:37:34.690 D/KernelAI( 5842): WakeWordDetector: stopped
+11-25 22:37:44.913 D/KernelAI( 5842): WakeWordDetector: recording started
+11-25 22:37:46.982 D/KernelAI( 5842): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:39:31.726 I/KernelAI(12710): WakeWordService: starting wake word detection
+11-25 22:39:31.862 D/KernelAI(12710): WakeWordDetector: recording started
+11-25 22:39:32.295 D/KernelAI(12710): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:40:04.014 D/KernelAI(12710): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 22:42:29.101 I/KernelAI(15305): WakeWordService: starting wake word detection
+11-25 22:42:29.199 D/KernelAI(15305): WakeWordDetector: recording started
+11-25 22:42:30.222 D/KernelAI(15305): WakeWordService: already running — ignoring duplicate onStartCommand
