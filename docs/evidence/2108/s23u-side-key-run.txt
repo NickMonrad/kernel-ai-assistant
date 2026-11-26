@@ -1,0 +1,39 @@
+S23U RFCW11265XH, debug build 04efde69 (merged with origin/main) installed with `adb -s RFCW11265XH install -r` (lock held by omp-pr2109-r3).
+Phone awake and unlocked (no keyguard) throughout; no PIN entered; no screenshots of the shade, lock or home screen.
+
+## Setup (recorded before, restored after)
+- Default assistant before: com.google.android.googlequicksearchbox (GsaVoiceInteractionService).
+- Set to ai.jandal.assistant.debug with `cmd role add-role-holder android.app.role.ASSISTANT`.
+- Restored after the run: `cmd role add-role-holder ... com.google.android.googlequicksearchbox`; `settings get secure assistant` reads back GSA.
+- Hey Jandal listening: already on when the app was opened (Settings > Voice). Not changed.
+- stay_on_while_plugged_in = 2 before and after. No volume changed.
+
+## Activation
+- `adb -s RFCW11265XH shell input keyevent KEYCODE_ASSIST` (assistant key; a long press of the power key was not used because it opens the power menu on Samsung).
+- WakeWordService was running and the detector had started (03:15:49) before the key press.
+
+## Logcat (filtered to KernelAI, AssistantSession and the activity start; full log not kept)
+11-27 03:16:47.708 D/KernelAI(20264): JandalVoiceInteractionSessionService: creating new session
+11-27 03:16:47.845 D/KernelAI(20264): AssistantSession: onShow flags=7 — pausing wake word, delegating to VoiceCommandActivity
+11-27 03:16:47.845 I/KernelAI(20264): WakeWordService: pausing (mic requested by external caller)
+11-27 03:16:47.866–47.880 AudioPolicyManager: audio patch released, releaseInput exit (mic input released)
+11-27 03:16:47.881 D/KernelAI(20264): WakeWordDetector: stopped
+11-27 03:16:47.893 I/ActivityTaskManager: START ... cmp=ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity ... result code=0
+11-27 03:16:47.925 I/KernelAI(20264): WakeWordService: resuming wake word detection
+11-27 03:16:47.932 I/KernelAI(20264): WakeWordDetector: starting 3-stage ONNX pipeline
+11-27 03:16:47.960 I/KernelAI(20264): WakeWordDetector: models loaded
+11-27 03:16:47.971 D/KernelAI(20264): WakeWordDetector: recording started
+11-27 03:16:48.090 I/KernelAI(20264): WakeWordService: yielding mic to voice session
+11-27 03:16:48.129 D/KernelAI(20264): WakeWordDetector: stopped
+
+Result for the fix-2 check:
+- Pause, release, then VoiceCommandActivity start: yes, in that order (detector stopped at 47.881, activity start at 47.893).
+- No "wake mic not released within 2500 ms" warning in the log.
+
+## Finding (not fixed in this PR)
+- `JandalVoiceInteractionSession.onHide()` calls `WakeWordService.resume()` unconditionally. The session's `hide()` runs right after `startActivity(VoiceCommandActivity)`, so the detector re-armed at 47.925 and held the mic for about 165 ms before `yielding mic to voice session` at 48.090. This is pre-existing (the code path predates this PR); it re-opens the mic during voice-turn startup. Decision needed: skip resume when the voice turn has started, or accept.
+- Not verified: whether the voice turn's STT got the mic during that window (no STT lines in the captured range).
+
+## Cleanup
+- Back dismissed VoiceCommandActivity.
+- The debug build on this phone is now the 04efde69 build (replaced an earlier debug install from another agent, same package).

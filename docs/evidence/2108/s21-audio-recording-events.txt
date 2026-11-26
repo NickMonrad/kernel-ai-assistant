@@ -1,0 +1,15 @@
+11-25 20:59:04:162 rec update riid:91946319 uid:10649 session:91947985 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:04:200 rec release riid:91946319 uid:10649 session:91947985 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:19:073 rec update riid:91946335 uid:10649 session:91948001 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 20:59:33:188 rec update riid:91946335 uid:10649 session:91948001 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:33:190 rec update riid:91946351 uid:1000 session:91948009 src:MIC not silenced pack:com.samsung.android.bixby.wakeup
+11-25 20:59:33:193 rec update riid:91946335 uid:10649 session:91948001 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:33:204 rec stop riid:91946335 uid:10649 session:91948001 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:43:793 rec stop riid:91946351 uid:1000 session:91948009 src:MIC not silenced pack:com.samsung.android.bixby.wakeup
+11-25 20:59:43:868 rec start riid:91946359 uid:10649 session:91948017 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 20:59:54:495 rec update riid:91946359 uid:10649 session:91948017 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:54:523 rec stop riid:91946359 uid:10649 session:91948017 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 20:59:54:543 rec update riid:91946375 uid:10100 session:91948025 src:CAMCORDER not silenced pack:com.sec.android.app.camera
+11-25 21:00:45:695 rec stop riid:91946375 uid:10100 session:91948025 src:CAMCORDER not silenced pack:com.sec.android.app.camera
+11-25 21:00:45:862 rec start riid:91946391 uid:10649 session:91948049 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:01:43:970 rec update riid:91946391 uid:10649 session:91948049 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug

@@ -105,6 +105,12 @@ object AcousticEventType {
     /** Service loss. Metadata: stable "category". */
     const val SERVICE_ERROR = "SERVICE_ERROR"
 
+    /** The user paused Hey Jandal from the notification; wake capture is released until Resume (#2109). */
+    const val USER_PAUSED = "USER_PAUSED"
+
+    /** The user resumed Hey Jandal from the notification; wake capture is re-armed (#2109). */
+    const val USER_RESUMED = "USER_RESUMED"
+
     /** Detector-level error (ONNX session, AudioRecord, etc.). */
     const val DETECTOR_ERROR = "DETECTOR_ERROR"
 
@@ -134,5 +140,7 @@ object AcousticEventType {
         DETECTOR_REARMED,
         SERVICE_ERROR,
         DETECTOR_ERROR,
+        USER_PAUSED,
+        USER_RESUMED,
     )
 }

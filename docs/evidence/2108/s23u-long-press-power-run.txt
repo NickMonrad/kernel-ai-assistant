@@ -1,0 +1,35 @@
+S23U RFCW11265XH, debug build 04efde69 (merged with origin/main), already installed. Locks: /tmp/jandal-s21.lock then /tmp/jandal-s23u.lock held by omp-pr2109-r3; both released after the run.
+Phone awake and unlocked throughout (isKeyguardShowing=false before and after); no PIN entered; no screenshots of the shade, lock or home screen.
+
+## Setup (recorded before, restored after)
+- Default assistant before: com.google.android.googlequicksearchbox (GsaVoiceInteractionService).
+- Set to ai.jandal.assistant.debug with `cmd role add-role-holder android.app.role.ASSISTANT`.
+- Restored after: `cmd role add-role-holder ... com.google.android.googlequicksearchbox`; holder reads back GSA.
+- Hey Jandal listening: on before the run (WakeWordService running). Not changed.
+- stay_on_while_plugged_in = 2 before and after. No volume changed.
+
+## Activation
+- `adb -s RFCW11265XH shell input keyevent --longpress KEYCODE_POWER` (the brief's Side-key gesture).
+- PhoneWindowManager took the long press as the assistant gesture (interceptPowerKeyDown, finishPowerKeyPress at 04:45:38.512); the power menu did not open.
+
+## Logcat (filtered; full log not kept)
+04:45:38.607 D/KernelAI: JandalVoiceInteractionSessionService: creating new session
+04:45:38.686 D/KernelAI: AssistantSession: onShow flags=7 — pausing wake word, delegating to VoiceCommandActivity
+04:45:38.686 I/KernelAI: WakeWordService: pausing (mic requested by external caller)
+04:45:38.725 D/KernelAI: WakeWordDetector: stopped
+04:45:39.044 ActivityTaskManager: START ... cmp=ai.jandal.assistant.debug/com.kernel.ai.feature.widget.VoiceCommandActivity ... (BAL_ALLOW_VISIBLE_WINDOW)
+04:45:39.058 I/KernelAI: WakeWordService: resuming wake word detection
+04:45:39.062 I/KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline
+04:45:39.145 D/KernelAI: WakeWordDetector: recording started
+04:45:39.203 I/KernelAI: WakeWordService: yielding mic to voice session
+04:45:39.243 D/KernelAI: WakeWordDetector: stopped
+
+Result for the fix-2 check:
+- Pause, release (detector stopped 38.725), then VoiceCommandActivity start (39.044): yes, in that order.
+- "wake mic not released within 2500 ms" count in the log: 0.
+
+## Same finding as the earlier run (not fixed in this PR)
+- JandalVoiceInteractionSession.onHide() calls WakeWordService.resume() unconditionally. The detector re-armed at 39.058 (about 14 ms after the activity start) and yielded at 39.203 when the voice turn took the mic. See s23u-side-key-run.txt.
+
+## Cleanup
+- Back dismissed VoiceCommandActivity. Default assistant restored to GSA. Keyguard off at the end.
