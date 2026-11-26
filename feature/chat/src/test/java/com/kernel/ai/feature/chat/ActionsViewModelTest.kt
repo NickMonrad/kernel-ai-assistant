@@ -515,7 +515,7 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `reminder time-first reply is retained across Quick Actions slot prompts`() = runTest(dispatcher) {
+    fun `reminder time reply completes an item-first reminder without a day`() = runTest(dispatcher) {
         val runIntentSkill = CapturingRunIntentSkill()
         every { skillRegistry.get(any()) } answers {
             when (firstArg<String>()) {
@@ -526,16 +526,9 @@ class ActionsViewModelTest {
 
         viewModel.executeAction("Remind me to buy milk")
         advanceUntilIdle()
-        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        assertEquals("time", viewModel.pendingSlot.value?.request?.missingSlot?.name)
 
         viewModel.onSlotReply("5 pm")
-        advanceUntilIdle()
-
-        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
-        assertEquals("17:00", viewModel.pendingSlot.value?.request?.existingParams?.get("time"))
-        assertEquals(0, runIntentSkill.calls.size)
-
-        viewModel.onSlotReply("tomorrow")
         advanceUntilIdle()
 
         assertNull(viewModel.pendingSlot.value)
@@ -544,7 +537,6 @@ class ActionsViewModelTest {
                 "intent_name" to "add_reminder",
                 "item" to "buy milk",
                 "time" to "17:00",
-                "day" to "tomorrow",
             ),
             runIntentSkill.calls.single().arguments,
         )
@@ -563,8 +555,8 @@ class ActionsViewModelTest {
         viewModel.executeAction("Remind me to buy milk")
         advanceUntilIdle()
 
-        // Slot-fill is active with day missing
-        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        // Slot-fill is active with time missing
+        assertEquals("time", viewModel.pendingSlot.value?.request?.missingSlot?.name)
         assertEquals("add_reminder", viewModel.pendingSlot.value?.request?.intentName)
         assertEquals("buy milk", viewModel.pendingSlot.value?.request?.existingParams["item"])
         // No direct execution
@@ -603,7 +595,7 @@ class ActionsViewModelTest {
 
         viewModel.executeAction("Remind me to buy milk")
         advanceUntilIdle()
-        assertEquals("day", viewModel.pendingSlot.value?.request?.missingSlot?.name)
+        assertEquals("time", viewModel.pendingSlot.value?.request?.missingSlot?.name)
 
         viewModel.onSlotReply("Next Monday at 5 pm")
         advanceUntilIdle()
