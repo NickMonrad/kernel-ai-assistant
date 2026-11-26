@@ -4724,6 +4724,29 @@ class QuickIntentRouter(
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
 
+    private val slotValidationRegistry by lazy { com.kernel.ai.core.skills.slot.SlotValidationRegistry() }
+
+    /**
+     * Deterministic slot question for an in-place match (#2082). Returns the first missing required
+     * slot, or re-asks a present value that fails its validator with that slot dropped. Null when the
+     * intent can run as it is. Only contract and validator rules may ask a slot, never model text.
+     */
+    fun pendingSlotFor(
+        intentName: String,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.PendingSlotRequest? {
+        nextMissingSlot(intentName, params)?.let { missing ->
+            return com.kernel.ai.core.skills.slot.PendingSlotRequest(intentName, params, missing)
+        }
+        for ((slotName, value) in params) {
+            if (slotName == "intent_name" || slotName == "raw_query") continue
+            if (slotValidationRegistry.validate(intentName, slotName, value).isValid) continue
+            val spec = slotContract(intentName)[slotName] ?: return null
+            return com.kernel.ai.core.skills.slot.PendingSlotRequest(intentName, params - slotName, spec)
+        }
+        return null
+    }
+
     private fun listNameWithDescriptor(name: String, descriptor: String): Map<String, String> {
         val base = name.trim()
         return mapOf(

@@ -1739,14 +1739,14 @@ class ActionsViewModel @Inject constructor(
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
-                        } else {
+                        } else if (!primeInPlaceSlotIfNeeded(normalizedQuery, routeResult.intent, inputMode)) {
                             executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_REGEX)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
-                        } else {
+                        } else if (!primeInPlaceSlotIfNeeded(normalizedQuery, routeResult.intent, inputMode)) {
                             executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_CLASSIFIER)
                         }
                     }
@@ -2150,6 +2150,27 @@ class ActionsViewModel @Inject constructor(
                 spokenSummary = null,
             )
         }
+    }
+
+    /**
+     * An in-place match with a deterministic missing or invalid slot opens the slot sheet instead of
+     * running, so the SlotReply mic opens after the question (#2082). Returns true when it did.
+     */
+    private fun primeInPlaceSlotIfNeeded(
+        query: String,
+        intent: QuickIntentRouter.MatchedIntent,
+        inputMode: InputMode,
+    ): Boolean {
+        val pending = quickIntentRouter.pendingSlotFor(intent.intentName, intent.params) ?: return false
+        Log.d(TAG, "ActionsViewModel: in-place ${intent.intentName} needs slot ${pending.missingSlot.name} → slot sheet")
+        primePendingSlot(
+            intentName = pending.intentName,
+            existingParams = pending.existingParams,
+            missingSlot = pending.missingSlot,
+            originalQuery = query,
+            inputMode = inputMode,
+        )
+        return true
     }
 
     private suspend fun executeRoutedIntent(

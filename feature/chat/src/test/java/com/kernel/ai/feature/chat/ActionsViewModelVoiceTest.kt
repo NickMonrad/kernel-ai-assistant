@@ -11,6 +11,7 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.ToolPresentation
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.slot.SlotSpec
+import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -144,6 +145,7 @@ class ActionsViewModelVoiceTest {
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
+        every { quickIntentRouter.pendingSlotFor(any(), any()) } returns null
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,
             skillRegistry = skillRegistry,
@@ -263,6 +265,29 @@ class ActionsViewModelVoiceTest {
                 }
             )
         }
+    }
+
+    @Test
+    fun `voice in-place match with a missing slot arms the slot-reply mic like NeedsSlot (#2082)`() = runTest(dispatcher) {
+        every { quickIntentRouter.route("set a reminder") } returns
+            QuickIntentRouter.RouteResult.ClassifierMatch(
+                intent = QuickIntentRouter.MatchedIntent(intentName = "add_reminder", params = emptyMap()),
+                confidence = 0.965f,
+                needsConfirmation = false,
+            )
+        val timeSlot = SlotSpec(name = "time", promptTemplate = "What time should I remind you?")
+        every { quickIntentRouter.pendingSlotFor("add_reminder", emptyMap()) } returns PendingSlotRequest(
+            intentName = "add_reminder",
+            existingParams = emptyMap(),
+            missingSlot = timeSlot,
+        )
+
+        viewModel.executeAction("set a reminder", InputMode.Voice)
+        advanceTimeBy(9_000)
+
+        assertEquals("What time should I remind you?", viewModel.pendingSlot.value?.request?.promptMessage)
+        assertTrue(viewModel.slotReplyAutoRearmArmed.value)
+        coVerify(exactly = 0) { quickActionDao.insert(any()) }
     }
 
     @Test
