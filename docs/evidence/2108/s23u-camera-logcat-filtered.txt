@@ -1,0 +1,13 @@
+11-25 21:02:07.423 W/KernelAI( 8758): WakeWordService: cannot start from background: startForegroundService() not allowed due to mAllowStartForeground false: service ai.jandal.assistant.debug/com.kernel.ai.assistant.WakeWordService
+11-25 21:02:10.941 I/KernelAI( 8758): WakeWordService: starting wake word detection
+11-25 21:02:10.945 I/KernelAI( 8758): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 21:02:11.069 D/KernelAI( 8758): WakeWordDetector: recording started
+11-25 21:02:30.105 I/KernelAI( 8758): WakeWordService: another app is recording — releasing wake mic
+11-25 21:02:30.184 D/KernelAI( 8758): WakeWordDetector: stopped
+11-25 21:02:30.199 I/KernelAI( 8758): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 21:02:30.200 I/KernelAI( 8758): WakeWordService: another app is recording — releasing wake mic
+11-25 21:02:30.239 D/KernelAI( 8758): WakeWordDetector: recording started
+11-25 21:02:30.257 D/KernelAI( 8758): WakeWordDetector: stopped
+11-25 21:02:35.363 I/KernelAI( 8758): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 21:02:35.399 D/KernelAI( 8758): WakeWordDetector: recording started
+11-25 21:02:50.580 D/KernelAI( 8758): WakeWordService: already running — ignoring duplicate onStartCommand

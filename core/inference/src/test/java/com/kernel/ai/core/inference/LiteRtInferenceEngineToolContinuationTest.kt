@@ -84,6 +84,9 @@ class LiteRtInferenceEngineToolContinuationTest {
         mockkObject(InferenceGenerationService.Companion)
         every { InferenceGenerationService.start(any()) } just runs
         every { InferenceGenerationService.stop(any()) } just runs
+        every { InferenceGenerationService.startInternal(any()) } just runs
+        every { InferenceGenerationService.stopInternal(any()) } just runs
+        every { InferenceGenerationService.stopAfterReply(any()) } just runs
         mockkStatic(Settings.Global::class)
         every { Settings.Global.getInt(any<ContentResolver>(), "pr1756_gpu_restart", 0) } returns 0
         mockkStatic(Log::class)
@@ -519,8 +522,8 @@ class LiteRtInferenceEngineToolContinuationTest {
     fun `one-shot generation skips foreground service when engine is not initialized`() = runBlocking {
         assertEquals("", inferenceEngine.generateOnce("generate a note title"))
 
-        verify(exactly = 0) { InferenceGenerationService.start(context) }
-        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+        verify(exactly = 0) { InferenceGenerationService.startInternal(context) }
+        verify(exactly = 0) { InferenceGenerationService.stopInternal(context) }
     }
 
     @Test
@@ -533,8 +536,8 @@ class LiteRtInferenceEngineToolContinuationTest {
 
         assertEquals("", inferenceEngine.generateOnce("generate a note title"))
 
-        verify(exactly = 0) { InferenceGenerationService.start(context) }
-        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+        verify(exactly = 0) { InferenceGenerationService.startInternal(context) }
+        verify(exactly = 0) { InferenceGenerationService.stopInternal(context) }
     }
 
     @Test
@@ -547,8 +550,8 @@ class LiteRtInferenceEngineToolContinuationTest {
             ),
         )
 
-        verify(exactly = 0) { InferenceGenerationService.start(context) }
-        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+        verify(exactly = 0) { InferenceGenerationService.startInternal(context) }
+        verify(exactly = 0) { InferenceGenerationService.stopInternal(context) }
     }
 
     @Test
@@ -567,8 +570,8 @@ class LiteRtInferenceEngineToolContinuationTest {
             ),
         )
 
-        verify(exactly = 0) { InferenceGenerationService.start(context) }
-        verify(exactly = 0) { InferenceGenerationService.stop(context) }
+        verify(exactly = 0) { InferenceGenerationService.startInternal(context) }
+        verify(exactly = 0) { InferenceGenerationService.stopInternal(context) }
     }
 
     @Test
@@ -628,7 +631,7 @@ class LiteRtInferenceEngineToolContinuationTest {
         assertEquals("Alarm set.", withTimeout(3_000) { response.await() })
         assertEquals(listOf("set_alarm"), executed)
         verifyOrder {
-            InferenceGenerationService.start(context)
+            InferenceGenerationService.startInternal(context)
             fixture.initialConversation.sendMessageAsync(
                 any<Contents>(),
                 any<MessageCallback>(),
@@ -639,7 +642,7 @@ class LiteRtInferenceEngineToolContinuationTest {
                 any<MessageCallback>(),
                 any<Map<String, Any>>(),
             )
-            InferenceGenerationService.stop(context)
+            InferenceGenerationService.stopInternal(context)
         }
         verify(exactly = 1) {
             fixture.initialConversation.sendMessageAsync(
