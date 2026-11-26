@@ -57,10 +57,25 @@ suggester with the bundled assets (16,938 competitor names). Test: `PlaceSlotMat
 | swap, before / after | 1,192 | 394 / 922 | 3 / 10 | 795 / 260 |
 
 Trade-off: the change recovers about 12,900 typos that were silent, at the cost of about 1,040 more
-wrong-place prompts. The owner-line gate (0 wrong-place) holds; the typo sweep shows the rule does not
-guarantee 0 wrong-place prompts in general. Wrong-place typos are mostly cases where another NZ name, or a
-spelling-plausible competitor previously blocking it, is the nearest. The composition of the 1,106 was
-not analysed. Reviewer decision: keep this rule (recall) or revert to the previous rule (precision, 68 wrong).
+wrong-place prompts. The owner-line gate (0 wrong-place, 0 non-gold) holds.
+
+Breakdown of the 1,106 wrong-place typos (aggregates; letters counted with spaces removed):
+
+- Sound-key winner: in 608 (55%) the typo's sound key equals the wrong NZ name's sound key while the
+  target's sound key differs, so the wrong name wins at sound distance 0. Its spelling distance from the
+  typo is above 0.30 in 1,069 cases.
+- Target spelling within 0.30 in 1,103 cases. The typo is never spelling-closer to the wrong name than to
+  the target (8 cases tie on spelling distance).
+- Near pairs: 0 wrong names one edit from the target, 25 two edits away, 1,081 three or more. Shared
+  prefix of 4+ letters in 32. No Waikanae/Waikane-style pattern dominates.
+- Target length: 49 at 5 letters or fewer, 453 at 6 to 8, 192 at 9 to 11, 412 at 12 or more.
+- Edit kind: 1,070 substitute, 26 delete, 10 swap. Every wrong suggestion was an NZ name; no competitor was prompted.
+
+Tweak tested, not applied: require the winning NZ name to be spelling-plausible (spelling within 0.30), as
+already required of competitors. Typo sweep: wrong 1,106 to 45, right 85.3% to 88.1%. Owner gate: wrong 0 and
+non-gold 0 hold, but gold ok falls 6 to 3 for both M and L, below the previous 5. Likely cause [INFERENCE]: the
+lost gold cases rest on sound-only wins with spelling above 0.30, the same signal behind the typo wins, so no spelling
+threshold separates them. Owner decision (27 Nov): keep the new rule, so the tweak is not in the code.
 
 ## Caveats
 
