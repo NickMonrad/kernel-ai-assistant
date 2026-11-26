@@ -6,6 +6,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollTo
@@ -20,7 +21,10 @@ import org.junit.Test
 
 /**
  * Chat onboarding at font scale 2.0 in a 360 dp wide window (#2111). With enough model rows the content is taller
- * than the screen, so the lower rows and the "Manage models" button must be reachable by scrolling.
+ * than the screen, so "Manage models" must start outside the viewport and be reachable by scrolling.
+ *
+ * The forced-size test host has no system bars, so this test cannot check the system-bar inset padding; that is
+ * verified on the S23U capture instead.
  */
 @OptIn(ExperimentalTestApi::class)
 class ChatOnboardingLargeFontScrollTest {
@@ -60,6 +64,7 @@ class ChatOnboardingLargeFontScrollTest {
             }
         }
 
+        composeRule.onNodeWithText("Manage models").assertIsNotDisplayed()
         composeRule.onNodeWithText("Manage models").performScrollTo().assertIsDisplayed()
     }
 }

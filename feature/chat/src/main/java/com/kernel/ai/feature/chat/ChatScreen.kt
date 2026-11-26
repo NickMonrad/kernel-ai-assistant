@@ -2374,7 +2374,12 @@ internal fun OnboardingContent(
     gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
     conversationReadiness: ConversationModelReadiness? = null,
 ) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
