@@ -77,14 +77,19 @@ fun suggestedUtterance(text: String, heardPlace: String, suggestedPlace: String)
 
 /**
  * The "Did you mean" question for [route] when it is a navigate_to destination or get_weather location
- * that is a near miss of an NZ place, else null. Blocking: call off the main thread. Nothing is rewritten.
+ * that is a near miss of an NZ place, else null. Covers regex and classifier matches alike (#2079: a
+ * classifier-routed navigate_to used to skip the question). Blocking: call off the main thread. Nothing is rewritten.
  */
 fun placeDidYouMeanQuestion(
     suggester: PlaceDidYouMeanSuggester,
     route: QuickIntentRouter.RouteResult,
     text: String,
 ): PendingPlaceDidYouMean? {
-    val intent = (route as? QuickIntentRouter.RouteResult.RegexMatch)?.intent ?: return null
+    val intent = when (route) {
+        is QuickIntentRouter.RouteResult.RegexMatch -> route.intent
+        is QuickIntentRouter.RouteResult.ClassifierMatch -> route.intent
+        else -> return null
+    }
     val slot = when (intent.intentName) {
         "navigate_to" -> "destination"
         "get_weather" -> "location"

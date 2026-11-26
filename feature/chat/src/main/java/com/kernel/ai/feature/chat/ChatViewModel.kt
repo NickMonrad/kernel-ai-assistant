@@ -964,7 +964,8 @@ class ChatViewModel @Inject constructor(
                         awaitingVoicePlaybackCompletion = false
                         if (!shouldHandleCompletion) return@collect
                         _voiceCaptureState.value = VoiceCaptureState.Idle
-                        if (_voiceMode.value == VoiceMode.BackAndForth) {
+                        // #2079: a pending place question is a slot question; its reply mic reopens in one-shot too.
+                        if (_voiceMode.value == VoiceMode.BackAndForth || pendingPlaceDidYouMean != null) {
                             rearmVoiceInput()
                         } else {
                             _voiceMode.value = null
@@ -1910,11 +1911,12 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Re-arms voice listening for the next back-and-forth turn. Only called internally after a
-     * spoken reply finishes; guards against starting if the mode was cleared in the interim.
+     * Re-arms voice listening after a spoken reply finishes: each back-and-forth turn, and a one-shot turn
+     * whose spoken reply is a pending place question (#2079) that waits for yes/no. Guards against starting
+     * if the mode was cleared in the interim.
      */
     private fun rearmVoiceInput() {
-        if (_voiceMode.value != VoiceMode.BackAndForth) return
+        if (_voiceMode.value != VoiceMode.BackAndForth && pendingPlaceDidYouMean == null) return
         if (_voiceCaptureState.value != VoiceCaptureState.Idle) return
         if (backgroundPaused) return
         // #2070: each back-and-forth turn gets its own silence retry.

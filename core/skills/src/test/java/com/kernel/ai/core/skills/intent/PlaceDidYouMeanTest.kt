@@ -82,6 +82,36 @@ class PlaceDidYouMeanTest {
         assertEquals("navigate to Porirua", question?.suggestedText)
     }
 
+    private fun classifierRoute(intentName: String, slot: String, place: String) =
+        QuickIntentRouter.RouteResult.ClassifierMatch(
+            intent = QuickIntentRouter.MatchedIntent(
+                intentName = intentName,
+                params = mapOf(slot to place),
+                source = "classifier",
+            ),
+            confidence = 0.9f,
+            needsConfirmation = false,
+        )
+
+    @Test
+    fun classifierRoutedNavigateIsAskedAbout() {
+        val question = placeDidYouMeanQuestion(suggester, classifierRoute("navigate_to", "destination", "Porirwa"), "Navigate to Porirwa")
+        assertEquals("Did you mean Porirua?", question?.prompt)
+        assertEquals("Navigate to Porirua", question?.suggestedText)
+    }
+
+    @Test
+    fun classifierRoutedWeatherLocationIsAskedAbout() {
+        val question = placeDidYouMeanQuestion(suggester, classifierRoute("get_weather", "location", "Porirwa"), "weather in Porirwa")
+        assertEquals("Did you mean Porirua?", question?.prompt)
+        assertEquals("weather in Porirua", question?.suggestedText)
+    }
+
+    @Test
+    fun classifierRoutedOtherIntentIsNotAskedAbout() {
+        assertNull(placeDidYouMeanQuestion(suggester, classifierRoute("set_timer", "destination", "Porirwa"), "set timer Porirwa"))
+    }
+
     @Test
     fun slowMatcherGivesNoQuestionWithinBound() {
         // The matcher blocks on a real thread; the bound must return without waiting for the rest of it.

@@ -44,8 +44,13 @@ import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceInputController
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceCaptureMode
+import com.kernel.ai.core.voice.VoiceInputEvent
+import com.kernel.ai.core.voice.VoiceInputStartResult
+import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputResult
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -55,6 +60,7 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -116,6 +122,8 @@ class ChatViewModelPlaceDidYouMeanTest {
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator = mockk(relaxed = true)
     private val authRepository: HuggingFaceAuthRepository = mockk(relaxed = true)
     private val suggester: PlaceDidYouMeanSuggester = mockk()
+    private val voiceInputEvents = MutableSharedFlow<VoiceInputEvent>()
+    private val voiceOutputEvents = MutableSharedFlow<VoiceOutputEvent>()
     private val placeDidYouMeanOn = MutableStateFlow(true)
 
     private val navigateRuns = mutableListOf<SkillCall>()
@@ -193,8 +201,9 @@ class ChatViewModelPlaceDidYouMeanTest {
         every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(false)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         every { voiceOutputPreferences.placeDidYouMeanEnabled } returns placeDidYouMeanOn
-        every { voiceInputController.events } returns emptyFlow()
-        every { voiceOutputController.events } returns emptyFlow()
+        every { voiceInputController.events } returns voiceInputEvents
+        coEvery { voiceInputController.startListening(any()) } returns VoiceInputStartResult.Started(1L)
+        every { voiceOutputController.events } returns voiceOutputEvents
         coEvery { voiceOutputController.warmUp() } returns VoiceOutputResult.Spoken
 
         // Only "Porirwa" is a near miss; everything else gets no question.
@@ -345,5 +354,32 @@ class ChatViewModelPlaceDidYouMeanTest {
         awaitConversation(vm, "Navigating.")
 
         assertEquals(listOf<Any?>("Porirwa"), destinations())
+    }
+
+    @Test
+    fun `one-shot voice place question reopens the mic for the yes reply`() = runTest(dispatcher) {
+        // A relaxed mock returns a non-null pending request, which forces Command capture. Stub it null so the first start is a dictation.
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(true)
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(true)
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.startVoiceInput()
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "navigate to Porirwa", captureSessionId = 1L))
+        awaitConversation(vm, "Did you mean Porirua?")
+
+        // The question is spoken; the one-shot session ends with playback and must reopen the reply mic.
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Did you mean Porirua?"))
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertEquals(ChatViewModel.VoiceCaptureState.Listening(), vm.voiceCaptureState.value)
+
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "yes", captureSessionId = 1L))
+        advanceUntilIdle()
+        assertEquals(listOf<Any?>("Porirua"), destinations())
     }
 }
