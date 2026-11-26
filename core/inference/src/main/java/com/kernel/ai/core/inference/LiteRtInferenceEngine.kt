@@ -2407,6 +2407,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     backend = backendType.toBackend(context),
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
+                    activationDataType = backendType.activationDataType(),
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
