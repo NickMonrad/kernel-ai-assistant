@@ -704,6 +704,28 @@ and `evaluate`). Aggregates from `aggregate.json` (owner + tune sets; 237 clip-s
   p95 1.4–1.8 s across three runs (time_scoring). The K timings exclude `evaluate` (p50 3.1 ms, p95 15.1 ms over all
   70,617 rows).
 
+## Exact bound pruning (replaces the K-trigram retrieval; decision-preserving)
+
+`prefilter_eval.py` now scores each row only when an upper bound cannot rule it out (`pruned_scores`, bounds in
+`Groups.bound`; derivation in the script docstring). The top entry, its best row, the runner-up and the margin are the
+same as in the full scan.
+
+`prefilter_eval.py check`, owner and tune sets, both sizes, slots hint, full and trigger: 1,324 clip-slots (237 hint and
+237 full per size; 191 M and 185 L trigger). Frozen code: `suggest_v41.py` (sha256 `73003a32…`) and `oracle.py`.
+
+| Check | Result |
+|---|---|
+| Decision fields (outcome, reason, top, kind, match, S4, S5, SILENT start flag) differ from the full scan | 0 of 1,324 |
+| Raw, start and end equal the full scan on scored rows | 0 mismatches |
+| Bound valid (full score ≤ UB on every row) | 0 violations |
+| Soundness (every unscored row scores below s* − 1) | 0 violations |
+
+Rows scored per clip-slot (of about 70,600 rows): p50 256 (the seed) in every slot; p95 hint M 2,732 and L 1,923; full
+M 4,927 and L 3,807; trigger M 850 and L 583. Rounds p50 1, p95 2.
+
+The reported `margin` can be larger than the full-scan margin when the true margin is ≥ 1. Decisions read only
+`margin < 1.0`, so they are unchanged. The check compares decisions, not the margin value.
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived

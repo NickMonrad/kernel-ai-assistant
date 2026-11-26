@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
-"""#2093 competitor pre-filter: measure decision changes and scoring time against the frozen oracle (beta 5).
+"""#2093 competitor pre-filter: exact upper-bound pruning, checked against the frozen full scan (beta 5).
 
-The frozen oracle.py is not edited. Stage 1 (new): a char-trigram retrieval index over every candidate row
-(canonical + respellings), scored per slot word by cosine; the top-K rows plus every row of an exact-match
-entry are kept. Stage 2: oracle.span_best on the kept rows only; unkept rows stay NEG, so oracle.evaluate()
-runs unchanged. The filter is measured here; it is NOT part of the held-out pass (see HELDOUT-PREREG-v4.md).
+Replaces the K-trigram retrieval (removed; it changed decisions at every K tested). Pruning is exact for decisions:
 
-Output: aggregates to stdout and a JSON file. Per-clip rows go to the private directory given with --private.
+  score_r = raw_r + BETA * n_r  (oracle.evaluate)
+  pen[t, v] = logp[t, v] - max_v logp[t, v] <= 0
+  UB_r = sum over label occurrences k of row r of max_t pen[t, label_k]  +  BETA * n_r  >=  score_r
+
+Rounds: score the SEED rows with the largest UB; s* = max exact score so far; then score every unscored row with
+UB >= s* - MARGIN - EPS; repeat until no unscored row qualifies. Each unscored row then has score < s_final - MARGIN,
+so the top entry, its best row (ties: lowest row index, as oracle.best_per_entry), the runner-up and the decision are
+the same as in the full scan. The reported margin can be larger than the full-scan margin only when the true margin
+is >= MARGIN (no decision effect; decisions use margin < MARGIN only).
+
+Modes:
+  check  full scan vs pruned on the same clip-slots: decision fields (S4, S5, SILENT start flag, outcome, reason,
+         top, match), raw/start/end equality on scored rows, bound validity (score <= UB on every row) and pruning
+         soundness (every unscored row scores below s* - MARGIN). Exit 1 on any mismatch.
+  time   owner set, full vs pruned, from slot choice to decision (greedy decode excluded). Warm-up + --reps repeats
+         per clip-slot; per clip-slot median; p50/p95 across clip-slots. Pin with taskset; set OMP/OPENBLAS threads to 1.
+
+Aggregates only on stdout and in --out. Per-clip rows only in --private.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -20,68 +35,15 @@ import numpy as np
 
 import lexicon
 import oracle
-import suggest_v4
+import suggest_v41 as S41
 
-KS = [50, 100, 200, 500, 1000, 2000]
+SEED = 256
+EPS = 1e-6
 SLOTS = ["hint", "full", "trigger"]
-BETA = 5.0
-MARGIN = 1.0
+BETA = S41.BETA
+MARGIN = S41.MARGIN
 NEG = oracle.NEG
-
-
-def trigrams(word: str) -> set[str]:
-    p = "#" + word + "#"
-    return {p[i:i + 3] for i in range(len(p) - 2)}
-
-
-class TriIndex:
-    """Inverted index: trigram id -> sorted row ids. Built once per model size."""
-
-    def __init__(self, entries: oracle.Entries):
-        self.entries = entries
-        R = len(entries.row_entry)
-        vocab: dict[str, int] = {}
-        postings: list[list[int]] = []
-        self.rnorm = np.ones(R)
-        for r in range(R):
-            name = entries.names[int(entries.row_entry[r])]
-            text = lexicon.fold(lexicon.respellings(name)[int(entries.row_variant[r])])
-            tris: set[str] = set()
-            for w in text.split():
-                tris |= trigrams(w)
-            self.rnorm[r] = max(len(tris), 1)
-            for t in tris:
-                tid = vocab.setdefault(t, len(vocab))
-                if tid == len(postings):
-                    postings.append([])
-                postings[tid].append(r)
-        self.vocab = vocab
-        self.ptr = np.zeros(len(postings) + 1, dtype=np.int64)
-        self.ptr[1:] = np.cumsum([len(p) for p in postings])
-        self.post = np.fromiter((r for p in postings for r in p), dtype=np.int64, count=int(self.ptr[-1]))
-        self.R = R
-        order = np.argsort(entries.row_entry, kind="stable")
-        self.rows_by_entry_sorted = order
-        self.entry_bounds = np.searchsorted(entries.row_entry[order], np.arange(len(entries.names) + 1))
-
-    def select(self, slot_text: str, K: int, exact_entry: int | None) -> np.ndarray:
-        best = np.zeros(self.R)
-        for w in slot_text.split():
-            Q = trigrams(w)
-            ids = [self.vocab[t] for t in Q if t in self.vocab]
-            if not ids:
-                continue
-            cat = np.concatenate([self.post[self.ptr[i]:self.ptr[i + 1]] for i in ids])
-            cnt = np.bincount(cat, minlength=self.R)
-            np.maximum(best, cnt / np.sqrt(len(Q) * self.rnorm), out=best)
-        keep = np.zeros(self.R, dtype=bool)
-        if K >= self.R:
-            keep[:] = True
-        else:
-            keep[np.argpartition(-best, K)[:K]] = True
-        if exact_entry is not None:
-            keep[self.rows_by_entry_sorted[self.entry_bounds[exact_entry]:self.entry_bounds[exact_entry + 1]]] = True
-        return keep
+DECISION_FIELDS = ("outcome", "reason", "top_name", "top_kind", "match")
 
 
 class Groups:
@@ -115,49 +77,66 @@ class Groups:
             en[sub_idx] = sb + a
         return out, st, en
 
+    def bound(self, mp: np.ndarray, row_n: np.ndarray) -> np.ndarray:
+        """UB score per row: sum of the per-label maxima over label occurrences (odd ext indices) + BETA * n."""
+        ub = np.empty(self.R)
+        for idx, ext in self.groups.values():
+            ub[idx] = mp[ext[:, 1::2]].sum(axis=1) + BETA * row_n[idx]
+        return ub
+
+
+def pruned_scores(groups: Groups, row_n: np.ndarray, dump: oracle.Dump, span):
+    """Exact-decision pruned scan. Returns raw/start/end (NEG where unscored), scored mask, UB, rounds, s*."""
+    a, b = span
+    lp = dump.logp[a:b]
+    pen = lp - lp.max(axis=1, keepdims=True)
+    ub = groups.bound(pen.max(axis=0), row_n)
+    scored = np.zeros(groups.R, dtype=bool)
+    out = np.full(groups.R, NEG)
+    st = np.zeros(groups.R, dtype=np.int64)
+    en = np.zeros(groups.R, dtype=np.int64)
+    k = min(SEED, groups.R)
+    cand = np.zeros(groups.R, dtype=bool)
+    cand[np.argpartition(-ub, k - 1)[:k]] = True
+    rounds = 0
+    s_star = -np.inf
+    while True:
+        new = cand & ~scored
+        if not new.any():
+            break
+        rounds += 1
+        raw_new, sn, en_new = groups.raw(dump, span, new)
+        out[new] = raw_new[new]
+        st[new] = sn[new]
+        en[new] = en_new[new]
+        scored |= new
+        s_star = float(np.max(out[scored] + BETA * row_n[scored]))
+        cand = ub >= s_star - MARGIN - EPS
+    return out, st, en, scored, ub, rounds, s_star
+
+
+def decide_fields(ev: dict, rec: dict) -> tuple:
+    return tuple(ev[f] for f in DECISION_FIELDS) + (rec["s4"]["kind"], rec["s4"]["name"], rec["s5"]["kind"],
+                                                  rec["s5"]["name"], rec["silent_start_fail"])
+
 
 def pct(xs, q):
-    return float(np.percentile(np.array(xs), q)) * 1000.0 if xs else float("nan")
+    return float(np.percentile(np.array(xs), q)) if len(xs) else float("nan")
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", action="append", required=True, help="SIZE=model dir (repeatable)")
-    ap.add_argument("--set", action="append", required=True,
-                    help="NAME=DUMPDIR:LABELS:CLASSMAP (repeatable)")
-    ap.add_argument("--places", type=Path, required=True)
-    ap.add_argument("--slots", default=",".join(SLOTS))
-    ap.add_argument("--limit", type=int, default=0, help="smoke: max dumps per size and set (0 = all)")
-    ap.add_argument("--private", type=Path, required=True, help="private output dir (per-clip rows)")
-    ap.add_argument("--out", type=Path, required=True, help="aggregate JSON (git-safe)")
-    args = ap.parse_args(argv)
-    args.private.mkdir(parents=True, exist_ok=True)
-    slots = args.slots.split(",")
-
-    places = oracle.load_places(args.places, lexicon.NZ_PLACES)
-    impostors = oracle.load_names(None, lexicon.IMPOSTORS)
-    sets = []
-    for spec in args.set:
-        name, _, rest = spec.partition("=")
-        d, labels, cmap = rest.split(":")
-        sets.append((name, Path(d), json.loads(Path(labels).read_text(encoding="utf-8")),
-                     json.loads(Path(cmap).read_text(encoding="utf-8"))))
-
-    agg: dict = {}          # (size, slot, K) -> counts
-    times: dict = {}        # (size, slot, K|'full') -> [seconds]
-    eval_times: list = []
-    checks = {"raw_equal": 0, "raw_checked": 0, "exact_missing": 0}
-    per_clip: list = []
-
+def run_check(args, sets, places, impostors) -> int:
+    checks = {"clip_slots": 0, "decision_mismatch": 0, "raw_mismatch": 0, "bound_violations": 0,
+              "soundness_violations": 0}
+    scored_rows: dict = {}
+    rounds_list: dict = {}
+    mismatches: list = []
     for size_spec in args.model:
         size, _, mdir = size_spec.partition("=")
         model = oracle.Model.load(size, Path(mdir))
         entries = oracle.Entries.build(model, places, impostors)
         exact = {lexicon.fold(n): i for i, n in enumerate(entries.names)}
-        t0 = time.perf_counter()
-        index = TriIndex(entries)
         groups = Groups(entries)
-        print(f"[{size}] rows={len(entries.row_ext)} index_s={time.perf_counter() - t0:.1f}", file=sys.stderr)
+        row_n = entries.row_n.astype(np.float64)
         for name, ddir, labels, cmap in sets:
             paths = sorted(ddir.glob(f"*.{size}.*.json"))
             if args.limit:
@@ -167,78 +146,135 @@ def main(argv: list[str] | None = None) -> int:
                 lab = labels.get(dump.clip)
                 if lab is None:
                     continue
-                gold = bool(lab["gold"])
-                cls = cmap.get(dump.clip, "?")
                 toks = oracle.greedy_tokens(dump.logp, model.blank)
                 text, char_tok = oracle.greedy_text(model, toks)
-                for slot in slots:
+                for slot in args.slots:
                     span = oracle.slot_for(slot, "v2", toks, dump.logp.shape[0], text, char_tok)
                     if span is None:
                         continue
                     clip = oracle.make_clip(text, char_tok, toks, span)
-                    exact_entry = exact.get(clip.slot_text) if clip.slot_text else None
-
-                    t = time.perf_counter()
                     full, fst, fen = groups.raw(dump, span, None)
-                    times.setdefault((size, slot, "full"), []).append(time.perf_counter() - t)
-                    t = time.perf_counter()
-                    ev_full = oracle.evaluate(full, fst, fen, entries, BETA, lab["gold"],
-                                              clip, exact, margin_min=MARGIN)
-                    eval_times.append(time.perf_counter() - t)
-                    dec_full = suggest_v4.decide(ev_full)
-
-                    for K in KS:
-                        t = time.perf_counter()
-                        keep = index.select(clip.slot_text if clip.slot_text else "", K, exact_entry)
-                        raw_k, ra, rb = groups.raw(dump, span, keep)
-                        times.setdefault((size, slot, K), []).append(time.perf_counter() - t)
-                        checks["raw_checked"] += 1
-                        checks["raw_equal"] += int(np.array_equal(raw_k[keep], full[keep]))
-                        if exact_entry is not None and not keep[np.flatnonzero(entries.row_entry == exact_entry)].all():
-                            checks["exact_missing"] += 1
-                        t = time.perf_counter()
-                        ev_k = oracle.evaluate(raw_k, ra, rb, entries, BETA, lab["gold"], clip, exact,
-                                               margin_min=MARGIN)
-                        eval_times.append(time.perf_counter() - t)
-                        dec_k = suggest_v4.decide(ev_k)
-                        c = agg.setdefault((size, slot, K), {"n": 0, "gold_n": 0, "outcome": 0, "gold_outcome": 0,
-                                                             "top_name": 0, "gold_top_name": 0,
-                                                             "s4": 0, "gold_s4": 0, "cls": {}})
-                        c["n"] += 1
-                        c["gold_n"] += gold
-                        ch_out = ev_full["outcome"] != ev_k["outcome"]
-                        ch_top = ev_full["top_name"] != ev_k["top_name"]
-                        ch_s4 = (dec_full["kind"], dec_full["name"]) != (dec_k["kind"], dec_k["name"])
-                        c["outcome"] += ch_out
-                        c["gold_outcome"] += ch_out and gold
-                        c["top_name"] += ch_top
-                        c["gold_top_name"] += ch_top and gold
-                        c["s4"] += ch_s4
-                        c["gold_s4"] += ch_s4 and gold
-                        cc = c["cls"].setdefault(cls, {"n": 0, "s4": 0})
-                        cc["n"] += 1
-                        cc["s4"] += ch_s4
-                        per_clip.append({"size": size, "set": name, "slot": slot, "K": K, "clip": dump.clip,
-                                         "gold": gold, "outcome_full": ev_full["outcome"], "outcome_k": ev_k["outcome"],
-                                         "top_full": ev_full["top_name"], "top_k": ev_k["top_name"],
-                                         "s4_full": dec_full, "s4_k": dec_k})
+                    ev_f = oracle.evaluate(full, fst, fen, entries, BETA, lab["gold"], clip, exact, margin_min=MARGIN)
+                    rec_f = S41.record(ev_f, clip, entries, full, fst, fen)
+                    pr, pst, pen_, scored, ub, rounds, s_star = pruned_scores(groups, row_n, dump, span)
+                    ev_p = oracle.evaluate(pr, pst, pen_, entries, BETA, lab["gold"], clip, exact, margin_min=MARGIN)
+                    rec_p = S41.record(ev_p, clip, entries, pr, pst, pen_)
+                    key = (size, slot)
+                    checks["clip_slots"] += 1
+                    scored_rows.setdefault(key, []).append(int(scored.sum()))
+                    rounds_list.setdefault(key, []).append(rounds)
+                    if decide_fields(ev_f, rec_f) != decide_fields(ev_p, rec_p):
+                        checks["decision_mismatch"] += 1
+                        mismatches.append((size, slot, name, dump.clip))
+                    if not (np.array_equal(pr[scored], full[scored]) and np.array_equal(pst[scored], fst[scored])
+                            and np.array_equal(pen_[scored], fen[scored])):
+                        checks["raw_mismatch"] += 1
+                    full_score = full + BETA * row_n
+                    checks["bound_violations"] += int(np.sum(full_score > ub + 1e-6))
+                    checks["soundness_violations"] += int(np.sum(full_score[~scored] >= s_star - MARGIN))
             print(f"[{size}] set {name} done", file=sys.stderr)
-
-    result = {"ks": KS, "beta": BETA, "margin": MARGIN, "checks": checks, "decisions": {}, "timing_ms": {}}
-    for (size, slot, K), c in sorted(agg.items(), key=str):
-        result["decisions"][f"{size}|{slot}|{K}"] = {k: v for k, v in c.items() if k != "cls"} | {
-            "classes": c["cls"]}
-    for key, xs in sorted(times.items(), key=str):
-        result["timing_ms"][f"{key[0]}|{key[1]}|{key[2]}"] = {"n": len(xs), "p50": round(pct(xs, 50), 2),
-                                                             "p95": round(pct(xs, 95), 2)}
-    result["evaluate_ms"] = {"n": len(eval_times), "p50": round(pct(eval_times, 50), 2),
-                             "p95": round(pct(eval_times, 95), 2)}
+    per_slot = {f"{s}|{sl}": {"clip_slots": len(v), "rows_scored_p50": pct(v, 50), "rows_scored_p95": pct(v, 95),
+                              "rounds_p50": pct(rounds_list[(s, sl)], 50), "rounds_p95": pct(rounds_list[(s, sl)], 95)}
+                for (s, sl), v in sorted(scored_rows.items())}
+    result = {"mode": "check", "beta": BETA, "margin": MARGIN, "seed": SEED, "checks": checks, "per_slot": per_slot}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-    (args.private / "per_clip.prefilter.json").write_text(json.dumps(per_clip, ensure_ascii=False),
-                                                          encoding="utf-8")
-    print(json.dumps({"checks": checks, "evaluate_ms": result["evaluate_ms"]}, indent=1))
+    (args.private / "mismatches.prefilter.json").write_text(json.dumps(mismatches), encoding="utf-8")
+    print(json.dumps(result, indent=1))
+    bad = checks["decision_mismatch"] or checks["raw_mismatch"] or checks["bound_violations"] or \
+        checks["soundness_violations"]
+    return 1 if bad else 0
+
+
+def run_time(args, sets, places, impostors) -> int:
+    load_before = os.getloadavg()
+    med: dict = {}
+    spans: dict = {}
+    for size_spec in args.model:
+        size, _, mdir = size_spec.partition("=")
+        model = oracle.Model.load(size, Path(mdir))
+        entries = oracle.Entries.build(model, places, impostors)
+        exact = {lexicon.fold(n): i for i, n in enumerate(entries.names)}
+        groups = Groups(entries)
+        row_n = entries.row_n.astype(np.float64)
+        for name, ddir, labels, cmap in sets:
+            for jp in sorted(ddir.glob(f"*.{size}.*.json")):
+                dump = oracle.load_dump(jp)
+                lab = labels.get(dump.clip)
+                if lab is None:
+                    continue
+                toks = oracle.greedy_tokens(dump.logp, model.blank)
+                text, char_tok = oracle.greedy_text(model, toks)
+                T = dump.logp.shape[0]
+
+                def decide(kind: str, slot: str):
+                    span = oracle.slot_for(slot, "v2", toks, T, text, char_tok)
+                    if span is None:
+                        return None
+                    clip = oracle.make_clip(text, char_tok, toks, span)
+                    if kind == "full":
+                        raw, ra, rb = groups.raw(dump, span, None)
+                    else:
+                        raw, ra, rb, *_ = pruned_scores(groups, row_n, dump, span)
+                    ev = oracle.evaluate(raw, ra, rb, entries, BETA, lab["gold"], clip, exact, margin_min=MARGIN)
+                    S41.record(ev, clip, entries, raw, ra, rb)
+                    return span
+
+                for slot in args.slots:
+                    if decide("full", slot) is None:
+                        continue
+                    decide("pruned", slot)  # warm-up
+                    t_full, t_pr = [], []
+                    for _ in range(args.reps):
+                        t = time.perf_counter()
+                        decide("full", slot)
+                        t_full.append(time.perf_counter() - t)
+                        t = time.perf_counter()
+                        decide("pruned", slot)
+                        t_pr.append(time.perf_counter() - t)
+                    med.setdefault((size, slot, "full"), []).append(float(np.median(t_full)) * 1000.0)
+                    med.setdefault((size, slot, "pruned"), []).append(float(np.median(t_pr)) * 1000.0)
+                    span = oracle.slot_for(slot, "v2", toks, T, text, char_tok)
+                    spans.setdefault((size, slot), []).append(span[1] - span[0])
+            print(f"[{size}] set {name} timed", file=sys.stderr)
+    load_after = os.getloadavg()
+    result = {"mode": "time", "reps": args.reps, "warmup": 1, "pinned": os.environ.get("TIME_PIN", ""),
+              "load_before": load_before, "load_after": load_after,
+              "ms": {f"{s}|{sl}|{p}": {"clips": len(v), "p50": round(pct(v, 50), 2), "p95": round(pct(v, 95), 2)}
+                     for (s, sl, p), v in sorted(med.items())},
+              "slot_frames": {f"{s}|{sl}": {"p50": pct(v, 50), "p95": pct(v, 95)}
+                              for (s, sl), v in sorted(spans.items())}}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(result, indent=1))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("mode", choices=["check", "time"])
+    ap.add_argument("--model", action="append", required=True, help="SIZE=model dir (repeatable)")
+    ap.add_argument("--set", action="append", required=True, help="NAME=DUMPDIR:LABELS:CLASSMAP (repeatable)")
+    ap.add_argument("--places", type=Path, required=True)
+    ap.add_argument("--slots", default=",".join(SLOTS))
+    ap.add_argument("--reps", type=int, default=5)
+    ap.add_argument("--limit", type=int, default=0, help="smoke: max dumps per size and set (0 = all)")
+    ap.add_argument("--private", type=Path, required=True, help="private output dir")
+    ap.add_argument("--out", type=Path, required=True, help="aggregate JSON (git-safe)")
+    args = ap.parse_args(argv)
+    args.private.mkdir(parents=True, exist_ok=True)
+    args.slots = args.slots.split(",")
+    places = oracle.load_places(args.places, lexicon.NZ_PLACES)
+    impostors = oracle.load_names(None, lexicon.IMPOSTORS)
+    sets = []
+    for spec in args.set:
+        name, _, rest = spec.partition("=")
+        d, labels, cmap = rest.split(":")
+        sets.append((name, Path(d), json.loads(Path(labels).read_text(encoding="utf-8")),
+                     json.loads(Path(cmap).read_text(encoding="utf-8"))))
+    if args.mode == "check":
+        return run_check(args, sets, places, impostors)
+    return run_time(args, sets, places, impostors)
 
 
 if __name__ == "__main__":
