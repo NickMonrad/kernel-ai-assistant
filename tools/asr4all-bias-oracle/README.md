@@ -668,6 +668,42 @@ suggestion that names it. Not blind: these recordings were used to choose β 5.
 - Non-gold: no suggestion on any of 114 cell-lines. The 8 rewrites are all identity (case or macron only).
 - Correct output: the navigate/weather table above sums to 37 (M 7/7/6, L 5/6/6): the 34 accepted plus 3 already-correct cells (one each in M full, M hint and M trigger) where the margin check gives a suggestion. Those 3 are in the suggestion column, so the 30 suggestions include them.
 
+## Suggest-first v4 (pre-registered; the existing-data S4 run is NOT blind)
+
+Pre-registration: `HELDOUT-PREREG-v4.md` (e397f530, committed before any new scoring). Rule S4 is `suggest_v4.py`
+(`decide`), tested by `test_suggest_v4.py`. Prompt only: "Did you mean <place>?" changes no text unless the user confirms.
+
+- **Existing data, not blind.** S4 on the owner recordings (sections above) gives 34 of 94 gold cell-lines accepted,
+  6/16 hint-slot gold lines offered right per size (37.5%), 0 wrong-place prompts and 0 non-gold prompts. β 5 was chosen
+  on these recordings, so these figures are not a held-out result.
+- **Precondition not met on existing data.** v4 requires offered-right ≥ 50% at both sizes on the new 216-line set before
+  any switch-on discussion. 37.5% on the hint slot is below it. Nothing is changed post hoc.
+- **Held-out pass.** Applies only to the new 216-line set, with P1–P3 as written in v4. It has not been run.
+
+## Competitor pre-filter (measured only; not in any pass)
+
+`prefilter_eval.py` at 060b4324 scored a char-trigram top-K retrieval against the full scan (frozen `oracle.span_best`
+and `evaluate`). Aggregates from `aggregate.json` (owner + tune sets; 237 clip-slots per size on hint and full, 185/191 on trigger):
+
+| Slot | Size | Outcome changes K=50 / 500 / 2000 | S4 changes K=50 / 500 / 2000 |
+|---|---|---|---|
+| hint | M | 39 / 19 / 14 | 19 / 13 / 9 |
+| hint | L | 43 / 27 / 16 | 29 / 18 / 9 |
+| full | M | 48 / 23 / 17 | 26 / 16 / 11 |
+| full | L | 53 / 25 / 14 | 26 / 16 / 8 |
+| trigger | M | 28 / 14 / 13 | 14 / 9 / 8 |
+| trigger | L | 32 / 20 / 13 | 21 / 13 / 7 |
+
+- **Wiring checks, not evidence about decisions.** Raw scores equal the full scan on all 7,944 clip × slot × K
+  comparisons (not rows), and no exact-match row was dropped. Both hold by construction and confirm the harness only.
+- **Why retrieval cannot preserve decisions.** The full scan's winning row is often outside the top-K retrieval rank,
+  and no tested K removes all changes. Trigram retrieval is therefore dropped. Its replacement is upper-bound pruning,
+  which scores only rows that a bound cannot rule out, so decisions are unchanged by construction.
+- **Timing (PC; separate figures, not comparable to each other).** Scoring step only, decision not timed: hint p95
+  0.88–1.06 s and full slot p95 1.32–1.40 s (prefilter_eval). Full candidate set, owner dumps, hint, decision included:
+  p95 1.4–1.8 s across three runs (time_scoring). The K timings exclude `evaluate` (p50 3.1 ms, p95 15.1 ms over all
+  70,617 rows).
+
 ## Privacy
 
 Clips, transcripts, gold labels, owner clip identifiers, per-clip results, the LINZ export and the derived
