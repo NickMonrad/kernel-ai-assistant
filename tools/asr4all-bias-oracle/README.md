@@ -371,6 +371,8 @@ Gold correct output (informational; no recall threshold was pre-registered), cor
 | trigger | L | 3/7 | 3/8 |
 | trigger | M | 1/8 | 5/7 |
 
+Total: 37 of 94 correct output (M 7/7/6, L 5/6/6) = 34 accepted (31 rewrites + 3 identity accepts) + 3 already-correct cells where the margin check gave a suggestion. At β 3 and β 4: 33 of 94 correct output, 30 accepted.
+
 Gold misses at β 5 (owner, all six cells; 57 misses of 94 cell-lines): 27 `suggest` (24 margin, 3 boundary; a "Did you mean X?" prompt, no rewrite), 19 competitor abstains, 9 impostor tops, 2 vetoes.
 False-boost lines: every class (AU city, foreign city, POI, address, suburb, NZ already-correct, gate trap) has zero non-identity rewrites in every slot and size.
 
@@ -607,7 +609,7 @@ Reading the sweep:
 The six cells share the same 16 gold lines (about 10 distinct places) and 20 non-gold lines, so cell-rows are correlated.
 Per cell, β 5:
 
-| Cell | Gold correct | Gold substitutions | Non-gold rewrites |
+| Cell | Accepted | Gold substitutions | Non-gold rewrites |
 |---|---|---|---|
 | L full | 5/16 (31.2%, 14.2–55.6) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
 | L hint | 6/16 (37.5%, 18.5–61.4) | 0/16 (≤19.4%) | 0/20 (≤16.1%) |
@@ -617,8 +619,8 @@ Per cell, β 5:
 | M trigger | 5/15 (33.3%, 15.2–58.3) | 0/15 (≤20.4%) | 0/17 (≤18.4%) |
 
 - Per line (union over the six cells): 0 of 16 gold lines had any substitution (≤19.4%); 0 of 20 non-gold lines had a non-identity rewrite (≤16.1%). Identity rewrites (case or macron only) occur on 8 non-gold cell-lines and are not counted, as in v3.
-- Correct total 34 of 94 gold cell-lines accepted (36.2%, 27.2–46.2). The earlier "37 of 94" is not reproduced from the per-clip rows and is corrected here; see "Scoring time and rewrite-or-suggest" below. The earlier pooled figures (0/94, upper 3.9%; 0/114, upper 3.3%; Wilson 30.1–49.5%) are withdrawn: they treat correlated cell-lines as independent.
-- β 3 and β 4: 30/94 accepted at each, 0 substitutions, 0 rewrites (per-clip rows; an earlier "33/94" is not reproduced).
+- Accepted: 34 of 94 gold cell-lines (36.2%): 31 rewrites and 3 identity accepts. Correct output is 37 of 94 (table above); the other 3 are already-correct cells with a margin suggestion. The earlier pooled figures (0/94, upper 3.9%; 0/114, upper 3.3%; Wilson 30.1–49.5%) are withdrawn: they treat correlated cell-lines as independent.
+- β 3 and β 4: 33/94 correct output at each (30 accepted), 0 substitutions, 0 rewrites (per-clip rows).
 - The kept rule is the v3 rule, so this re-score cannot change it. A fresh owner recording of new lines is still the clean check, and it has not been done.
 
 ## Scoring time and rewrite-or-suggest (review corrections, 27 Nov 2026; aggregates)
@@ -632,19 +634,18 @@ python3 tools/asr4all-bias-oracle/suggest_figure.py --run OUT/owner-full --run O
 ```
 
 **Scoring time, PC (criterion 6, a reporting item).** Frozen rule, β 5, hint slot, gate v2, 72 owner dumps (36 per
-size). Timed: greedy decode, slot, span scores and decision, from logits already in memory. Three runs per dump,
-median per dump; candidate segmentation and dump loading are outside the timer. Workstation (16 threads), no load
-control. Not the S21.
+size). Timed: greedy decode, slot, span scores and decision, from logits already in memory. Three timings per dump, median per dump; candidate segmentation and dump loading are outside the timer. Three runs of the script, each with other work on the machine (load average about 10–14; not controlled). PC, not the S21.
 
-| Candidate set | Names | Variants | p50 | p95 | max |
-|---|---|---|---|---|---|
-| Full: 167 rewritable, 20,951 competitors, 130 impostors | 21,248 | 70,617 | 725 ms | 1,441 ms | 1,553 ms |
-| Rewritable + impostors only: 167 + 144 impostors | 311 | 959 | 30.5 ms | 57.3 ms | 79.9 ms |
+| Candidate set | Names | Variants | p95 across three runs |
+|---|---|---|---|
+| Full: 167 rewritable, 20,951 competitors, 130 impostors | 21,248 | 70,617 | 1.4–1.8 s |
+| Rewritable + impostors only: 167 + 144 impostors | 311 | 959 | 53–73 ms |
+
+Three runs (full p95, rewritable + impostors p95): 1,441 ms and 57.3 ms; 1,536 ms and 73.0 ms; 1,782 ms and 52.8 ms.
 
 - The second row is a timing probe, not an accuracy claim. Its impostor count is higher because 14 impostor names
   fold to the same spelling as a rewritable or competitor name and are dropped from the full set.
-- The full set's p95 is about 29 times the 50 ms S21 target, before phone overhead. Removing the competitors alone
-  leaves p95 at 57 ms, still above target.
+- The full set's p95 is 28–36 times the 50 ms S21 target, before phone overhead. Removing the competitors alone leaves p95 at 53–73 ms, not reliably under target; a smaller K or other work is also needed.
 - Criterion 6 was never reported in the v1–v3 runs. The S21 ≤ 50 ms condition is a separate step-2 condition and is
   not tested.
 
@@ -652,7 +653,7 @@ control. Not the S21.
 (six cell-lines per clip, scored clips only). Correct = a rewrite to the gold place, or a "Did you mean <place>?"
 suggestion that names it. Not blind: these recordings were used to choose β 5.
 
-| Cell | Gold lines | Rewrite correct | Suggestion correct | Wrong-place rewrite or suggestion | Non-gold lines | Non-gold suggestion | Non-gold rewrites (of which non-identity) |
+| Cell | Gold lines | Accepted (31 rewrites + 3 identity) | Suggestion correct | Wrong-place rewrite or suggestion | Non-gold lines | Non-gold suggestion | Non-gold rewrites (of which non-identity) |
 |---|---|---|---|---|---|---|---|
 | full M | 16 | 6 | 5 | 0 | 20 | 0 | 2 (0) |
 | full L | 16 | 5 | 5 | 0 | 20 | 0 | 2 (0) |
@@ -662,11 +663,10 @@ suggestion that names it. Not blind: these recordings were used to choose β 5.
 | trigger L | 15 | 6 | 5 | 0 | 17 | 0 | 1 (0) |
 | Total | 94 | 34 | 30 | 0 | 114 | 0 | 8 (0) |
 
-- Rewrite or suggestion correct: 64 of 94 (68.1%, Wilson 58.1–76.6). Rewrite alone: 34 of 94 (36.2%, 27.2–46.2).
+- Rewrite or suggestion correct: 64 of 94 (68.1%). Accepted (rewrite alone): 34 of 94 (36.2%).
 - The remaining 30 gold cell-lines get no action: 19 competitor abstains, 9 impostor tops, 2 vetoes.
 - Non-gold: no suggestion on any of 114 cell-lines. The 8 rewrites are all identity (case or macron only).
-- Correction: the owner section's navigate/weather table sums to 37 across the six cells. The per-clip rows give 34
-  accepted, with M cells 6, 6 and 5. That table is not re-derived here and should be treated as unverified.
+- Correct output: the navigate/weather table above sums to 37 (M 7/7/6, L 5/6/6): the 34 accepted plus 3 already-correct cells (one each in M full, M hint and M trigger) where the margin check gives a suggestion. Those 3 are in the suggestion column, so the 30 suggestions include them.
 
 ## Privacy
 
