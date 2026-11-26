@@ -471,6 +471,8 @@ class ClockRepositoryImpl @Inject constructor(
             return scheduleResult as SchedulingResult<ClockTimer>
         }
 
+        // Timers are scheduled with the same exact API as alarms (#1990), so an unavailable exact-alarm
+        // permission is reported to the user, as for alarms.
         val warnings = buildList {
             if (!state.canScheduleExactAlarms) add(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
             if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)

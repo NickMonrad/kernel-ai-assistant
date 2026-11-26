@@ -16,6 +16,7 @@ import io.mockk.verifySequence
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -76,6 +77,34 @@ class ClockRepositorySchedulingTest {
         verify { scheduler.schedule(any()) }
         coVerify { scheduledAlarmDao.insert(any()) }
     }
+
+    @Test
+    fun `timer scheduling reports EXACT_ALARM_UNAVAILABLE when exact alarm access is denied (#1990)`() = runTest {
+        every { scheduler.getPlatformState() } returns ClockPlatformState(
+            canScheduleExactAlarms = false,
+            notificationsEnabled = true,
+            canUseFullScreenIntent = false,
+        )
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val result = repository.scheduleTimer(durationMs = 30_000L, label = "Tea")
+
+        assertTrue(result is SchedulingResult.Success)
+        assertTrue(SchedulingWarning.EXACT_ALARM_UNAVAILABLE in (result as SchedulingResult.Success).warnings)
+    }
+
+    @Test
+    fun `timer scheduling reports no exact-alarm warning when exact alarms are granted (#1990)`() = runTest {
+        every { scheduler.schedule(any()) } returns SchedulingResult.Success(Unit)
+        coEvery { scheduledAlarmDao.insert(any()) } just Runs
+
+        val result = repository.scheduleTimer(durationMs = 30_000L, label = "Tea")
+
+        assertTrue(result is SchedulingResult.Success)
+        assertFalse(SchedulingWarning.EXACT_ALARM_UNAVAILABLE in (result as SchedulingResult.Success).warnings)
+    }
+
 
     // ── Full event-set rollback ────────────────────────────────────────
 

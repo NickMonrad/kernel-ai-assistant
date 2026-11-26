@@ -17,8 +17,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required on some OEM clock apps that still check this deprecated permission -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
-    <!-- User-controlled exact alarm access is optional; schedule inexactly when denied. -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Alarm/timer apps: exact alarms are granted without a user prompt, so alarms and timers fire on time (#1990). -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Re-schedule alarms after device reboot (#327) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
