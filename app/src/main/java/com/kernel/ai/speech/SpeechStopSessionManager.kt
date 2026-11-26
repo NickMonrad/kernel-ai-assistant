@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.kernel.ai.R
+import com.kernel.ai.core.inference.InferenceGenerationService
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -91,6 +92,8 @@ class SpeechStopSessionManager @Inject constructor(
             isActive = true
         }
         session = mediaSession
+        // Speech holds the generation service's foreground promotion until close (#2000).
+        InferenceGenerationService.holdForSpeech()
         card.show(mediaSession.sessionToken)
     }
 
@@ -101,6 +104,7 @@ class SpeechStopSessionManager @Inject constructor(
         }
         session = null
         card.hide()
+        InferenceGenerationService.releaseSpeechHold(context)
     }
 
     private companion object {

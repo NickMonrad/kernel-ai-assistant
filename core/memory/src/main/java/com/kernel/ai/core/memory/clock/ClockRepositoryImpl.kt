@@ -471,8 +471,9 @@ class ClockRepositoryImpl @Inject constructor(
             return scheduleResult as SchedulingResult<ClockTimer>
         }
 
+        // Timers use setAlarmClock (AlarmClockInfo), which is not subject to the exact-alarm permission or the
+        // Doze idle rate limit, so no EXACT_ALARM_UNAVAILABLE warning applies to them (#1990).
         val warnings = buildList {
-            if (!state.canScheduleExactAlarms) add(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)
             if (!state.canUseFullScreenIntent) add(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)
             if (state.bootRestoreLimited) add(SchedulingWarning.BOOT_RESTORE_LIMITED)
         }

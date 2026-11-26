@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationManagerCompat
+import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockPlatformState
 import com.kernel.ai.core.memory.clock.ClockScheduledEvent
@@ -48,14 +49,20 @@ class AlarmManagerClockScheduler @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return try {
-            if (alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setExactAndAllowWhileIdle(
+            when {
+                // #1990: setExactAndAllowWhileIdle is rate-limited per app while idle (about one dispatch per 9
+                // minutes) and needs SCHEDULE_EXACT_ALARM. setAlarmClock is delivered on time through Doze, needs
+                // no exact-alarm permission, and is the platform API for user-visible timers and alarms.
+                event.type == ClockEventType.TIMER -> alarmManager.setAlarmClock(
+                    AlarmManager.AlarmClockInfo(event.triggerAtMillis, buildOpenAppPendingIntent()),
+                    pendingIntent,
+                )
+                alarmManager.canScheduleExactAlarms() -> alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     event.triggerAtMillis,
                     pendingIntent,
                 )
-            } else {
-                alarmManager.setAndAllowWhileIdle(
+                else -> alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     event.triggerAtMillis,
                     pendingIntent,
@@ -84,6 +91,17 @@ class AlarmManagerClockScheduler @Inject constructor(
             notificationManager.cancel(ClockAlertContract.preAlarmNotificationId(event.ownerId))
         }
     }
+
+    /** Activity shown when the user taps the system alarm indicator for a timer set through setAlarmClock. */
+    private fun buildOpenAppPendingIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     private fun buildBroadcastIntent(event: ClockScheduledEvent): Intent =
         Intent().apply {
