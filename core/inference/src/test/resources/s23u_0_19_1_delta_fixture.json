@@ -1,0 +1,1338 @@
+{
+ "header": {
+  "source": "Captured S23U debug run of PR #2120 head b9c2bcf7 (before this fix), raw LiteRT-LM callback event_seq lines",
+  "device": "S23U (SM-S918B)",
+  "sdk": "litertlm 0.19.1",
+  "model": "Gemma-4 E-4B",
+  "backend": "GPU",
+  "speculative_decoding": "MTP on (default)",
+  "prompt": "Can you tell me about flight of the Conchords",
+  "thinking_enabled": true,
+  "callback_count": 165,
+  "note": "raw deltas are per-token; expected_* are verbatim substrings of their concatenation; includes seq 102-103 (' per' + ' persona') and the digit/word splits the replay-stripper used to drop"
+ },
+ "events": [
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "<|channel>thought\nThe",
+   "toolCalls": "",
+   "seq": 1
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " user is asking",
+   "toolCalls": "",
+   "seq": 2
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " for information about \"",
+   "toolCalls": "",
+   "seq": 3
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "flight of",
+   "toolCalls": "",
+   "seq": 4
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Conchords\".\n",
+   "toolCalls": "",
+   "seq": 5
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "I",
+   "toolCalls": "",
+   "seq": 6
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " need to",
+   "toolCalls": "",
+   "seq": 7
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " check",
+   "toolCalls": "",
+   "seq": 8
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " if",
+   "toolCalls": "",
+   "seq": 9
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " I have",
+   "toolCalls": "",
+   "seq": 10
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " any",
+   "toolCalls": "",
+   "seq": 11
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " memory or",
+   "toolCalls": "",
+   "seq": 12
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " context",
+   "toolCalls": "",
+   "seq": 13
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " about this",
+   "toolCalls": "",
+   "seq": 14
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " topic.\n",
+   "toolCalls": "",
+   "seq": 15
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "I",
+   "toolCalls": "",
+   "seq": 16
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " see a memory",
+   "toolCalls": "",
+   "seq": 17
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " block",
+   "toolCalls": "",
+   "seq": 18
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " `[NZ Context",
+   "toolCalls": "",
+   "seq": 19
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ": Flight of Conch",
+   "toolCalls": "",
+   "seq": 20
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "ords",
+   "toolCalls": "",
+   "seq": 21
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "]`",
+   "toolCalls": "",
+   "seq": 22
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " which",
+   "toolCalls": "",
+   "seq": 23
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " provides",
+   "toolCalls": "",
+   "seq": 24
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " details",
+   "toolCalls": "",
+   "seq": 25
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ":\n",
+   "toolCalls": "",
+   "seq": 26
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "`",
+   "toolCalls": "",
+   "seq": 27
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "Flight of Conchords",
+   "toolCalls": "",
+   "seq": 28
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "] Wellington comedy folk",
+   "toolCalls": "",
+   "seq": 29
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ":",
+   "toolCalls": "",
+   "seq": 30
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Bret McKenzie",
+   "toolCalls": "",
+   "seq": 31
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " and Jemaine Clement",
+   "toolCalls": "",
+   "seq": 32
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ". HBO series (",
+   "toolCalls": "",
+   "seq": 33
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "0",
+   "toolCalls": "",
+   "seq": 34
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "7–00",
+   "toolCalls": "",
+   "seq": 35
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "0",
+   "toolCalls": "",
+   "seq": 36
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "0",
+   "toolCalls": "",
+   "seq": 37
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "9). Famous for",
+   "toolCalls": "",
+   "seq": 38
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " 'Business Time',",
+   "toolCalls": "",
+   "seq": 39
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " 'Hiphop",
+   "toolCalls": "",
+   "seq": 40
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "opot",
+   "toolCalls": "",
+   "seq": 41
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "amus vs.",
+   "toolCalls": "",
+   "seq": 42
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Rhymenoceros",
+   "toolCalls": "",
+   "seq": 43
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "eros', and '",
+   "toolCalls": "",
+   "seq": 44
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "Binary",
+   "toolCalls": "",
+   "seq": 45
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'",
+   "toolCalls": "",
+   "seq": 46
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " — a",
+   "toolCalls": "",
+   "seq": 47
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " robot",
+   "toolCalls": "",
+   "seq": 48
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " singing in binary ('",
+   "toolCalls": "",
+   "seq": 49
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "0000",
+   "toolCalls": "",
+   "seq": 50
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "001,",
+   "toolCalls": "",
+   "seq": 51
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " 000",
+   "toolCalls": "",
+   "seq": 52
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "0",
+   "toolCalls": "",
+   "seq": 53
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "1",
+   "toolCalls": "",
+   "seq": 54
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "00",
+   "toolCalls": "",
+   "seq": 55
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "01...').",
+   "toolCalls": "",
+   "seq": 56
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " One of NZ'",
+   "toolCalls": "",
+   "seq": 57
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "s greatest cultural exports",
+   "toolCalls": "",
+   "seq": 58
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "`\n\nI should",
+   "toolCalls": "",
+   "seq": 59
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " use the",
+   "toolCalls": "",
+   "seq": 60
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " context to inform",
+   "toolCalls": "",
+   "seq": 61
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " my response",
+   "toolCalls": "",
+   "seq": 62
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ",",
+   "toolCalls": "",
+   "seq": 63
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " without repeating",
+   "toolCalls": "",
+   "seq": 64
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " it verbatim.\n",
+   "toolCalls": "",
+   "seq": 65
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "Also,",
+   "toolCalls": "",
+   "seq": 66
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " the system",
+   "toolCalls": "",
+   "seq": 67
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " instruction says",
+   "toolCalls": "",
+   "seq": 68
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " \"Open your reply",
+   "toolCalls": "",
+   "seq": 69
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " with 'Kia ora",
+   "toolCalls": "",
+   "seq": 70
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'. Use the user",
+   "toolCalls": "",
+   "seq": 71
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'s name occasionally",
+   "toolCalls": "",
+   "seq": 72
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " for warmth, not",
+   "toolCalls": "",
+   "seq": 73
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " as",
+   "toolCalls": "",
+   "seq": 74
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " prefix on every response",
+   "toolCalls": "",
+   "seq": 75
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ".\"",
+   "toolCalls": "",
+   "seq": 76
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " and",
+   "toolCalls": "",
+   "seq": 77
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " the",
+   "toolCalls": "",
+   "seq": 78
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " user",
+   "toolCalls": "",
+   "seq": 79
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " hasn't provided",
+   "toolCalls": "",
+   "seq": 80
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " their name",
+   "toolCalls": "",
+   "seq": 81
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ".\n",
+   "toolCalls": "",
+   "seq": 82
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "So I",
+   "toolCalls": "",
+   "seq": 83
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'ll start with",
+   "toolCalls": "",
+   "seq": 84
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " \"Kia ora",
+   "toolCalls": "",
+   "seq": 85
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "\" and then",
+   "toolCalls": "",
+   "seq": 86
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " provide the",
+   "toolCalls": "",
+   "seq": 87
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " info",
+   "toolCalls": "",
+   "seq": 88
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " about",
+   "toolCalls": "",
+   "seq": 89
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Flight of Conchords",
+   "toolCalls": "",
+   "seq": 90
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ".",
+   "toolCalls": "",
+   "seq": 91
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "\nI",
+   "toolCalls": "",
+   "seq": 92
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " should",
+   "toolCalls": "",
+   "seq": 93
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " keep",
+   "toolCalls": "",
+   "seq": 94
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " it",
+   "toolCalls": "",
+   "seq": 95
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " direct",
+   "toolCalls": "",
+   "seq": 96
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ", warm, and",
+   "toolCalls": "",
+   "seq": 97
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " lightly dry",
+   "toolCalls": "",
+   "seq": 98
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "-hum",
+   "toolCalls": "",
+   "seq": 99
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "oured",
+   "toolCalls": "",
+   "seq": 100
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ", as",
+   "toolCalls": "",
+   "seq": 101
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " per",
+   "toolCalls": "",
+   "seq": 102
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " persona",
+   "toolCalls": "",
+   "seq": 103
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " instructions.",
+   "toolCalls": "",
+   "seq": 104
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "\n",
+   "toolCalls": "",
+   "seq": 105
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "I will",
+   "toolCalls": "",
+   "seq": 106
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " synthesize the",
+   "toolCalls": "",
+   "seq": 107
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " facts",
+   "toolCalls": "",
+   "seq": 108
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " about the",
+   "toolCalls": "",
+   "seq": 109
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " show",
+   "toolCalls": "",
+   "seq": 110
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ",",
+   "toolCalls": "",
+   "seq": 111
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " mentioning",
+   "toolCalls": "",
+   "seq": 112
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " the duo, the",
+   "toolCalls": "",
+   "seq": 113
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " HBO series",
+   "toolCalls": "",
+   "seq": 114
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " timeframe, and",
+   "toolCalls": "",
+   "seq": 115
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " famous",
+   "toolCalls": "",
+   "seq": 116
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " elements.<channel|>Kia",
+   "toolCalls": "",
+   "seq": 117
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " ora",
+   "toolCalls": "",
+   "seq": 118
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ".",
+   "toolCalls": "",
+   "seq": 119
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " I",
+   "toolCalls": "",
+   "seq": 120
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " can",
+   "toolCalls": "",
+   "seq": 121
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " certainly tell you about",
+   "toolCalls": "",
+   "seq": 122
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Flight of Conchords",
+   "toolCalls": "",
+   "seq": 123
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "; they",
+   "toolCalls": "",
+   "seq": 124
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'re",
+   "toolCalls": "",
+   "seq": 125
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " a",
+   "toolCalls": "",
+   "seq": 126
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " significant",
+   "toolCalls": "",
+   "seq": 127
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " piece of",
+   "toolCalls": "",
+   "seq": 128
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " New Zealand",
+   "toolCalls": "",
+   "seq": 129
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " culture.\n\n",
+   "toolCalls": "",
+   "seq": 130
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "The",
+   "toolCalls": "",
+   "seq": 131
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " comedy",
+   "toolCalls": "",
+   "seq": 132
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " folk duo, Bret",
+   "toolCalls": "",
+   "seq": 133
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " McKenzie and Jemaine",
+   "toolCalls": "",
+   "seq": 134
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " Clement,",
+   "toolCalls": "",
+   "seq": 135
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " are",
+   "toolCalls": "",
+   "seq": 136
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " known for their",
+   "toolCalls": "",
+   "seq": 137
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " HBO series",
+   "toolCalls": "",
+   "seq": 138
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " which",
+   "toolCalls": "",
+   "seq": 139
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " ran from 2",
+   "toolCalls": "",
+   "seq": 140
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "007 to",
+   "toolCalls": "",
+   "seq": 141
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " ",
+   "toolCalls": "",
+   "seq": 142
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "000",
+   "toolCalls": "",
+   "seq": 143
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "009.",
+   "toolCalls": "",
+   "seq": 144
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " They're",
+   "toolCalls": "",
+   "seq": 145
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " famous for",
+   "toolCalls": "",
+   "seq": 146
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " tracks",
+   "toolCalls": "",
+   "seq": 147
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " like",
+   "toolCalls": "",
+   "seq": 148
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " \"Business Time\"",
+   "toolCalls": "",
+   "seq": 149
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " and \"Hiph",
+   "toolCalls": "",
+   "seq": 150
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "opopotamus vs",
+   "toolCalls": "",
+   "seq": 151
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ". Rhymenoc",
+   "toolCalls": "",
+   "seq": 152
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "eros",
+   "toolCalls": "",
+   "seq": 153
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "eros,\" and they",
+   "toolCalls": "",
+   "seq": 154
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " even featured a",
+   "toolCalls": "",
+   "seq": 155
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " robot",
+   "toolCalls": "",
+   "seq": 156
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ", \"Binary",
+   "toolCalls": "",
+   "seq": 157
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": ",\"",
+   "toolCalls": "",
+   "seq": 158
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " that",
+   "toolCalls": "",
+   "seq": 159
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " sang in binary.",
+   "toolCalls": "",
+   "seq": 160
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " They",
+   "toolCalls": "",
+   "seq": 161
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " are",
+   "toolCalls": "",
+   "seq": 162
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " considered one of NZ",
+   "toolCalls": "",
+   "seq": 163
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": "'s greatest cultural",
+   "toolCalls": "",
+   "seq": 164
+  },
+  {
+   "type": "callback",
+   "channels": "",
+   "thought": "",
+   "raw": " exports.",
+   "toolCalls": "",
+   "seq": 165
+  }
+ ],
+ "expected_thinking": "The user is asking for information about \"flight of Conchords\".\nI need to check if I have any memory or context about this topic.\nI see a memory block `[NZ Context: Flight of Conchords]` which provides details:\n`Flight of Conchords] Wellington comedy folk: Bret McKenzie and Jemaine Clement. HBO series (07–00009). Famous for 'Business Time', 'Hiphopopotamus vs. Rhymenoceroseros', and 'Binary' — a robot singing in binary ('0000001, 000010001...'). One of NZ's greatest cultural exports`\n\nI should use the context to inform my response, without repeating it verbatim.\nAlso, the system instruction says \"Open your reply with 'Kia ora'. Use the user's name occasionally for warmth, not as prefix on every response.\" and the user hasn't provided their name.\nSo I'll start with \"Kia ora\" and then provide the info about Flight of Conchords.\nI should keep it direct, warm, and lightly dry-humoured, as per persona instructions.\nI will synthesize the facts about the show, mentioning the duo, the HBO series timeframe, and famous elements.",
+ "expected_visible": "Kia ora. I can certainly tell you about Flight of Conchords; they're a significant piece of New Zealand culture.\n\nThe comedy folk duo, Bret McKenzie and Jemaine Clement, are known for their HBO series which ran from 2007 to 000009. They're famous for tracks like \"Business Time\" and \"Hiphopopotamus vs. Rhymenoceroseros,\" and they even featured a robot, \"Binary,\" that sang in binary. They are considered one of NZ's greatest cultural exports."
+}
