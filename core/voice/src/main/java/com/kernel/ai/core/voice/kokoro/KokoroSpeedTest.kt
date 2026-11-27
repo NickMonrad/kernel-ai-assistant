@@ -30,9 +30,10 @@ sealed interface KokoroSpeedResult {
         val realTimeFactor: Double get() = medianRealTimeFactor
         val allowsKokoro: Boolean get() = medianRealTimeFactor <= KOKORO_SELECT_MAX_MEDIAN_RTF
     }
+    data class Unavailable(val message: String) : KokoroSpeedResult
 }
 
-internal const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.90
+const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.90
 internal const val KOKORO_SPEED_TEST_RUNS = 3
 
 internal fun aggregateKokoroSpeedRuns(
