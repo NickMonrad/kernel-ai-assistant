@@ -53,7 +53,7 @@ jobs:
             exit 0
           fi
 
-          RELEASE_PATHS='(^|/)[^/]*\.gradle(\.kts)?$|^gradle/|^gradlew(\.bat)?$|(^|/)gradle\.properties$|\.toml$|(^|/)AndroidManifest\.xml$|(^|/)jniLibs/|(^|/)src/main/cpp/|(^|/)CMakeLists\.txt$|\.cmake$|\.so$|^third_party/|\.pro$|^app/src/main/res/xml|^app/src/main/res/raw/keep\.xml$|^app/src/main/assets/legal/|^app/release-attribution-metadata\.json$|^scripts/[^/]*(16kb|attribution)|^scripts/tests/test_check_android_16kb|^\.github/actions/'
+          RELEASE_PATHS='(^|/)[^/]*\.gradle(\.kts)?$|^gradle/|^gradlew(\.bat)?$|(^|/)gradle\.properties$|\.toml$|(^|/)AndroidManifest\.xml$|(^|/)jniLibs/|(^|/)src/main/cpp/|(^|/)CMakeLists\.txt$|\.cmake$|\.so$|^third_party/|\.pro$|^app/src/main/res/xml|^app/src/main/res/raw/keep\.xml$|^app/src/main/assets/legal/|^app/release-attribution-metadata\.json$|^scripts/[^/]*(16kb|attribution)|^scripts/tests/test_check_android_16kb|^\.github/workflows/ci\.yml$|^\.github/actions/'
 
           git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt
           echo "Changed files:"
