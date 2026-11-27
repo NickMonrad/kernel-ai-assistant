@@ -103,10 +103,10 @@ internal fun bareHourIn(timePhrase: String): BareHour? {
     return if (hour in 1..11) BareHour(hour, 0) else null
 }
 
-/** True when the "N to H" phrase names a minute step: N is 5 to 55 in fives, or "quarter" (15). */
+/** True when the "N to H" phrase names a minute step (see [QuickIntentRouter.isToMinuteCount]). */
 private fun isMinuteStep(match: MatchResult): Boolean {
     val before = match.groupValues[1].let { if (it == "quarter") 15 else it.toInt() }
-    return before in 5..55 && before % 5 == 0
+    return QuickIntentRouter.isToMinuteCount(before)
 }
 
 /** "quarter to H" / "N to H" as a bare reading for a minute step: the spoken hour H must be 1 to 11. */

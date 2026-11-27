@@ -127,6 +127,22 @@ class ReminderTimeFollowupsTest {
     }
 
     @Test
+    fun `N to H with a minute of 21 or more is a minute step`() {
+        assertScheduleAtClocks("twenty one to eight", "time", "time", listOf("07:39", "07:39", "19:39", "07:39"))
+        assertScheduleAtClocks("twenty two to eight", "time", "time", listOf("07:38", "07:38", "19:38", "07:38"))
+        assertScheduleAtClocks("21 to 8", "time", "time", listOf("07:39", "07:39", "19:39", "07:39"))
+        assertScheduleAtClocks("twenty one to eight pm", "time", "time", List(4) { "19:39" })
+        assertScheduleAtClocks("21 to 8 pm", "time", "time", List(4) { "19:39" })
+    }
+
+    @Test
+    fun `N to H with a minute of 21 or more answers the time after a day is given`() {
+        val reply = parseReminderSlotReply("twenty one to eight pm", "time", mapOf("day" to "tomorrow"), now("14:00"))
+        assertEquals("tomorrow", reply.schedule["day"])
+        assertEquals("19:39", reply.schedule["time"])
+    }
+
+    @Test
     fun `quarter to 1 with no day is 00 45 or 12 45 by the next occurrence`() {
         assertScheduleAtClocks("quarter to 1", "time", "time", listOf("00:45", "12:45", "00:45", "00:45"))
     }

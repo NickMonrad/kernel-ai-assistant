@@ -5445,13 +5445,19 @@ class QuickIntentRouter(
         }
 
         /**
-         * "quarter to H" and "N to H" (N a multiple of 5 from 5 to 55) are (H-1):(60-N). Without am/pm the
+         * Whether N in "N to H" counts minutes before the hour: 5 to 59 in fives, "quarter" (15), or any of 13 to 59
+         * ("twenty one to eight" is 7:39). Smaller numbers ("7 to 8") are hours, so "at 7 to 8" is a bare hour.
+         */
+        internal fun isToMinuteCount(n: Int): Boolean = n in 5..59 && (n % 5 == 0 || n >= 13)
+
+        /**
+         * "quarter to H" and "N to H" (N per [isToMinuteCount]) are (H-1):(60-N). Without am/pm the
          * result is the 24-hour clock: "quarter to 1" is 00:45. With am/pm the hour 12 flips it:
          * "quarter to 12 pm" is 11:45 am.
          */
         private fun toPhrase(m: MatchResult): String {
             val before = if (m.groupValues[1] == "quarter") 15 else m.groupValues[1].toInt()
-            if (before !in 5..55 || before % 5 != 0) return m.value
+            if (!isToMinuteCount(before)) return m.value
             val hour = m.groupValues[2].toInt()
             val meridiem = m.groupValues[3].replace(".", "").lowercase()
             if (if (meridiem.isBlank()) hour !in 1..23 else hour !in 1..12) return m.value
