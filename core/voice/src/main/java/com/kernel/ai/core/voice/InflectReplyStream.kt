@@ -143,7 +143,7 @@ class InflectReplyStream(
                     skipChunk(error)
                     continue
                 }
-                if (!enqueue(fadeChunkEdges(waveform))) return
+                if (!enqueue(finishChunkEdges(waveform))) return
                 queuedChunks++
             }
         }

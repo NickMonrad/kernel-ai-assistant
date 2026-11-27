@@ -272,17 +272,17 @@ class InflectMicroVoiceOutputController @Inject constructor(
 private class PreparedSynthesis(val runner: InflectMicroOnnxRunner, val dataDirectory: File)
 
 private const val CHUNK_EDGE_FADE_MS = 5
+private const val CHUNK_TAIL_PAD_MS = 50
 
 /**
- * Fades the first and last [CHUNK_EDGE_FADE_MS] of a synthesized chunk so adjacent chunks join without a click.
- * Mutates and returns [samples]; the runner's own output stays unprocessed.
+ * Finishes one synthesized chunk for joining (#2096): appends [CHUNK_TAIL_PAD_MS] of silence, then fades the head
+ * in over [CHUNK_EDGE_FADE_MS]. The tail is never faded: the model's last samples can be speech (a chunk that ends
+ * without trailing silence), and fading them clipped the final phoneme decay. Returns a new array; the runner's
+ * output stays unprocessed.
  */
-internal fun fadeChunkEdges(samples: FloatArray, sampleRate: Int = InflectMicroOnnxRunner.SAMPLE_RATE_HZ): FloatArray {
-    val fadeFrames = minOf(samples.size / 2, sampleRate * CHUNK_EDGE_FADE_MS / 1000)
-    for (index in 0 until fadeFrames) {
-        val gain = index.toFloat() / fadeFrames
-        samples[index] *= gain
-        samples[samples.size - 1 - index] *= gain
-    }
-    return samples
+internal fun finishChunkEdges(samples: FloatArray, sampleRate: Int = InflectMicroOnnxRunner.SAMPLE_RATE_HZ): FloatArray {
+    val padded = samples.copyOf(samples.size + sampleRate * CHUNK_TAIL_PAD_MS / 1000)
+    val fadeFrames = minOf(padded.size / 2, sampleRate * CHUNK_EDGE_FADE_MS / 1000)
+    for (index in 0 until fadeFrames) padded[index] *= index.toFloat() / fadeFrames
+    return padded
 }

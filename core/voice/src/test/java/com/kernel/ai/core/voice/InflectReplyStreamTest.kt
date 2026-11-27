@@ -37,7 +37,8 @@ class InflectReplyStreamTest {
         var released = false
 
         override fun write(samples: FloatArray, gain: Float, isCurrent: () -> Boolean) {
-            writes += samples[samples.size / 2]
+            // The max is the chunk's marker; the head fade and the appended tail silence never raise it.
+            writes += samples.max()
             onWrite(writes.size)
         }
 
