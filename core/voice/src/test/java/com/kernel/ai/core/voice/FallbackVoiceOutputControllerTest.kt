@@ -492,6 +492,32 @@ class FallbackVoiceOutputControllerTest {
         }
 
     @Test
+    fun `streaming Inflect preparation failure speaks the full buffered reply with Android TTS on the final append`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val inflectSession = mockk<VoiceOutputStreamingSession>()
+            val bufferedText = "The sky appears blue due to"
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { inflect.openStreamingSession(request) } returns inflectSession
+            coEvery { inflectSession.append("The sky appears blue due to ", false) } returns
+                VoiceOutputResult.Spoken
+            coEvery { inflectSession.append("", true) } returns VoiceOutputResult.Unavailable("models missing")
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.speak(request.copy(text = bufferedText)) } returns VoiceOutputResult.Spoken
+
+            val session = buildController().openStreamingSession(request)
+            val nonFinal = session.append("The sky appears blue due to ", isFinal = false)
+
+            assertEquals(VoiceOutputResult.Spoken, nonFinal)
+            coVerify(exactly = 0) { androidTts.speak(any()) }
+
+            session.append("", isFinal = true)
+
+            coVerify(exactly = 1) { androidTts.speak(request.copy(text = bufferedText)) }
+        }
+
+    @Test
     fun `streaming Inflect warmUp failure still uses Android TTS session`() = runTest(dispatcher) {
         selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental
         val request = VoiceSpeakRequest("Fallback stream")
