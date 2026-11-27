@@ -145,6 +145,7 @@ class ActionsViewModelVoiceTest {
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
+        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns flowOf(false)
         every { quickIntentRouter.pendingSlotFor(any(), any()) } returns null
         viewModel = ActionsViewModel(
             quickIntentRouter = quickIntentRouter,

@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -40,7 +41,7 @@ class ItemDetailsSheetTest {
         composeTestRule.onNodeWithTag("list_item_details_title").performTextInput("Top-level task")
         composeTestRule.onNodeWithTag("list_item_details_description")
             .performTextInput("Notes\nhttps://example.com/task")
-        composeTestRule.onNodeWithTag("list_item_details_favourite_switch").performClick()
+        composeTestRule.onNodeWithTag("list_item_details_favourite").performClick()
         composeTestRule.onNodeWithTag("list_item_details_save").performClick()
 
         assertEquals("Top-level task", saved?.text)
@@ -132,5 +133,48 @@ class ItemDetailsSheetTest {
         assertEquals(1_900_000_000_000L, saved?.dueAt)
         assertEquals(true, saved?.isFavourite)
         assertEquals(1_899_999_940_000L, saved?.notificationTime)
+    }
+
+    @Test
+    fun parentSheetListsOpenSubItemsFirstWithDoneSectionExpandedAndTickApplies() {
+        val parent = ListItemEntity(id = 1L, listId = 1L, text = "Pantry", itemId = "pantry")
+        val salt = ListItemEntity(
+            id = 2L,
+            listId = 1L,
+            text = "Salt",
+            itemId = "salt",
+            parentItemId = "pantry",
+        )
+        val sumac = ListItemEntity(
+            id = 3L,
+            listId = 1L,
+            text = "Sumac",
+            itemId = "sumac",
+            parentItemId = "pantry",
+            checked = true,
+        )
+        val toggled = mutableListOf<ListItemEntity>()
+        composeTestRule.setContent {
+            MaterialTheme {
+                ItemDetailsSheet(
+                    item = parent,
+                    canAddSubItem = true,
+                    onAddSubItem = {},
+                    subItems = listOf(sumac, salt),
+                    onToggleSubItem = { toggled += it },
+                    onSave = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Sub-items · 1 left").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Done · 1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Sumac").assertIsDisplayed()
+        // Open sub-items come first, so the first tick target is Salt's checkbox.
+        composeTestRule.onAllNodes(isToggleable())[0].performClick()
+        assertEquals(listOf(salt), toggled)
+        composeTestRule.onNodeWithText("Done · 1").performClick()
+        composeTestRule.onNodeWithText("Sumac").assertDoesNotExist()
     }
 }

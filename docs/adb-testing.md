@@ -275,6 +275,14 @@ adb shell am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity \
   --es adb_harness_token "$TOKEN" --es chat_input "'what time is it'"
 ```
 
+For a voice Quick Action (`quick_action_is_voice`), keep the whole text inside one quoted device command:
+
+```bash
+adb shell "am start -n ai.jandal.assistant.debug/com.kernel.ai.MainActivity --es adb_harness_token $TOKEN --es quick_action_input 'navigate to Porirwa' --ez quick_action_is_voice true"
+```
+
+Without the inner quotes, `am` takes only the first word of the text and silently drops the later extras, including `--ez quick_action_is_voice`. The action then runs as Text and asks for the missing slot (seen 2026-11-28 on the S21 debug build: `NeedsSlot for "navigate"`, `inputMode=Text`).
+
 Without the token (or with a wrong one) the prompt is only pre-filled. Logcat tag `KernelAI` shows
 `external_prompt_trust callerUid=… trust=DIRECT|PREFILL` for each prompt delivery.
 

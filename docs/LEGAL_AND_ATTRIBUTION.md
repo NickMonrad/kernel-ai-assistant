@@ -103,6 +103,15 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | en_GB-cori-high Piper voice | Debug-only British English female voice | Upstream model card: trained from scratch on LibriVox (public domain); the trainer lists the voice as public domain | Excluded from v0.1 release, along with all other Piper voice packs and the Sherpa runtime. Source details are recorded for development, not release clearance. |
 | Kokoro (experimental) voice pack | Optional on-demand TTS pack (#2117) | Hugging Face card for `software-mansion/Kokoro-82M-ExecuTorch` at `v0.11.0` lists Apache-2.0; the source export, model, phonemiser, lexicons, and native components have separate licences recorded in `NOTICE` and the attribution catalogue | Release-visible as an optional on-demand download, not bundled in the APK. The optional Brown Corpus-derived part-of-speech tagger is non-commercial only and is not cleared for commercial use; Phonemis treats it as optional. |
 
+### Bundled place-name data (#2079)
+
+| Dataset | Asset | Licence / terms | Required notice |
+|---|---|---|---|
+| LINZ NZ Place Names (layer 51681), Land Information New Zealand | `core/skills/src/main/assets/place_dym/linz_localities.txt`: Locality and Suburb names, de-duplicated and sorted, otherwise unchanged | CC BY 4.0 (https://data.linz.govt.nz/license/attribution-4-0-international/) | Exact LINZ wording: "Contains data sourced from the LINZ Data Service licensed for reuse under CC BY 4.0". Source: https://data.linz.govt.nz/layer/51681-nz-place-names-nzgb/ |
+| GeoNames | `core/skills/src/main/assets/place_dym/competitor_places.txt`: Australian populated place names (PPL feature class) | CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) | "Place names © GeoNames, licensed under CC BY 4.0". Source: https://www.geonames.org/ |
+
+Both are used only by the experimental "Did you mean" place prompt (#2079) and are reproduced in `NOTICE` (root and `app/src/main/assets/legal/NOTICE.txt`).
+
 ## External services and data sources
 
 These are not all OSS attribution items, but they must be reflected in Play Store privacy/data disclosures and user-facing docs:

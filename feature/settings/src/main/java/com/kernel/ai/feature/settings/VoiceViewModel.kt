@@ -107,6 +107,7 @@ data class VoiceUiState(
     val sherpaPitch: Float = 1.0f,
     val sherpaGain: Float = 1.5f,
     val autoSpeak: Boolean = true,
+    val placeDidYouMeanEnabled: Boolean = false,
     val maxSpokenSentences: Int = 0,
     val sherpaVoices: List<SherpaVoiceRowUiState>,
     val autoStartAlertVoiceCommandsEnabled: Boolean = true,
@@ -445,6 +446,11 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             voiceOutputPreferences.autoSpeak.collect { enabled ->
                 _uiState.update { it.copy(autoSpeak = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            voiceOutputPreferences.placeDidYouMeanEnabled.collect { enabled ->
+                _uiState.update { it.copy(placeDidYouMeanEnabled = enabled) }
             }
         }
         viewModelScope.launch {
@@ -820,6 +826,13 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(autoSpeak = enabled) }
         viewModelScope.launch {
             voiceOutputPreferences.setAutoSpeak(enabled)
+        }
+    }
+
+    fun setPlaceDidYouMeanEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(placeDidYouMeanEnabled = enabled) }
+        viewModelScope.launch {
+            voiceOutputPreferences.setPlaceDidYouMeanEnabled(enabled)
         }
     }
 

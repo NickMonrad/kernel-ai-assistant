@@ -58,6 +58,7 @@ class VoiceOutputPreferences @Inject constructor(
     private val autoSpeakKey = booleanPreferencesKey("voice_auto_speak")
     private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
     private val activeSpeakerIdKey = intPreferencesKey("voice_active_speaker_id")
+    private val placeDidYouMeanKey = booleanPreferencesKey("place_did_you_mean_enabled")
 
     val spokenResponsesEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
@@ -69,6 +70,24 @@ class VoiceOutputPreferences @Inject constructor(
             }
         }
         .map { prefs -> prefs[spokenResponsesEnabledKey] ?: true }
+
+    /** #2079 experimental: ask "Did you mean <place>?" for near-miss NZ place names. Off by default. */
+    val placeDidYouMeanEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[placeDidYouMeanKey] ?: false }
+
+    suspend fun setPlaceDidYouMeanEnabled(enabled: Boolean) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[placeDidYouMeanKey] = enabled
+        }
+    }
 
     val selectedEngine: Flow<VoiceOutputEngine> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
