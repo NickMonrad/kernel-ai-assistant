@@ -336,4 +336,77 @@ class EnglishSpeechTextNormaliserTest {
             assertEquals(false, symbol.containsMatchIn(spoken), "$input → $spoken")
         }
     }
+
+    @Test
+    fun superscript_and_subscript_digits_pass_through_without_throwing() {
+        assertEquals("fifty m²", kokoroText("50 m²"))
+        assertEquals("CO₂", kokoroText("CO₂"))
+        assertEquals("H₂O", kokoroText("H₂O"))
+        assertEquals("E=mc²", kokoroText("E=mc²"))
+        assertEquals("x²", kokoroText("x²"))
+    }
+
+    @Test
+    fun expand_digits_skips_non_ascii_digits_instead_of_indexing_them() {
+        assertEquals("one", EnglishSpeechTextNormaliser.expandDigits("1²"))
+        assertEquals("oh", EnglishSpeechTextNormaliser.expandDigits("0₁"))
+    }
+
+    @Test
+    fun fractions_read_as_fractions_or_out_of_never_as_misreads() {
+        assertEquals("three quarters done", kokoroText("3/4 done"))
+        assertEquals("four out of four tests passed", kokoroText("4/4 tests passed"))
+        assertEquals("ten out of ten", kokoroText("10/10"))
+        assertEquals("Do half now", kokoroText("Do 1/2 now"))
+        assertEquals("half an hour", kokoroText("1/2 hour"))
+        assertEquals("half an hour", kokoroText("1/2 an hour"))
+        assertEquals("an eighth of a teaspoon", kokoroText("1/8 teaspoon"))
+        assertEquals("fifty fifty", kokoroText("50/50"))
+        assertEquals("nine eleven", kokoroText("9/11"))
+    }
+
+    @Test
+    fun sequence_positions_read_as_n_of_m() {
+        assertEquals("Step two of four", kokoroText("Step 2/4"))
+        assertEquals("page one of three", kokoroText("page 1/3"))
+        assertEquals("Score seven of ten", kokoroText("Score 7/10"))
+        assertEquals("Score ten of ten", kokoroText("Score 10/10"))
+    }
+
+    @Test
+    fun day_first_dates_after_a_date_cue_read_as_dates_not_fractions() {
+        assertEquals("Appointment on the fifth of December", kokoroText("Appointment on 5/12"))
+        assertEquals("Due the fifth of December", kokoroText("Due 5/12"))
+        assertEquals("from the third of April to the tenth of April", kokoroText("from 3/4 to 10/4"))
+        assertEquals("Monday the third of April", kokoroText("Monday 3/4"))
+    }
+
+    @Test
+    fun nz_street_and_flat_addresses_read_as_house_numbers() {
+        assertEquals("three, forty five Queen Street", kokoroText("3/45 Queen Street"))
+        assertEquals("two, ten Ponsonby Road", kokoroText("2/10 Ponsonby Road"))
+        assertEquals("unit three, forty five", kokoroText("Unit 3/45"))
+        assertEquals("apt two, ten", kokoroText("Apt 2/10"))
+    }
+
+    @Test
+    fun article_check_matches_whole_words_only() {
+        assertEquals("Japan five kilometres away", kokoroText("Japan 5 km away"))
+        assertEquals("Logan ten minutes drive", kokoroText("Logan 10 min drive"))
+        assertEquals("the five kilometre walk", kokoroText("the 5 km walk"))
+    }
+
+    @Test
+    fun clock_times_with_seconds_after_at_read_as_clock_times() {
+        assertEquals("Starts at two thirty p m", kokoroText("Starts at 14:30:00"))
+        assertEquals("Run time one hour and thirty minutes", kokoroText("Run time 1:30:00"))
+    }
+
+    @Test
+    fun plus_and_times_forms_read_in_nz_English() {
+        assertEquals("eighteen plus only", kokoroText("18+ only"))
+        assertEquals("eighteen plus", kokoroText("18+"))
+        assertEquals("three or more people", kokoroText("3+ people"))
+        assertEquals("four by four ute", kokoroText("4x4 ute"))
+    }
 }

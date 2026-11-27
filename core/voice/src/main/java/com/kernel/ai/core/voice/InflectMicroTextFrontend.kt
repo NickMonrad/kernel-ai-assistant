@@ -86,7 +86,8 @@ object InflectMicroTextFrontend {
             match.value.filter { it in 'A'..'Z' }.toCharArray().joinToString(" ")
         }
         value = value.replace(
-            Regex("\\b(apartment|apt\\.?|suite|unit|room|flight|extension|order|invoice|locker|aisle|gate)\\s+([A-Za-z]?\\d{1,4}[A-Za-z]?)\\b", RegexOption.IGNORE_CASE),
+            // "Unit 3/45" is a flat address read by EnglishSpeechTextNormaliser; a slash form is not spelled as an identifier.
+            Regex("\\b(apartment|apt\\.?|suite|unit|room|flight|extension|order|invoice|locker|aisle|gate)\\s+([A-Za-z]?\\d{1,4}[A-Za-z]?)(?!/)\\b", RegexOption.IGNORE_CASE),
         ) { match -> "${match.groupValues[1]} ${expandIdentifierToken(match.groupValues[2])}" }
         value = value.replace(
             Regex("\\b(\\d{3})(?=\\s+(?:North|South|East|West)\\b)", RegexOption.IGNORE_CASE),

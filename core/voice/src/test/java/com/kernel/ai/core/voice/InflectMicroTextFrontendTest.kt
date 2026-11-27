@@ -598,4 +598,91 @@ class InflectMicroTextFrontendTest {
             assertEquals(expected, InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)), input)
         }
     }
+
+    /**
+     * The 23 phrases the owner approved from the S23U Inflect listening set (#2124): each input as rendered, with the
+     * spoken chunk text the device produced. A change to any of these readings needs the owner to listen again.
+     */
+    @Test
+    fun inflect_listening_set_2124_outputs_are_pinned() {
+        val approved = listOf(
+            "Use 1/2 cup of sugar, then 3/4 cup of milk." to "Use half a cup of sugar, then three quarters of a cup of milk.",
+            "Rated 4/5 stars." to "Rated four out of five stars.",
+            "Aspect ratio 16:9." to "Aspect ratio six teen by nine.",
+            "Due 1/2/26." to "Due the first of February, twenty twenty six.",
+            "Meet on 26/11." to "Meet on the twenty sixth of November.",
+            "Pay \$5/month." to "Pay five dollars a month.",
+            "It costs €30 and £4.20." to "It costs thirty euros and four pounds and twenty pence.",
+            "Pay ¥1000 today." to "Pay one thousand yen today.",
+            "It costs \$0.99." to "It costs ninety nine cents.",
+            "Open 9am-5pm." to "Open nine a m to five p m",
+            "Meeting 10:30–11:30." to "Meeting ten thirty to eleven thirty.",
+            "Run time 1:30:45." to "Run time one hour, thirty minutes and forty five seconds.",
+            "Cool to 18 – 22°C." to "Cool to eigh teen to twenty two degrees.",
+            "A 5–10 km ride." to "A five to ten kilometres ride.",
+            "Wait 10 min for a 45s clip." to "Wait ten minutes for a forty five second clip.",
+            "Use #1 setting." to "Use number one setting.",
+            "Tax +5% today." to "Tax plus five percent today.",
+            "Two plus two: 2+2=4." to "Two plus two: two plus two equals four.",
+            "Call +64-21-123-4567." to "Call plus six four, two one, one two three, four five six seven.",
+            "Call (09) 123 4567." to "Call oh nine, one two three, four five six seven.",
+            "Install v1.2.3 now." to "Install version one point two point three now.",
+            "Flat 3/45 is free." to "flat three, forty five is free.",
+            "1999 was a great year." to "nine teen ninety nine was a great year.",
+        )
+        assertEquals(23, approved.size)
+        approved.forEach { (input, expected) ->
+            val chunks = InflectMicroTextFrontend.speechChunks(
+                InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)),
+            )
+            assertEquals(listOf(expected), chunks, input)
+        }
+    }
+
+    @Test
+    fun superscript_and_subscript_digits_never_silence_a_reply() {
+        listOf("50 m²", "CO₂", "H₂O", "E=mc²", "x²").forEach { input ->
+            var skipped = 0
+            val pieces = InflectMicroTextFrontend.speechPieces(
+                input,
+                onSkip = { skipped++ },
+                phonemize = { it },
+            ).toList()
+            assertEquals(0, skipped, input)
+            assertEquals(false, pieces.isEmpty(), input)
+        }
+    }
+
+    @Test
+    fun followup_forms_read_naturally_through_the_inflect_frontend() {
+        val cases = listOf(
+            "3/4 done" to "three quarters done",
+            "4/4 tests passed" to "four out of four tests passed",
+            "1/2 hour" to "half an hour",
+            "1/8 teaspoon" to "an eighth of a teaspoon",
+            "50/50" to "fifty fifty",
+            "9/11" to "nine eleven",
+            "Step 2/4" to "Step two of four",
+            "Score 10/10" to "Score ten of ten",
+            "Appointment on 5/12" to "Appointment on the fifth of December",
+            "from 3/4 to 10/4" to "from the third of April to the tenth of April",
+            "3/45 Queen Street" to "three, forty five Queen Street",
+            "Unit 3/45" to "unit three, forty five",
+            "Apt 2/10" to "apt two, ten",
+            "Apartment 4/12" to "apartment four, twelve",
+            "2/10 Ponsonby Road" to "two, ten Ponsonby Road",
+            "Japan 5 km away" to "Japan five kilometres away",
+            "Logan 10 min drive" to "Logan ten minutes drive",
+            "Starts at 14:30:00" to "Starts at two thirty p m",
+            "18+ only" to "eigh teen plus only",
+            "4x4 ute" to "four by four ute",
+        )
+        cases.forEach { (input, expected) ->
+            assertEquals(
+                expected,
+                InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)),
+                input,
+            )
+        }
+    }
 }
