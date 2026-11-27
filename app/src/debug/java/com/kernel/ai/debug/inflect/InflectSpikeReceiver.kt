@@ -10,6 +10,7 @@ import com.kernel.ai.core.voice.InflectMicroOnnxRunner
 import com.kernel.ai.core.voice.InflectMicroTextFrontend
 import com.kernel.ai.core.voice.InflectOnnxSynthesis
 import com.kernel.ai.core.voice.InflectPhonemizer
+import com.kernel.ai.core.voice.SpeechCardText
 import java.io.BufferedOutputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -139,100 +140,80 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         val summaryFile = File(context.filesDir, "$RUNTIME_EVIDENCE_DIRECTORY/$label.json")
         wavFile.parentFile?.mkdirs()
 
-        val memoryBefore = Debug.MemoryInfo().also(Debug::getMemoryInfo)
         val startedAt = System.nanoTime()
+        val segments = intent.getStringExtra(EXTRA_SEGMENTS)?.let(InflectListeningVariants::parseSegments)
+        val overrides = InflectListeningVariants.parseOverrides(intent.getStringExtra(EXTRA_PHONEME_OVERRIDES))
+        fun phonemizeChunk(chunkText: String): String = overrides.fold(
+            InflectMicroTextFrontend.applyPhonemeOverrides(InflectPhonemizer.phonemize(chunkText, dataDirectory)),
+        ) { acc, (from, to) -> acc.replace(from, to) }
         val normalizeStarted = System.nanoTime()
-        val normalized = InflectMicroTextFrontend.normalize(text)
+        val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
         val normalizeMs = elapsedMs(normalizeStarted)
         val phonemizeStarted = System.nanoTime()
-        val phonemes = InflectMicroTextFrontend.applyPhonemeOverrides(
-            InflectPhonemizer.phonemize(normalized, dataDirectory),
-        )
+        val chunks = if (segments == null) {
+            InflectMicroTextFrontend.phonemizeSpeechChunks(normalized, phonemize = ::phonemizeChunk).toList()
+        } else {
+            segments.map { segment ->
+                val segmentText = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(segment))
+                InflectMicroTextFrontend.PhonemizedChunk(segmentText, phonemizeChunk(segmentText))
+            }
+        }
         val phonemizeMs = elapsedMs(phonemizeStarted)
+        val defaultSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+        val numberSpeed = intent.getStringExtra(EXTRA_NUMBER_SPEED)?.toFloat()
+        val chunkSpeeds = chunks.map { chunk ->
+            if (numberSpeed != null && InflectListeningVariants.containsNumberWord(chunk.text)) numberSpeed else defaultSpeed
+        }
+        val gapSamples = intent.getIntExtra(EXTRA_GAP_MS, 0) * InflectMicroOnnxRunner.SAMPLE_RATE_HZ / 1_000
         val initStarted = System.nanoTime()
         val runner = InflectMicroOnnxRunner(modelDirectory)
         val initMs = elapsedMs(initStarted)
         try {
             InflectSpikeRuntime.install(runner)
-            val synthesis = runner.synthesize(
-                phonemeText = phonemes,
-                speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f),
-                variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
-                seed = intent.getLongExtra(EXTRA_SEED, 7L),
+            // Same chunk sequence as InflectReplyStream (speechChunks, then phonemizeChunks): each chunk is synthesised separately, in order.
+            val pieces = chunks.mapIndexed { index, chunk ->
+                runner.synthesize(
+                    phonemeText = chunk.phonemes,
+                    speed = chunkSpeeds[index],
+                    variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
+                    seed = intent.getLongExtra(EXTRA_SEED, 7L),
+                ).waveform
+            }
+            val gap = FloatArray(gapSamples)
+            val parts = pieces.flatMapIndexed { index, piece -> if (index == 0) listOf(piece) else listOf(gap, piece) }
+            val waveform = FloatArray(parts.sumOf { it.size })
+            var offset = 0
+            for (part in parts) {
+                part.copyInto(waveform, offset)
+                offset += part.size
+            }
+            writeFloatWav(wavFile, waveform)
+            summaryFile.writeText(
+                """
+                {
+                  "input_text": ${json(text)},
+                  "normalized_text": ${json(normalized)},
+                  "chunk_count": ${chunks.size},
+                  "chunk_phonemes": ${json(chunks.map { it.phonemes })},
+                  "chunk_speeds": ${json(chunkSpeeds)},
+                  "gap_samples": $gapSamples,
+                  "normalize_ms": $normalizeMs,
+                  "phonemize_ms": $phonemizeMs,
+                  "initialization_ms": $initMs,
+                  "total_ms": ${elapsedMs(startedAt)},
+                  "waveform_samples": ${waveform.size},
+                  "sample_rate_hz": ${InflectMicroOnnxRunner.SAMPLE_RATE_HZ},
+                  "wav_file": ${json(wavFile.path)},
+                  "playback": "not_attempted_runtime_probe"
+                }
+                """.trimIndent(),
             )
-            writeFloatWav(wavFile, synthesis.waveform)
-            val memoryAfter = Debug.MemoryInfo().also(Debug::getMemoryInfo)
-            val summary = buildRuntimeSummary(
-                inputText = text,
-                normalizedText = normalized,
-                frontendPhonemes = phonemes,
-                normalizeMs = normalizeMs,
-                phonemizeMs = phonemizeMs,
-                totalMs = elapsedMs(startedAt),
-                memoryBefore = memoryBefore,
-                memoryAfter = memoryAfter,
-                runner = runner,
-                synthesis = synthesis,
-                initMs = initMs,
-                wavFile = wavFile,
-                modelDirectory = modelDirectory,
-            )
-            summaryFile.writeText(summary)
-            Log.i(TAG, summary)
+            Log.i(TAG, summaryFile.readText())
             finish(pendingResult, RESULT_OK, summaryFile.path)
         } finally {
             InflectSpikeRuntime.clear(runner)
             runner.close()
         }
-    }
-
-    private fun buildRuntimeSummary(
-        inputText: String,
-        normalizedText: String,
-        frontendPhonemes: String,
-        normalizeMs: Long,
-        phonemizeMs: Long,
-        totalMs: Long,
-        memoryBefore: Debug.MemoryInfo,
-        memoryAfter: Debug.MemoryInfo,
-        runner: InflectMicroOnnxRunner,
-        synthesis: InflectOnnxSynthesis,
-        initMs: Long,
-        wavFile: File,
-        modelDirectory: File,
-    ): String {
-        val audioSeconds = synthesis.audioDurationMs / 1_000.0
-        val rtf = if (audioSeconds > 0.0) synthesis.synthesisMs / 1_000.0 / audioSeconds else null
-        return """
-            {
-              "input_text": ${json(inputText)},
-              "normalized_text": ${json(normalizedText)},
-              "frontend_phonemes": ${json(frontendPhonemes)},
-              "model_directory": ${json(modelDirectory.path)},
-              "duration_inputs": ${json(runner.durationInputInfo)},
-              "duration_outputs": ${json(runner.durationOutputInfo)},
-              "decode_inputs": ${json(runner.decodeInputInfo)},
-              "decode_outputs": ${json(runner.decodeOutputInfo)},
-              "token_count": ${synthesis.tokenCount},
-              "waveform_shape": ${json(synthesis.waveformShape.toList())},
-              "sample_rate_hz": ${InflectMicroOnnxRunner.SAMPLE_RATE_HZ},
-              "waveform_samples": ${synthesis.waveform.size},
-              "audio_duration_ms": ${synthesis.audioDurationMs},
-              "normalize_ms": $normalizeMs,
-              "phonemize_ms": $phonemizeMs,
-              "initialization_ms": $initMs,
-              "synthesis_ms": ${synthesis.synthesisMs},
-              "total_ms": $totalMs,
-              "real_time_factor": ${rtf ?: "null"},
-              "peak_abs": ${synthesis.peakAbs},
-              "finite": ${synthesis.finite},
-              "memory_before_pss_kb": ${memoryBefore.totalPss},
-              "memory_after_pss_kb": ${memoryAfter.totalPss},
-              "memory_after_native_heap_kb": ${memoryAfter.nativePrivateDirty},
-              "wav_file": ${json(wavFile.path)},
-              "playback": "not_attempted_runtime_probe"
-            }
-        """.trimIndent()
     }
 
     private fun elapsedMs(startedAt: Long): Long =
@@ -338,6 +319,10 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         const val EXTRA_SEED = "seed"
         const val EXTRA_SPEED = "speed"
         const val EXTRA_VARIATION = "variation"
+        const val EXTRA_SEGMENTS = "segments"
+        const val EXTRA_NUMBER_SPEED = "number_speed"
+        const val EXTRA_GAP_MS = "gap_ms"
+        const val EXTRA_PHONEME_OVERRIDES = "phoneme_overrides"
         const val EVIDENCE_DIRECTORY = "inflect-spike"
         const val RUNTIME_EVIDENCE_DIRECTORY = "inflect-validation"
         private const val DEFAULT_PHONEME_TEXT = "həlˈoʊ"
