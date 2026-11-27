@@ -60,7 +60,8 @@ object InflectMicroTextFrontend {
     private val millionCentsClause = Regex("""\b(million|billion) ((?:(?:$NUMBER_WORD_ALTERNATION|and|teen) )+dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
 
     fun normalize(text: String): String {
-        var value = text
+        // "(09) 123 4567" → "09 123 4567" before brackets become commas, so the shared normaliser reads grouped digits.
+        var value = text.replace(Regex("""\((0\d{1,2})\)\s*""")) { match -> "${match.groupValues[1]} " }
             .replace('‘', '\'')
             .replace('’', '\'')
             .replace('“', '"')
@@ -85,7 +86,8 @@ object InflectMicroTextFrontend {
             match.value.filter { it in 'A'..'Z' }.toCharArray().joinToString(" ")
         }
         value = value.replace(
-            Regex("\\b(apartment|apt\\.?|suite|unit|room|flight|extension|order|invoice|locker|aisle|gate)\\s+([A-Za-z]?\\d{1,4}[A-Za-z]?)\\b", RegexOption.IGNORE_CASE),
+            // "Unit 3/45" is a flat address read by EnglishSpeechTextNormaliser; a slash form is not spelled as an identifier.
+            Regex("\\b(apartment|apt\\.?|suite|unit|room|flight|extension|order|invoice|locker|aisle|gate)\\s+([A-Za-z]?\\d{1,4}[A-Za-z]?)(?!/)\\b", RegexOption.IGNORE_CASE),
         ) { match -> "${match.groupValues[1]} ${expandIdentifierToken(match.groupValues[2])}" }
         value = value.replace(
             Regex("\\b(\\d{3})(?=\\s+(?:North|South|East|West)\\b)", RegexOption.IGNORE_CASE),
