@@ -46,25 +46,43 @@ internal fun wakeNotificationText(userPaused: Boolean, cameraSuspended: Boolean,
         else -> NOTIFICATION_TEXT_LISTENING
     }
 
+/** What [promoteWithUserAction] did: whether the foreground promotion held, and whether the pause change was kept. */
+internal data class UserActionPromotion(val promoted: Boolean, val pauseChanged: Boolean)
+
 /**
- * #2145: the text the foreground notification shows for a start intent. A Pause or Resume from the notification
- * is applied to [pause] before the text is built, so the notification startForeground posts shows the state the
- * user chose.
+ * #2145: promotes the service to the foreground with the notification for the state after a Pause or Resume from
+ * the notification. The pause state changes before [promote] runs, so the posted notification shows the state the
+ * user chose. [promote] receives that text and must record it only after posting it.
+ *
+ * A rejected promotion reverts the change: the detector has not been touched yet, so the pause state must keep
+ * matching it. The caller runs the side effects (journal, detector release or re-arm) only for a kept change.
  */
-internal fun foregroundWakeText(
+internal fun promoteWithUserAction(
     pause: WakeUserPause,
     action: String?,
     setUp: Boolean,
     cameraSuspended: Boolean,
     otherAppRecording: Boolean,
-): String {
-    if (setUp) {
-        when (action) {
-            WakeWordService.ACTION_PAUSE -> pause.pause()
-            WakeWordService.ACTION_RESUME -> pause.resume()
-        }
+    promote: (text: String) -> Unit,
+    onRejected: (SecurityException) -> Unit,
+): UserActionPromotion {
+    val changed = when {
+        !setUp -> false
+        action == WakeWordService.ACTION_PAUSE -> pause.pause()
+        action == WakeWordService.ACTION_RESUME -> pause.resume()
+        else -> false
     }
-    return wakeNotificationText(pause.paused, cameraSuspended, otherAppRecording)
+    val text = wakeNotificationText(pause.paused, cameraSuspended, otherAppRecording)
+    val promoted = tryPromoteToMicrophoneForeground(
+        promote = { promote(text) },
+        onRejected = { error ->
+            if (changed) {
+                if (pause.paused) pause.resume() else pause.pause()
+            }
+            onRejected(error)
+        },
+    )
+    return UserActionPromotion(promoted = promoted, pauseChanged = changed && promoted)
 }
 
 /**

@@ -865,21 +865,20 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
-        // #2145: a Pause or Resume from the notification changes the pause state before the foreground notification
-        // is built, so the notification startForeground posts shows the state the user chose. Its side effects run
-        // after promotion, below. A stale text posted by startForeground could otherwise land after the refresh.
+        // #2145: a Pause or Resume from the notification is applied before the foreground notification is built, so the
+        // notification startForeground posts shows the state the user chose. A rejected promotion reverts the change.
         val setUp = eventCollectorJob?.isActive == true
-        val userPauseBefore = userPause.paused
-        val foregroundText = foregroundWakeText(
-            userPause,
-            intent?.action,
-            setUp,
-            isWakeCaptureSuspended,
-            contentionGate.paused,
-        )
-        val userPauseChanged = userPause.paused != userPauseBefore
-        val foregroundStarted = tryPromoteToMicrophoneForeground(
-            promote = { startForeground(NOTIFICATION_ID, wakeNotification(foregroundText)) },
+        val promotion = promoteWithUserAction(
+            pause = userPause,
+            action = intent?.action,
+            setUp = setUp,
+            cameraSuspended = isWakeCaptureSuspended,
+            otherAppRecording = contentionGate.paused,
+            promote = { text ->
+                startForeground(NOTIFICATION_ID, buildNotification(text))
+                // Recorded only once startForeground has accepted the text, so the dedupe never trusts an unposted one.
+                notificationText = text
+            },
             onRejected = { error ->
                 Log.w(
                     TAG,
@@ -889,7 +888,7 @@ class WakeWordService : Service() {
                 recordServiceError(WakeCategory.MICROPHONE_FGS_START_NOT_ALLOWED)
             },
         )
-        if (!foregroundStarted) {
+        if (!promotion.promoted) {
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -904,11 +903,11 @@ class WakeWordService : Service() {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                if (userPauseChanged) pauseByUser()
+                if (promotion.pauseChanged) pauseByUser()
                 return START_STICKY
             }
             ACTION_RESUME -> if (setUp) {
-                if (userPauseChanged) resumeByUser()
+                if (promotion.pauseChanged) resumeByUser()
                 return START_STICKY
             }
         }
@@ -1486,12 +1485,6 @@ class WakeWordService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
-    }
-
-    /** The foreground notification for [text]; also records it as the shown text (#2109, #2145). */
-    private fun wakeNotification(text: String): Notification {
-        notificationText = text
-        return buildNotification(text)
     }
 
     private fun currentWakeText(): String =
