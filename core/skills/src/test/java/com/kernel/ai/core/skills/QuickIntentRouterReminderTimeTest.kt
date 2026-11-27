@@ -48,6 +48,14 @@ class QuickIntentRouterReminderTimeTest {
     }
 
     @Test
+    fun `tens word plus a unit word is the whole minute in reminders and alarms`() {
+        assertEquals("19:21", route(routerAt(14), "remind me to ring mum at seven twenty one pm").params["time"])
+        val alarm = route(routerAt(14), "set an alarm for seven twenty one pm")
+        assertEquals("set_alarm", alarm.intentName)
+        assertEquals("19:21", alarm.params["time"])
+    }
+
+    @Test
     fun `set a reminder for a bare hour then tonight means pm today`() {
         val intent = route(routerAt(14), "set a reminder for 7 tonight to buy milk")
         assertEquals("19:00", intent.params["time"])

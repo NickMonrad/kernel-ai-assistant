@@ -90,6 +90,20 @@ class ReminderTimeFollowupsTest {
     }
 
     @Test
+    fun `tens word plus a unit word is the whole minute`() {
+        assertScheduleAtClocks("seven twenty one pm", "time", "time", List(4) { "19:21" })
+        assertScheduleAtClocks("seven forty three pm", "time", "time", List(4) { "19:43" })
+        assertScheduleAtClocks("seven fifty nine pm", "time", "time", List(4) { "19:59" })
+    }
+
+    @Test
+    fun `tens word plus a unit word answers the time after a day is given`() {
+        val reply = parseReminderSlotReply("seven twenty one pm", "time", mapOf("day" to "tomorrow"), now("14:00"))
+        assertEquals("tomorrow", reply.schedule["day"])
+        assertEquals("19:21", reply.schedule["time"])
+    }
+
+    @Test
     fun `spoken item with number words keeps them when the time is a spoken half past`() {
         assertScheduleAtClocks(
             "take two tablets at half past seven", "item", "time",

@@ -14,17 +14,26 @@ private val HOUR_WORDS: Map<String, Int> = mapOf(
     "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "eleven" to 11, "twelve" to 12,
 )
 
-private val MINUTE_WORDS: Map<String, Int> = mapOf(
-    "five" to 5, "ten" to 10, "fifteen" to 15, "twenty" to 20, "twenty five" to 25, "thirty" to 30,
-    "thirty five" to 35, "forty" to 40, "forty five" to 45, "fifty" to 50, "fifty five" to 55,
+private val UNIT_WORDS: Map<String, Int> = mapOf(
+    "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9,
 )
 
+private val TENS_WORDS: Map<String, Int> = mapOf("twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50)
+
+/** Minute words that are not a tens word plus a unit word. */
+private val MINUTE_WORD_VALUES: Map<String, Int> = mapOf("five" to 5, "ten" to 10, "fifteen" to 15)
+
 private val HOUR_WORD = HOUR_WORDS.keys.joinToString("|")
-private val MINUTE_WORD = MINUTE_WORDS.keys.sortedByDescending { it.length }
-    .joinToString("|") { it.replace(" ", "\\s+") }
+
+/** A minute as spoken: "five", "ten", "fifteen", a tens word alone ("twenty"), or tens plus a unit ("twenty one", "fifty nine"). */
+private val MINUTE_WORD =
+    "(?:${TENS_WORDS.keys.joinToString("|")})(?:[\\s-]+(?:${UNIT_WORDS.keys.joinToString("|")}))?|${MINUTE_WORD_VALUES.keys.joinToString("|")}"
+
+/** Any number word: a minute word followed by one is not the whole minute, and an hour word after one is not an hour. */
+private val ANY_NUMBER_WORD = "oh|o|${TENS_WORDS.keys.joinToString("|")}|fifteen|$HOUR_WORD"
 
 /** A number word right before an hour word makes it part of a larger number ("oh seven", "twenty one"), not a clock hour. */
-private val NUMBER_BEFORE_HOUR = """(?<!\b(?:oh|o|twenty|thirty|forty|fifty|$HOUR_WORD)\s)"""
+private val NUMBER_BEFORE_HOUR = """(?<!\b(?:$ANY_NUMBER_WORD)\s)"""
 
 /** "ten to eight", "twenty five past seven": a minute word, "to" or "past", then an hour. */
 private val MINUTE_TO_HOUR = Regex("""\b($MINUTE_WORD)\s+(to|past)\s+($HOUR_WORD|\d{1,2})\b""", RegexOption.IGNORE_CASE)
@@ -32,9 +41,9 @@ private val MINUTE_TO_HOUR = Regex("""\b($MINUTE_WORD)\s+(to|past)\s+($HOUR_WORD
 /** "half seven" is seven thirty. */
 private val HALF_HOUR_WORD = Regex("""\bhalf\s+($HOUR_WORD)\b""", RegexOption.IGNORE_CASE)
 
-/** "seven thirty", "seven fifteen", "seven oh five", "seven ten". */
+/** "seven thirty", "seven fifteen", "seven oh five", "seven ten", "seven twenty one". */
 private val HOUR_WORD_THEN_MINUTE = Regex(
-    """$NUMBER_BEFORE_HOUR\b($HOUR_WORD)\s+(?:(?:oh|o)\s+)?(five|ten|fifteen|twenty(?:\s+five)?|thirty(?:\s+five)?|forty(?:\s+five)?|fifty(?:\s+five)?)\b""",
+    """$NUMBER_BEFORE_HOUR\b($HOUR_WORD)\s+(?:(?:oh|o)\s+)?($MINUTE_WORD)\b(?!\s+(?:$ANY_NUMBER_WORD)\b)""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -59,7 +68,11 @@ private val SPACED_DIGIT_TIME = Regex(
     RegexOption.IGNORE_CASE,
 )
 
-private fun minuteValue(word: String): Int = MINUTE_WORDS.getValue(word.lowercase().split(Regex("\\s+")).joinToString(" "))
+private fun minuteValue(word: String): Int {
+    val parts = word.lowercase().split(Regex("[\\s-]+"))
+    val tens = TENS_WORDS[parts[0]] ?: return MINUTE_WORD_VALUES.getValue(parts[0])
+    return tens + (parts.getOrNull(1)?.let { UNIT_WORDS.getValue(it) } ?: 0)
+}
 
 private fun hourValue(word: String): Int = word.toIntOrNull() ?: HOUR_WORDS.getValue(word.lowercase())
 
