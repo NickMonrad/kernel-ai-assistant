@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoicePcmSink
 import com.kernel.ai.core.voice.VoicePcmTrack
 import com.kernel.ai.core.voice.VoiceReplyHooks
@@ -33,6 +34,9 @@ import org.json.JSONObject
  * Extras: `paths` = `|`-separated absolute, app-readable text files; `label` = output name; optional
  * `stop_after_ms` = aborts each reply that long after it starts. Output: `files/kokoro_chunk_wav/<label>.wav` and
  * `<label>.json`; the result data is the JSON path. Explicit component only; the manifest entry requires DUMP.
+ *
+ * Runs without a foreground service, so the app must stay in the foreground during a render. A render started
+ * while the app was in the background stalled at 0% CPU in the #2114 device run (cause not confirmed).
  */
 class KokoroChunkWavReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -74,15 +78,16 @@ class KokoroChunkWavReceiver : BroadcastReceiver() {
         val recorder = ChunkWavRecorder()
         val timed = FirstWriteSink(recorder)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        // Native ExecuTorch calls run on one dedicated thread, as in DebugTtsBaselineService: a call made from the
-        // shared IO pool hung with 0% CPU (#2114 device run).
+        // Native ExecuTorch calls run on one dedicated thread, as in DebugTtsBaselineService.
         val nativeDispatcher = Executors.newSingleThreadExecutor { Thread(it, "debug-kokoro-run").apply { isDaemon = true } }
             .asCoroutineDispatcher()
         val replyReports = JSONArray()
         val initMs = try {
             withContext(nativeDispatcher) { lane.initialize() }.also { Log.i(TAG, "kokoro lane initialized in ${it} ms") }
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             withContext(nativeDispatcher) { lane.close() }
+            nativeDispatcher.close()
+            scope.cancel()
             throw error
         }
         try {
@@ -154,7 +159,7 @@ class KokoroChunkWavReceiver : BroadcastReceiver() {
                             "stop_latency_ms",
                             if (stopRequestNs == 0L) JSONObject.NULL else millis(stopReturnNs - stopRequestNs),
                         )
-                        .put("playback", stream.playbackResult().toString()),
+                        .put("playback", playbackLabel(stream.playbackResult())),
                 )
             }
         } finally {
@@ -182,6 +187,11 @@ class KokoroChunkWavReceiver : BroadcastReceiver() {
     }
 
     private fun millis(nanos: Long): Double = nanos / 1_000_000.0
+
+    private fun playbackLabel(result: VoiceOutputResult): String = when (result) {
+        VoiceOutputResult.Spoken -> "Spoken"
+        is VoiceOutputResult.Unavailable -> "Unavailable: ${result.message}"
+    }
 
     /** Records when the first waveform reaches the track; delegates everything else to [recorder]. */
     private class FirstWriteSink(private val recorder: ChunkWavRecorder) : VoicePcmSink {

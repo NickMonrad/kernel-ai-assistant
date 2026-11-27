@@ -234,6 +234,39 @@ class VoiceReplyStreamTest {
     }
 
     @Test
+    fun `stop while a chunk plays and the next is synthesizing discards the track and the late chunk`() = runBlocking {
+        val generation = AtomicLong(0)
+        val sink = FakeSink().apply { blockFirstWrite = CountDownLatch(1) }
+        val h = harness(sink, FakeHooks(), generation)
+        val nextEntered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        h.synthesizer = {
+            if (h.synthCalls.get() == 2) {
+                nextEntered.complete(Unit)
+                gate.await()
+            }
+            h.synthCalls.get().toFloat()
+        }
+
+        val append = async(Dispatchers.Default) { h.stream.append(longReply, isFinal = true) }
+        // Chunk 1 is playing (its write blocks); chunk 2 is inside synthesis.
+        assertTrue(sink.firstWriteEntered.await(5, TimeUnit.SECONDS))
+        withTimeout(5_000) { nextEntered.await() }
+        generation.incrementAndGet()
+        h.stream.abort()
+        sink.blockFirstWrite!!.countDown()
+        gate.complete(Unit)
+
+        assertEquals(VoiceOutputResult.Spoken, withTimeout(5_000) { append.await() })
+        h.stream.awaitPlayback()
+        assertEquals(2, h.synthCalls.get())
+        val track = sink.tracks.single()
+        assertEquals(listOf(1f), track.writes)
+        assertTrue(track.discarded)
+        assertFalse(track.drained)
+    }
+
+    @Test
     fun `a failed append does not stop later appends from playing`() = runBlocking {
         val sink = FakeSink()
         val h = harness(sink)

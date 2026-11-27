@@ -9,8 +9,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -133,7 +131,7 @@ class VoiceReplyStreamKokoroShapeTest {
 
         val append = async(Dispatchers.Default) { s.append(chunks.joinToString(" "), isFinal = true) }
         withTimeout(5_000) { firstSynthEntered.await() }
-        // Mirror the Kokoro harness's stop: the native chunk in progress finishes, its output is dropped.
+        // Mirror the controller's stop: bump the generation, then abort. The native chunk in progress finishes; its output is dropped.
         generation.incrementAndGet()
         s.abort()
         gate.complete(Unit)
@@ -158,5 +156,38 @@ class VoiceReplyStreamKokoroShapeTest {
 
         assertEquals(listOf(1f, 1f), sink.tracks.single().writes)
         assertTrue(sink.tracks.single().drained)
+    }
+
+    @Test
+    fun `stop while a chunk plays and the next is synthesizing discards the track and the late chunk`() = runBlocking {
+        val sink = Sink().apply { blockFirstWrite = CountDownLatch(1) }
+        val generation = AtomicLong(1)
+        val synthCalls = AtomicInteger()
+        val nextEntered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val s = stream(chunks.joinToString(" "), sink, generation, 1) {
+            if (synthCalls.incrementAndGet() == 2) {
+                nextEntered.complete(Unit)
+                gate.await()
+            }
+            FloatArray(480) { 1f }
+        }
+
+        val append = async(Dispatchers.Default) { s.append(chunks.joinToString(" "), isFinal = true) }
+        // Chunk 1 is playing (its write blocks); chunk 2 is inside its native run.
+        assertTrue(sink.firstWriteEntered.await(5, TimeUnit.SECONDS))
+        withTimeout(5_000) { nextEntered.await() }
+        generation.incrementAndGet()
+        s.abort()
+        sink.blockFirstWrite!!.countDown()
+        gate.complete(Unit)
+
+        assertEquals(VoiceOutputResult.Spoken, withTimeout(5_000) { append.await() })
+        s.awaitPlayback()
+        assertEquals(2, synthCalls.get())
+        val track = sink.tracks.single()
+        assertEquals(listOf(1f), track.writes)
+        assertTrue(track.discarded)
+        assertFalse(track.drained)
     }
 }
