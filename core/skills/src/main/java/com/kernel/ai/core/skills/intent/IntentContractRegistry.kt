@@ -256,6 +256,5 @@ class IntentContractRegistry {
     private fun missingRequiredSlot(
         requiredSlots: Map<String, SlotSpec>,
         params: Map<String, String>,
-    ): SlotSpec? =
-        requiredSlots.entries.firstOrNull { (key, _) -> params[key].isNullOrBlank() }?.value
+    ): SlotSpec? = com.kernel.ai.core.skills.slot.firstMissingSlot(requiredSlots, params)
 }

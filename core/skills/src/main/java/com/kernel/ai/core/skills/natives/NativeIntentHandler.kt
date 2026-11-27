@@ -46,6 +46,7 @@ import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.repository.MemoryRepository
 import com.kernel.ai.core.memory.repository.UserProfileRepository
 import com.kernel.ai.core.memory.usecase.NoteSmartTitleUseCase
+import com.kernel.ai.core.skills.DAY_CUE_PARAM
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.StoreListCatalog
 import com.kernel.ai.core.skills.SkillResult
@@ -54,6 +55,7 @@ import com.kernel.ai.core.skills.ImportantDateRecovery
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.ToolPresentation
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Clock
 import java.time.DayOfWeek
 import java.time.Instant
 import java.math.RoundingMode
@@ -165,8 +167,8 @@ class NativeIntentHandler @Inject constructor(
     private val noteDao: NoteDao,
     private val noteSmartTitleUseCase: NoteSmartTitleUseCase,
     private val listNotificationScheduler: ListNotificationScheduler,
-    /** Injectable clock for stable unit test results. Defaults to [LocalDate.now]. */
-    private val nowProvider: () -> java.time.LocalDate = { java.time.LocalDate.now() },
+    /** Clock for "today", "tomorrow" and the past-time check. Injected so tests fix the date and DST is instant-based. */
+    private val clock: Clock = Clock.systemDefaultZone(),
     private val listMutations: ListMutationRepository? = null,
 ) {
 
@@ -2530,18 +2532,21 @@ class NativeIntentHandler @Inject constructor(
         val targetTime = resolveTime(timeRaw)
             ?: return SkillResult.Failure("add_reminder", "Could not parse time: $timeRaw")
         // A missing day defaults to the next occurrence of the time (see defaultReminderDate).
+        val nowDateTime = LocalDateTime.now(clock)
         val targetDate = if (dayRaw == null) {
-            defaultReminderDate(targetTime, LocalDateTime.now())
+            defaultReminderDate(targetTime, nowDateTime)
         } else {
             resolveDate(dayRaw) ?: return SkillResult.Failure("add_reminder", "Could not parse day: $dayRaw")
         }
-        val triggerAt = targetDate.atTime(targetTime).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val now = System.currentTimeMillis()
+        val triggerAt = targetDate.atTime(targetTime).atZone(clock.zone).toInstant().toEpochMilli()
+        val now = clock.millis()
         if (triggerAt <= now) {
-            return SkillResult.Failure(
-                "add_reminder",
-                "That time is in the past. Please specify a future date and time.",
-            )
+            val message = if (params[DAY_CUE_PARAM] == "tonight" && targetDate == nowDateTime.toLocalDate()) {
+                passedTonightMessage(targetTime)
+            } else {
+                "That time is in the past. Please specify a future date and time."
+            }
+            return SkillResult.Failure("add_reminder", message)
         }
 
         val result = runBlocking {
@@ -2613,7 +2618,7 @@ class NativeIntentHandler @Inject constructor(
         }
 
         val dayPhrase = if (dayRaw == null) {
-            if (targetDate == LocalDate.now()) "today" else "tomorrow"
+            if (targetDate == nowDateTime.toLocalDate()) "today" else "tomorrow"
         } else if (dayRaw.trim().lowercase() in setOf("today", "tomorrow")) {
             dayRaw.trim().lowercase()
         } else {
@@ -2764,10 +2769,19 @@ class NativeIntentHandler @Inject constructor(
 
     // ── Date Diff ─────────────────────────────────────────────────────────────
 
+    /** "11 PM tonight has passed" with the tomorrow suggestion (#2132). */
+    private fun passedTonightMessage(time: LocalTime): String {
+        val hour12 = if (time.hour % 12 == 0) 12 else time.hour % 12
+        val minutes = if (time.minute == 0) "" else ":%02d".format(time.minute)
+        val meridiem = if (time.hour < 12) "am" else "pm"
+        return "$hour12$minutes ${meridiem.uppercase()} tonight has passed. " +
+            "Say 'tomorrow at $hour12$minutes $meridiem' to set it for tomorrow."
+    }
+
     private fun getDateDiff(params: Map<String, String>): SkillResult {
         val targetStr = params["target_date"]?.takeIf { it.isNotBlank() }
             ?: return SkillResult.Failure("get_date_diff", "No target_date provided")
-        val today = nowProvider()
+        val today = LocalDate.now(clock)
         val preferPast = params["direction"] == "since"
         val fromDate = params["from_date"]?.takeIf { it.isNotBlank() }
             ?.let { parseDateString(it) } ?: today
@@ -3478,7 +3492,7 @@ class NativeIntentHandler @Inject constructor(
     private fun resolveDate(dateStr: String): LocalDate? {
         val input = dateStr.trim().replace(Regex("""\b(\d{1,2})(?:st|nd|rd|th)\b"""), "$1")
         val normalized = input.lowercase()
-        val today = LocalDate.now()
+        val today = LocalDate.now(clock)
 
         // Relative keywords
         when (normalized) {

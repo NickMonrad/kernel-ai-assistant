@@ -96,10 +96,10 @@ abstract class SkillsModule {
             intentContractRegistry = registry,
         )
 
-        /** Provide the nowProvider for NativeIntentHandler (defaults to LocalDate.now()). */
+        /** Provide the Clock for NativeIntentHandler (system default zone; tests inject a fixed clock). */
         @Provides
         @Singleton
-        fun provideNowProvider(): () -> java.time.LocalDate = { java.time.LocalDate.now() }
+        fun provideClock(): java.time.Clock = java.time.Clock.systemDefaultZone()
 
         /** Provide the singleton IntentContractRegistry. */
         @Provides
