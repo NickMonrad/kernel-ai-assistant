@@ -685,6 +685,57 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `reminder item reply with p m time keeps the day and completes with the time`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+        viewModel.onSlotReply("ring mum tomorrow at 5 p.m.")
+        advanceUntilIdle()
+
+        assertNull(viewModel.pendingSlot.value)
+        assertEquals(
+            mapOf(
+                "intent_name" to "add_reminder",
+                "item" to "ring mum",
+                "day" to "tomorrow",
+                "time" to "17:00",
+            ),
+            runIntentSkill.calls.single().arguments,
+        )
+    }
+
+    @Test
+    fun `reminder item reply that is only a p m time asks for the item again with the time kept`() = runTest(dispatcher) {
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+        viewModel.onSlotReply("at 5 p.m.")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.pendingSlot.value).request
+        assertEquals("item", pending.missingSlot.name)
+        assertEquals(mapOf("time" to "17:00"), pending.existingParams)
+    }
+
+    @Test
+    fun `reminder item reply with a bare hour keeps the day and asks for the time`() = runTest(dispatcher) {
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+        viewModel.onSlotReply("ring mum tomorrow at 6")
+        advanceUntilIdle()
+
+        val pending = requireNotNull(viewModel.pendingSlot.value).request
+        assertEquals("time", pending.missingSlot.name)
+        assertEquals(mapOf("item" to "ring mum", "day" to "tomorrow"), pending.existingParams)
+    }
+
+    @Test
     fun `slot reply execution failure records truthful error state`() = runTest(dispatcher) {
         val failingSkill = CapturingRunIntentSkill { throw IllegalStateException("Dialer exploded") }
         every { skillRegistry.get(any()) } answers {

@@ -72,7 +72,8 @@ private val REMINDER_SCHEDULE_SLOTS = setOf("day", "time")
 private val REMINDER_DAY_PHRASE = "(?:today|tomorrow|tonight|(?:next\\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))"
 
 // Times need am/pm or a colon, so a bare number inside an item ("call 3 people") is never a time.
-private val REMINDER_TIME_PHRASE = "(?:\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)|\\d{1,2}:\\d{2})"
+// The dot after "a.m" / "p.m" is optional: replies lose their final dot when trailing punctuation is trimmed.
+private val REMINDER_TIME_PHRASE = "(?:\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.?|p\\.m\\.?)|\\d{1,2}:\\d{2})"
 
 /** A whole schedule phrase: "tomorrow", "on friday at 9am", "at 5 pm", "by 5pm on monday". */
 private val REMINDER_SCHEDULE_PHRASE = Regex(
@@ -82,31 +83,51 @@ private val REMINDER_SCHEDULE_PHRASE = Regex(
 )
 
 /**
+ * A day with a bare hour: "tomorrow at 6", "on monday at 3". The hour has no am/pm, so it is not
+ * a time. Only the day is taken and the time is still asked for, rather than guessing AM or PM.
+ */
+private val REMINDER_DAY_BARE_HOUR_PHRASE = Regex(
+    "^(?:on\\s+)?$REMINDER_DAY_PHRASE\\s+(?:at|by)\\s+\\d{1,2}$",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun isReminderSchedulePhrase(phrase: String): Boolean =
+    REMINDER_SCHEDULE_PHRASE.matches(phrase) || REMINDER_DAY_BARE_HOUR_PHRASE.matches(phrase)
+
+/** Schedule values in a reply phrase; a day with a bare hour contributes the day only. */
+private fun parseReminderPhraseSchedule(text: String): Map<String, String> {
+    val phrase = text.trim().trimEnd('.', '!', '?')
+    val schedule = parseReminderScheduleReply(phrase)
+    return if (REMINDER_DAY_BARE_HOUR_PHRASE.matches(phrase)) schedule.filterKeys { it == "day" } else schedule
+}
+
+/**
  * Splits a reply to a reminder slot question.
  *
  * For `day` and `time` the reply is the schedule itself, so [ReminderSlotReply.value] is null
  * whenever the reply carries schedule values. For any other missing slot (the item) the reply is
  * the item, unless it ends in a separate schedule phrase: "put the bins out at 5 pm" gives item
  * "put the bins out" and time 17:00, while "call 3 people" and "put on sun cream" stay whole.
+ * "ring mum tomorrow at 6" gives item "ring mum" and day tomorrow; the bare hour is not a time.
  * A reply that is only a schedule phrase gives a null value.
  */
 fun parseReminderSlotReply(text: String, missingSlot: String): ReminderSlotReply {
     val trimmed = text.trim()
     if (missingSlot in REMINDER_SCHEDULE_SLOTS) {
-        val schedule = parseReminderScheduleReply(trimmed)
+        val schedule = parseReminderPhraseSchedule(trimmed)
         return ReminderSlotReply(value = if (schedule.isEmpty()) trimmed else null, schedule = schedule)
     }
     val phrase = trimmed.trimEnd('.', '!', '?')
-    if (REMINDER_SCHEDULE_PHRASE.matches(phrase)) {
-        val schedule = parseReminderScheduleReply(phrase)
+    if (isReminderSchedulePhrase(phrase)) {
+        val schedule = parseReminderPhraseSchedule(phrase)
         if (schedule.isNotEmpty()) return ReminderSlotReply(value = null, schedule = schedule)
     }
     // Earliest split first, so the item keeps as many words as possible.
     for (separator in Regex("\\s+").findAll(phrase)) {
         val head = phrase.substring(0, separator.range.first).trim()
         val tail = phrase.substring(separator.range.last + 1)
-        if (head.isEmpty() || !REMINDER_SCHEDULE_PHRASE.matches(tail)) continue
-        val schedule = parseReminderScheduleReply(tail)
+        if (head.isEmpty() || !isReminderSchedulePhrase(tail)) continue
+        val schedule = parseReminderPhraseSchedule(tail)
         if (schedule.isNotEmpty()) return ReminderSlotReply(value = head, schedule = schedule)
     }
     return ReminderSlotReply(value = trimmed, schedule = emptyMap())
