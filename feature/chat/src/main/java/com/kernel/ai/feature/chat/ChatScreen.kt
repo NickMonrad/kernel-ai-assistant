@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -2362,7 +2363,7 @@ internal fun ModelInitializationFailedContent(
 }
 
 @Composable
-private fun OnboardingContent(
+internal fun OnboardingContent(
     isDownloading: Boolean,
     modelProgress: List<ChatUiState.ModelDownloadProgress>,
     onRetry: (KernelModel) -> Unit,
@@ -2374,10 +2375,17 @@ private fun OnboardingContent(
     gatedStatuses: Map<KernelModel, GatedModelStatus> = emptyMap(),
     conversationReadiness: ConversationModelReadiness? = null,
 ) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars),
+        contentAlignment = Alignment.Center,
+    ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 24.dp),
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 32.dp, vertical = 24.dp),
         ) {
             Text(text = "🩴", style = MaterialTheme.typography.displayLarge)
             Text(

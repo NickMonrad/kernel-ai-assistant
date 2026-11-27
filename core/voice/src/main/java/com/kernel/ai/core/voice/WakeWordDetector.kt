@@ -28,6 +28,12 @@ interface WakeWordDetector {
     val isAvailable: Boolean
 
     /**
+     * Audio session id of the live capture, or null while no capture is open. Lets the app tell its own
+     * microphone client apart from other apps in `AudioRecordingCallback` updates (#2108).
+     */
+    val captureSessionId: Int? get() = null
+
+    /**
      * Start continuous detection.
      *
      * [onDetected] is invoked on an unspecified background thread when confidence exceeds the

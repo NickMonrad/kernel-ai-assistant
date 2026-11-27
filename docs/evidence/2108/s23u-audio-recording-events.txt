@@ -1,0 +1,16 @@
+11-23 21:03:25:386 rec stop riid:27689511 uid:11001 session:27692113 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-23 21:03:25:485 rec update riid:27689527 uid:11001 session:27692129 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-23 21:03:35:674 rec stop riid:27689527 uid:11001 session:27692129 src:MIC not silenced pack:ai.jandal.assistant.debug
+11-23 21:03:35:778 rec update riid:27689535 uid:11001 session:27692137 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-23 21:03:35:784 rec update riid:27689535 uid:11001 session:27692137 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:02:06:378 rec update riid:27689743 uid:11001 session:27692633 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 21:02:06:488 rec release riid:27689743 uid:11001 session:27692633 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 21:02:11:069 rec start riid:27689751 uid:11001 session:27692713 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:02:19:902 rec update riid:27689751 uid:11001 session:27692713 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:02:30:090 rec update riid:27689751 uid:11001 session:27692713 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 21:02:30:161 rec stop riid:27689751 uid:11001 session:27692713 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 21:02:30:181 rec update riid:27689767 uid:10103 session:27692721 src:CAMCORDER not silenced pack:com.sec.android.app.camera
+11-25 21:02:35:348 rec stop riid:27689767 uid:10103 session:27692721 src:CAMCORDER not silenced pack:com.sec.android.app.camera
+11-25 21:02:35:400 rec update riid:27689783 uid:11001 session:27692745 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:02:37:171 rec update riid:27689783 uid:11001 session:27692745 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 21:02:50:723 rec update riid:27689783 uid:11001 session:27692745 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug

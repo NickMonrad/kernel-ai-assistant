@@ -832,10 +832,12 @@ class SherpaOnnxVoiceInputController @Inject constructor(
             Log.e(TAG, "AudioRecord init failed")
             return null
         }
+        OwnMicCaptureSessions.add(ar.audioSessionId)
         return ar
     }
 
     private fun stopAudioRecord(ar: AudioRecord) {
+        try { OwnMicCaptureSessions.remove(ar.audioSessionId) } catch (_: Exception) {}
         try { if (ar.recordingState == AudioRecord.RECORDSTATE_RECORDING) ar.stop() } catch (_: Exception) {}
         try { ar.release() } catch (_: Exception) {}
     }

@@ -354,52 +354,22 @@ class SlotFillerManagerTest {
     }
 
     @Test
-    fun `reminder time-first reply retains time and asks for day`() {
+    fun `reminder time reply completes an item-first reminder without a day`() {
         manager.startSlotFill(
             conversationOne,
             PendingSlotRequest(
                 intentName = "add_reminder",
                 existingParams = mapOf("item" to "buy milk"),
-                missingSlot = SlotSpec("day", "Which day should I set the reminder for?"),
+                missingSlot = SlotSpec("time", "What time should I remind you to buy milk?"),
             ),
         )
-
-        val needsMore = assertInstanceOf(
-            SlotFillResult.NeedsMore::class.java,
-            manager.onUserReply(conversationOne, "5 pm"),
-        )
-
-        assertEquals("17:00", needsMore.request.existingParams["time"])
-        assertEquals("day", needsMore.request.missingSlot.name)
-        assertTrue(manager.hasPending)
-    }
-
-    @Test
-    fun `time-first reminder completes after day follow-up`() {
-        manager.startSlotFill(
-            conversationOne,
-            PendingSlotRequest(
-                intentName = "add_reminder",
-                existingParams = mapOf("item" to "buy milk"),
-                missingSlot = SlotSpec("day", "Which day should I set the reminder for?"),
-            ),
-        )
-
-        val needsMore = assertInstanceOf(
-            SlotFillResult.NeedsMore::class.java,
-            manager.onUserReply(conversationOne, "5 pm"),
-        )
-        manager.startSlotFill(conversationOne, needsMore.request)
 
         val completed = assertInstanceOf(
             SlotFillResult.Completed::class.java,
-            manager.onUserReply(conversationOne, "tomorrow"),
+            manager.onUserReply(conversationOne, "5 pm"),
         )
 
-        assertEquals(
-            mapOf("item" to "buy milk", "time" to "17:00", "day" to "tomorrow"),
-            completed.params,
-        )
+        assertEquals(mapOf("item" to "buy milk", "time" to "17:00"), completed.params)
         assertFalse(manager.hasPending)
     }
 
@@ -468,6 +438,130 @@ class SlotFillerManagerTest {
             completed.params,
         )
         assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `reminder item reply keeps the item and splits off a trailing schedule phrase`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "add_reminder",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("item", "What should I remind you about?"),
+            ),
+        )
+
+        val completed = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "put the bins out at 5 pm"),
+        )
+
+        assertEquals(mapOf("item" to "put the bins out", "time" to "17:00"), completed.params)
+        assertFalse(manager.hasPending)
+    }
+
+    @Test
+    fun `reminder item reply keeps numbers and day-like words inside the item`() {
+        for (reply in listOf("call 3 people", "put on sun cream")) {
+            manager.startSlotFill(
+                conversationOne,
+                PendingSlotRequest(
+                    intentName = "add_reminder",
+                    existingParams = emptyMap(),
+                    missingSlot = SlotSpec("item", "What should I remind you about?"),
+                ),
+            )
+
+            val needsMore = assertInstanceOf(
+                SlotFillResult.NeedsMore::class.java,
+                manager.onUserReply(conversationOne, reply),
+                reply,
+            )
+
+            assertEquals(mapOf("item" to reply), needsMore.request.existingParams, reply)
+            assertEquals("time", needsMore.request.missingSlot.name, reply)
+        }
+    }
+
+    @Test
+    fun `reminder item reply that is only a schedule asks for the item again`() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "add_reminder",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("item", "What should I remind you about?"),
+            ),
+        )
+
+        val needsMore = assertInstanceOf(
+            SlotFillResult.NeedsMore::class.java,
+            manager.onUserReply(conversationOne, "tomorrow at 5 pm"),
+        )
+
+        assertEquals(mapOf("day" to "tomorrow", "time" to "17:00"), needsMore.request.existingParams)
+        assertEquals("item", needsMore.request.missingSlot.name)
+    }
+
+    @Test
+    fun `reminder item reply with p m accepts the final dot and keeps the day`() {
+        startItemSlotFill()
+        val completed = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "ring mum tomorrow at 5 p.m."),
+        )
+        assertEquals(
+            mapOf("item" to "ring mum", "day" to "tomorrow", "time" to "17:00"),
+            completed.params,
+        )
+
+        startItemSlotFill()
+        val completedNoDot = assertInstanceOf(
+            SlotFillResult.Completed::class.java,
+            manager.onUserReply(conversationOne, "put the bins out at 5 pm."),
+        )
+        assertEquals(mapOf("item" to "put the bins out", "time" to "17:00"), completedNoDot.params)
+    }
+
+    @Test
+    fun `reminder item reply that is only a p m time asks for the item again with the time kept`() {
+        startItemSlotFill()
+        val needsMore = assertInstanceOf(
+            SlotFillResult.NeedsMore::class.java,
+            manager.onUserReply(conversationOne, "at 5 p.m."),
+        )
+        assertEquals(mapOf("time" to "17:00"), needsMore.request.existingParams)
+        assertEquals("item", needsMore.request.missingSlot.name)
+    }
+
+    @Test
+    fun `reminder item reply with a bare hour keeps the day and still asks for the time`() {
+        startItemSlotFill()
+        val needsMore = assertInstanceOf(
+            SlotFillResult.NeedsMore::class.java,
+            manager.onUserReply(conversationOne, "ring mum tomorrow at 6"),
+        )
+        assertEquals(mapOf("item" to "ring mum", "day" to "tomorrow"), needsMore.request.existingParams)
+        assertEquals("time", needsMore.request.missingSlot.name)
+
+        startItemSlotFill()
+        val kidsNeedsMore = assertInstanceOf(
+            SlotFillResult.NeedsMore::class.java,
+            manager.onUserReply(conversationOne, "pick up the kids on Monday at 3"),
+        )
+        assertEquals(mapOf("item" to "pick up the kids", "day" to "monday"), kidsNeedsMore.request.existingParams)
+        assertEquals("time", kidsNeedsMore.request.missingSlot.name)
+    }
+
+    private fun startItemSlotFill() {
+        manager.startSlotFill(
+            conversationOne,
+            PendingSlotRequest(
+                intentName = "add_reminder",
+                existingParams = emptyMap(),
+                missingSlot = SlotSpec("item", "What should I remind you about?"),
+            ),
+        )
     }
 
     @Test

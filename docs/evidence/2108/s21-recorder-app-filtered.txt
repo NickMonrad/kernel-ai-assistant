@@ -1,0 +1,60 @@
+11-25 22:40:19.663 I/VR#IdleControlButton(13477): postEvent : data = 1009 RECORD_PRESTART
+11-25 22:40:19.663 I/VR#Event(13477): handleMessage : 1009 RECORD_PRESTART
+11-25 22:40:19.670 I/VR#FragmentController(13477): update - current event :    4 OPEN_MAIN new event : 1009 RECORD_PRESTART
+11-25 22:40:19.682 I/VR#MainActionbar(13477): update - event : 1009 RECORD_PRESTART scene : 11
+11-25 22:40:19.682 I/VR#VNMainActivity(13477): update - data : 1009 RECORD_PRESTART
+11-25 22:40:19.720 I/VR#ControlButtonFragment(13477): onUpdate uiEvent : 1009 RECORD_PRESTART mCurrentEvent : 1 INIT, 7f0a036b
+11-25 22:40:19.726 I/VR#EngineOperationHelper(13477): startRecord
+11-25 22:40:19.726 I/VR#EngineOperationHelper(13477): startRecord: recordMode = 1
+11-25 22:40:19.727 I/VR#Recorder(13477): startRecord - mRecorderState : 1 mCurrentTime : 0
+11-25 22:40:19.727 I/VR#Recorder(13477): prepareRecord
+11-25 22:40:19.759 I/VR#Recorder(13477): prepareRecord - recordingMode : 1
+11-25 22:40:21.216 I/VR#Recorder(13477): AnotherRecordActive: true
+11-25 22:40:21.264 E/VR#ControlButtonClickHelper(13477): ANOTHER_RECORDER_ALREADY_RUNNING !!!!
+11-25 22:40:21.264 I/VR#ControlButton(13477): postEvent : data = 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:21.295 I/VR#Event(13477): handleMessage : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:21.296 I/VR#FragmentController(13477): update - current event : 1009 RECORD_PRESTART new event : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:21.304 I/VR#ListFragment(13477): onUpdate: RECORD_PRESTART_CANCEL
+11-25 22:40:21.304 I/VR#IdleControlButtonFragment(13477): onUpdate - data : RECORD_PRESTART_CANCEL
+11-25 22:40:21.306 I/VR#MainActionbar(13477): update - event : 1010 RECORD_PRESTART_CANCEL scene : 1
+11-25 22:40:21.306 I/VR#VNMainActivity(13477): update - data : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:21.337 I/VR#FragmentController(13477): update - current event : 1010 RECORD_PRESTART_CANCEL new event : 13015 TRANSLATION_PLAYBACK_HIDE
+11-25 22:40:34.990 I/VR#IdleControlButton(13477): postEvent : data = 1009 RECORD_PRESTART
+11-25 22:40:34.990 I/VR#Event(13477): handleMessage : 1009 RECORD_PRESTART
+11-25 22:40:34.994 I/VR#FragmentController(13477): update - current event : 1010 RECORD_PRESTART_CANCEL new event : 1009 RECORD_PRESTART
+11-25 22:40:35.015 I/VR#ListFragment(13477): onUpdate: RECORD_PRESTART
+11-25 22:40:35.015 I/VR#IdleControlButtonFragment(13477): onUpdate - data : RECORD_PRESTART
+11-25 22:40:35.017 I/VR#MainActionbar(13477): update - event : 1009 RECORD_PRESTART scene : 11
+11-25 22:40:35.017 I/VR#VNMainActivity(13477): update - data : 1009 RECORD_PRESTART
+11-25 22:40:35.027 I/VR#ControlButtonFragment(13477): onUpdate uiEvent : 1009 RECORD_PRESTART mCurrentEvent : 1 INIT, 7f0a036b
+11-25 22:40:35.031 I/VR#EngineOperationHelper(13477): startRecord
+11-25 22:40:35.031 I/VR#EngineOperationHelper(13477): startRecord: recordMode = 1
+11-25 22:40:35.032 I/VR#Recorder(13477): startRecord - mRecorderState : 1 mCurrentTime : 0
+11-25 22:40:35.032 I/VR#Recorder(13477): prepareRecord
+11-25 22:40:35.035 I/VR#Recorder(13477): prepareRecord - recordingMode : 1
+11-25 22:40:36.468 I/VR#Recorder(13477): AnotherRecordActive: true
+11-25 22:40:36.492 E/VR#ControlButtonClickHelper(13477): ANOTHER_RECORDER_ALREADY_RUNNING !!!!
+11-25 22:40:36.493 I/VR#ControlButton(13477): postEvent : data = 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:36.529 I/VR#Event(13477): handleMessage : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:36.529 I/VR#FragmentController(13477): update - current event : 1009 RECORD_PRESTART new event : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:36.542 I/VR#ListFragment(13477): onUpdate: RECORD_PRESTART_CANCEL
+11-25 22:40:36.542 I/VR#IdleControlButtonFragment(13477): onUpdate - data : RECORD_PRESTART_CANCEL
+11-25 22:40:36.543 I/VR#MainActionbar(13477): update - event : 1010 RECORD_PRESTART_CANCEL scene : 1
+11-25 22:40:36.544 I/VR#VNMainActivity(13477): update - data : 1010 RECORD_PRESTART_CANCEL
+11-25 22:40:36.580 I/VR#FragmentController(13477): update - current event : 1010 RECORD_PRESTART_CANCEL new event : 13015 TRANSLATION_PLAYBACK_HIDE
+11-25 22:41:00.828 I/VR#IdleControlButton(13477): postEvent : data = 1009 RECORD_PRESTART
+11-25 22:41:00.828 I/VR#Event(13477): handleMessage : 1009 RECORD_PRESTART
+11-25 22:41:00.833 I/VR#FragmentController(13477): update - current event : 1010 RECORD_PRESTART_CANCEL new event : 1009 RECORD_PRESTART
+11-25 22:41:00.849 I/VR#ListFragment(13477): onUpdate: RECORD_PRESTART
+11-25 22:41:00.849 I/VR#IdleControlButtonFragment(13477): onUpdate - data : RECORD_PRESTART
+11-25 22:41:00.851 I/VR#MainActionbar(13477): update - event : 1009 RECORD_PRESTART scene : 11
+11-25 22:41:00.851 I/VR#VNMainActivity(13477): update - data : 1009 RECORD_PRESTART
+11-25 22:41:00.861 I/VR#ControlButtonFragment(13477): onUpdate uiEvent : 1009 RECORD_PRESTART mCurrentEvent : 1 INIT, 7f0a036b
+11-25 22:41:00.869 I/VR#EngineOperationHelper(13477): startRecord
+11-25 22:41:00.870 I/VR#EngineOperationHelper(13477): startRecord: recordMode = 1
+11-25 22:41:00.871 I/VR#Recorder(13477): startRecord - mRecorderState : 1 mCurrentTime : 0
+11-25 22:41:00.871 I/VR#Recorder(13477): prepareRecord
+11-25 22:41:00.876 I/VR#Recorder(13477): prepareRecord - recordingMode : 1
+11-25 22:41:00.933 I/VR#Recorder(13477): AnotherRecordActive: false
+11-25 22:41:01.477 I/VR#FragmentController(13477): update - current event : 1009 RECORD_PRESTART new event : 1001 RECORD_START
+11-25 22:41:01.490 I/VR#ControlButtonFragment(13477): onUpdate uiEvent : 1001 RECORD_START mCurrentEvent : 1009 RECORD_PRESTART, 7f0a036b

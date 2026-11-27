@@ -57,4 +57,33 @@ class ModelCardCompactLargeFontTest {
         assertFalse("title must not visually overflow", layout.hasVisualOverflow)
         composeRule.onNodeWithText("Ready").assertIsDisplayed()
     }
-}
+
+    @Test
+    fun longDescriptionWrapsInsteadOfTruncatingAtLargeFont() {
+        val longDescription = "Paraformer int8 · English · Streaming · Offline fallback model tail"
+        composeRule.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(360.dp, 640.dp))
+                    .then(DeviceConfigurationOverride.FontScale(2f)),
+            ) {
+                MaterialTheme {
+                    ModelCardCompact(
+                        title = "Paraformer",
+                        description = longDescription,
+                        state = ModelAvailabilityState.Ready,
+                    )
+                }
+            }
+        }
+
+        val descriptionNode = composeRule.onNodeWithText(longDescription).assertIsDisplayed()
+        val layouts = mutableListOf<TextLayoutResult>()
+        descriptionNode.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult]
+            .action?.invoke(layouts)
+        val layout = layouts.single()
+
+        assertTrue("description should wrap onto 2+ lines, was ${layout.lineCount}", layout.lineCount >= 2)
+        assertFalse("description must not visually overflow", layout.hasVisualOverflow)
+        composeRule.onNodeWithText("Ready").assertIsDisplayed()
+    }
+ }

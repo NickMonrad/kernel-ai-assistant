@@ -1,0 +1,22 @@
+11-25 19:46:37.816 I/KernelAI(28040): WakeWordService: starting wake word detection
+11-25 19:46:37.821 I/KernelAI(28040): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 19:46:37.972 D/KernelAI(28040): WakeWordDetector: recording started
+11-25 20:54:13.523 D/KernelAI(28040): WakeWordService: already running — ignoring duplicate onStartCommand
+11-25 20:59:06.246 W/KernelAI( 3076): WakeWordService: microphone FGS promotion not allowed; will retry when the app is foreground (Starting FGS with type microphone callerApp=ProcessRecord{d1b0451 3076:ai.jandal.assistant.debug/u0a649} targetSDK=36 requires permissions: all of the permissions allOf=true [android.permission.FOREGROUND_SERVICE_MICROPHONE] any of the permissions allOf=false [android.permission.CAPTURE_AUDIO_HOTWORD, android.permission.CAPTURE_AUDIO_OUTPUT, android.permission.CAPTURE_MEDIA_OUTPUT, android.permission.CAPTURE_TUNER_AUDIO_INPUT, android.permission.CAPTURE_VOICE_COMMUNICATION_OUTPUT, android.permission.RECORD_AUDIO]  and the app must be in the eligible state/exemptions to access the foreground only permission)
+11-25 20:59:06.250 D/KernelAI( 3076): WakeWordDetector: stopped
+11-25 20:59:18.931 I/KernelAI( 3076): WakeWordService: starting wake word detection
+11-25 20:59:18.939 I/KernelAI( 3076): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 20:59:19.071 D/KernelAI( 3076): WakeWordDetector: recording started
+11-25 20:59:33.189 I/KernelAI( 3076): WakeWordService: another app is recording — releasing wake mic
+11-25 20:59:33.207 D/KernelAI( 3076): WakeWordDetector: stopped
+11-25 20:59:43.808 I/KernelAI( 3076): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 20:59:43.868 D/KernelAI( 3076): WakeWordDetector: recording started
+11-25 20:59:54.499 I/KernelAI( 3076): WakeWordService: another app is recording — releasing wake mic
+11-25 20:59:54.535 D/KernelAI( 3076): WakeWordDetector: stopped
+11-25 20:59:54.553 I/KernelAI( 3076): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 20:59:54.560 I/KernelAI( 3076): WakeWordService: another app is recording — releasing wake mic
+11-25 20:59:54.662 D/KernelAI( 3076): WakeWordDetector: recording started
+11-25 20:59:54.674 D/KernelAI( 3076): WakeWordDetector: stopped
+11-25 21:00:45.724 I/KernelAI( 3076): WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 21:00:45.859 D/KernelAI( 3076): WakeWordDetector: recording started
+11-25 21:01:44.025 D/KernelAI( 3076): WakeWordService: already running — ignoring duplicate onStartCommand

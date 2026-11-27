@@ -165,8 +165,6 @@ fun ActionsScreen(
     val micHintVisible by viewModel.micHintVisible.collectAsStateWithLifecycle()
     val voiceInputLevel = viewModel.voiceInputLevel.collectAsStateWithLifecycle()
     val voicePlaybackState by viewModel.voicePlaybackState.collectAsStateWithLifecycle()
-    val slotReplyAutoRearmArmed by viewModel.slotReplyAutoRearmArmed.collectAsStateWithLifecycle()
-    val slotPromptPlaybackStarted by viewModel.slotPromptPlaybackStarted.collectAsStateWithLifecycle()
     val handsFreeCallingState by viewModel.handsFreeCallingState.collectAsStateWithLifecycle()
     val dndState by viewModel.dndState.collectAsStateWithLifecycle()
     val writeSettingsState by viewModel.writeSettingsState.collectAsStateWithLifecycle()
@@ -834,13 +832,9 @@ fun ActionsScreen(
             slot = slot,
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
-            autoVoiceReplyArmed = slotReplyAutoRearmArmed,
-            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
             onDismiss = { viewModel.cancelSlotFill() },
             onSubmit = { reply -> viewModel.onSlotReply(reply) },
             onVoiceReply = { requestVoiceCapture(VoiceCaptureMode.SlotReply) },
-            // Automatic start: the ViewModel re-checks the live re-arm and the background pause (#1918).
-            onAutoVoiceReply = viewModel::startAutoVoiceSlotReply,
             onStopVoiceReply = viewModel::stopVoiceCapture,
             externalDraft = slotReplyDraft,
             onExternalDraftConsumed = { slotReplyDraft = null },
@@ -1278,12 +1272,9 @@ internal fun PendingSlotBottomSheet(
     slot: ActionsViewModel.PendingSlotState,
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
-    autoVoiceReplyArmed: Boolean,
-    slotPromptPlaybackStarted: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
-    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1300,12 +1291,9 @@ internal fun PendingSlotBottomSheet(
             inputMode = slot.inputMode,
             uiState = uiState,
             voiceCaptureState = voiceCaptureState,
-            autoVoiceReplyArmed = autoVoiceReplyArmed,
-            slotPromptPlaybackStarted = slotPromptPlaybackStarted,
             onDismiss = onDismiss,
             onSubmit = onSubmit,
             onVoiceReply = onVoiceReply,
-            onAutoVoiceReply = onAutoVoiceReply,
             onStopVoiceReply = onStopVoiceReply,
             externalDraft = externalDraft,
             onExternalDraftConsumed = onExternalDraftConsumed,
@@ -1320,13 +1308,9 @@ private fun SlotFillBottomSheet(
     inputMode: InputMode,
     uiState: ActionsViewModel.UiState,
     voiceCaptureState: ActionsViewModel.VoiceCaptureState,
-    autoVoiceReplyArmed: Boolean,
-    slotPromptPlaybackStarted: Boolean,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
     onVoiceReply: () -> Unit,
-    /** Safety-net mic start; unlike [onVoiceReply] (a user tap) it must honour the live re-arm state. */
-    onAutoVoiceReply: () -> Unit,
     onStopVoiceReply: () -> Unit,
     externalDraft: String? = null,
     onExternalDraftConsumed: () -> Unit = {},
@@ -1355,48 +1339,6 @@ private fun SlotFillBottomSheet(
     // LoopListeningCueEffect removed — cue playback is handled by StartListeningCuePlayer
     // in ActionsViewModel on VoiceInputEvent.ListeningStarted.
 
-    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed) {
-        Log.d(
-            ACTIONS_SCREEN_TAG,
-            "ActionsScreen: SlotFillBottomSheet shown inputMode=$inputMode autoVoiceReplyArmed=$autoVoiceReplyArmed " +
-                "prompt=\"$promptMessage\"",
-        )
-    }
-
-    LaunchedEffect(promptMessage, inputMode, autoVoiceReplyArmed, isVoiceReplyActive, slotPromptPlaybackStarted) {
-        if (inputMode != InputMode.Voice || !autoVoiceReplyArmed || isVoiceReplyActive) return@LaunchedEffect
-        if (!slotPromptPlaybackStarted) {
-            // TTS synthesis guard: audio hasn't started yet. Wait up to 10s for SpeakingStarted.
-            // This coroutine is cancelled and restarted when slotPromptPlaybackStarted → true.
-            Log.d(
-                ACTIONS_SCREEN_TAG,
-                "ActionsScreen: waiting for slot TTS to start prompt=\"$promptMessage\"",
-            )
-            delay(10_000L)
-            if (!isVoiceReplyActive && autoVoiceReplyArmed) {
-                Log.w(
-                    ACTIONS_SCREEN_TAG,
-                    "ActionsScreen: TTS never started — forcing slot voice fallback prompt=\"$promptMessage\"",
-                )
-                onAutoVoiceReply()
-            }
-            return@LaunchedEffect
-        }
-        // Playback safety net: TTS is playing. Primary rearm is SpeakingStopped → 350ms → startVoiceCapture.
-        // This fires only if SpeakingStopped never arrives (TTS failure). Voice-speed-agnostic.
-        Log.d(
-            ACTIONS_SCREEN_TAG,
-            "ActionsScreen: slot TTS playing — safety net armed prompt=\"$promptMessage\"",
-        )
-        delay(15_000L)
-        if (!isVoiceReplyActive && autoVoiceReplyArmed) {
-            Log.w(
-                ACTIONS_SCREEN_TAG,
-                "ActionsScreen: slot voice fallback firing (playback safety net) prompt=\"$promptMessage\"",
-            )
-            onAutoVoiceReply()
-        }
-    }
 
     fun submit() {
         val text = inputText.trim()

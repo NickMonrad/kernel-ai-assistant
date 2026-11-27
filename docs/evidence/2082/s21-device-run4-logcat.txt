@@ -1,0 +1,39 @@
+11-25 22:53:33.472 D/KernelAI(18803): VoiceCommandActivity: final transcript="Set a time"
+11-25 22:53:34.679 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-25 22:53:34.725 D/KernelAI(18803): ActionsViewModel: FallThrough for "Set a time" → navigating to chat
+11-25 22:53:34.888 D/KernelAI(18803): ActionsViewModel: pauseTransientVoiceUi reason=navigateToChat keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@5da99db voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@3566c78
+11-25 22:53:34.889 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:navigateToChat
+11-25 22:53:34.911 D/KernelAI(18803): ActionsScreen: lifecycle ON_STOP pendingSlot=false showBottomSheet=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@5da99db voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@3566c78
+11-25 22:53:34.917 D/KernelAI(18803): ActionsViewModel: pauseTransientVoiceUi reason=lifecycleOnStop keepSpeech=false pendingSlot=false voiceCaptureState=com.kernel.ai.feature.chat.ActionsViewModel$VoiceCaptureState$Idle@5da99db voicePlaybackState=com.kernel.ai.feature.chat.ActionsViewModel$VoicePlaybackState$Idle@3566c78
+11-25 22:53:34.917 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=pauseTransientVoiceUi:lifecycleOnStop
+11-25 22:53:35.596 D/KernelAI(18803): ADB_ROUTE_DECISION commandId=7aee5d2b-1 result=fallthrough best_guess=null confidence=0.0
+11-25 22:53:57.707 I/KernelAI(18803): SpeakingStarted engine=inflect chars=44 epochMs=1795611237707
+11-25 22:53:57.709 D/KernelAI(18803): ActionsViewModel: ignoring SpeakingStarted after cancelled speech
+11-25 22:55:17.800 D/KernelAI(18803): VoiceCommandActivity: final transcript="Set a timer"
+11-25 22:55:18.088 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-25 22:55:18.090 D/KernelAI(18803): ActionsViewModel: NeedsSlot for "Set a timer" → showing slot sheet
+11-25 22:55:18.090 D/KernelAI(18803): ActionsViewModel: primePendingSlot intent=set_timer inputMode=Voice missing=duration_seconds delayVoicePrompt=false
+11-25 22:55:18.090 D/KernelAI(18803): ADB_SLOT_STATE action=create intent=set_timer missingSlot=duration_seconds existingSlots=[]
+11-25 22:55:18.091 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=primePendingSlot
+11-25 22:55:18.091 D/KernelAI(18803): ActionsViewModel: slot prompt="How long would you like the timer for?" autoRearm=true spokenResponsesEnabled=true
+11-25 22:55:18.960 I/KernelAI(18803): SpeakingStarted engine=inflect chars=38 epochMs=1795611318960
+11-25 22:55:18.962 D/KernelAI(18803): ActionsViewModel: slot prompt playback started
+11-25 22:55:21.254 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-25 22:55:21.606 D/KernelAI(18803): ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-25 22:55:21.771 D/KernelAI(18803): ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-25 22:55:31.888 D/KernelAI(18803): ActionsViewModel: slot-reply voice error — retry 1/2
+11-25 22:55:31.888 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=slotReplyVoiceRetry
+11-25 22:55:32.852 I/KernelAI(18803): SpeakingStarted engine=inflect chars=66 epochMs=1795611332851
+11-25 22:55:32.853 D/KernelAI(18803): ActionsViewModel: slot prompt playback started
+11-25 22:55:36.816 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-25 22:55:37.169 D/KernelAI(18803): ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-25 22:55:37.353 D/KernelAI(18803): ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-25 22:55:47.433 D/KernelAI(18803): ActionsViewModel: slot-reply voice error — retry 2/2
+11-25 22:55:47.433 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=slotReplyVoiceRetry
+11-25 22:55:48.392 I/KernelAI(18803): SpeakingStarted engine=inflect chars=66 epochMs=1795611348391
+11-25 22:55:48.393 D/KernelAI(18803): ActionsViewModel: slot prompt playback started
+11-25 22:55:52.358 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-25 22:55:52.712 D/KernelAI(18803): ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-25 22:55:52.890 D/KernelAI(18803): ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-25 22:56:02.977 D/KernelAI(18803): ActionsViewModel: slot-reply voice error — no retry (handedOff=false), waiting for manual input
+11-25 22:56:02.978 D/KernelAI(18803): ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=slotReplyVoiceRetryExhausted

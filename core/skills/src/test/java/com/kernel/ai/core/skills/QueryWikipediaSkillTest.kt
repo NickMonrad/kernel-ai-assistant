@@ -1,9 +1,11 @@
 package com.kernel.ai.core.skills
 
+import com.kernel.ai.core.skills.js.JsSkillRendererGoneException
 import com.kernel.ai.core.skills.js.JsSkillRunner
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -290,5 +292,63 @@ class QueryWikipediaSkillTest {
         assertTrue(instructions.contains("conversion"))
         assertTrue(description.contains("conversion"))
         assertTrue(description.contains("not for"))
+    }
+
+    private suspend fun runQuery(query: String, question: String? = null): SkillResult = skill.execute(
+        SkillCall(
+            skillName = "query_wikipedia",
+            arguments = mapOf("query" to query) + listOfNotNull(question?.let { QueryWikipediaSkill.QUESTION_ARGUMENT to it }),
+        ),
+    )
+
+    @Test
+    fun `runner timeout becomes a failure instead of escaping`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } throws
+            Exception("JS skill 'query-wikipedia' timed out after 15s")
+
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, runQuery("Andy Samberg"))
+
+        assertEquals("query_wikipedia", failure.skillName)
+        assertEquals(
+            "Wikipedia lookup failed for 'Andy Samberg': JS skill 'query-wikipedia' timed out after 15s",
+            failure.error,
+        )
+    }
+
+    @Test
+    fun `renderer gone becomes a failure instead of escaping`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } throws
+            JsSkillRendererGoneException()
+
+        val failure = assertInstanceOf(SkillResult.Failure::class.java, runQuery("Andy Samberg"))
+
+        assertEquals(
+            "Wikipedia lookup failed for 'Andy Samberg': The JS renderer was interrupted; please try again.",
+            failure.error,
+        )
+    }
+
+    @Test
+    fun `evidence lookup failure becomes a failure instead of escaping`() = runTest {
+        coEvery {
+            runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg", "mode" to "evidence"))
+        } throws JsSkillRendererGoneException()
+
+        val failure = assertInstanceOf(
+            SkillResult.Failure::class.java,
+            runQuery("Andy Samberg", question = "Is Andy Samberg Jewish?"),
+        )
+
+        assertEquals("query_wikipedia", failure.skillName)
+    }
+
+    @Test
+    fun `cancellation from the runner is rethrown, not converted to a failure`() = runTest {
+        coEvery { runner.execute("query-wikipedia", mapOf("query" to "Andy Samberg")) } throws
+            CancellationException("cancelled")
+
+        val thrown = runCatching { runQuery("Andy Samberg") }.exceptionOrNull()
+
+        assertInstanceOf(CancellationException::class.java, thrown)
     }
 }
