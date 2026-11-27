@@ -6,6 +6,7 @@ import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.pendingTimeOfDaySlot
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.LocalDate
@@ -145,6 +146,34 @@ class ReminderTimeFollowupsTest {
     @Test
     fun `quarter to 1 with no day is 00 45 or 12 45 by the next occurrence`() {
         assertScheduleAtClocks("quarter to 1", "time", "time", listOf("00:45", "12:45", "00:45", "00:45"))
+    }
+
+    @Test
+    fun `this evening at N to H is pm of the minute step, never past 23`() {
+        assertScheduleAtClocks("this evening at twenty to eight", "time", "time", List(4) { "19:40" })
+        assertScheduleAtClocks("this evening at quarter to 8", "time", "time", List(4) { "19:45" })
+        assertScheduleAtClocks("this evening at five to six", "time", "time", List(4) { "17:55" })
+        assertScheduleAtClocks("this evening at twenty one to eight", "time", "time", List(4) { "19:39" })
+    }
+
+    @Test
+    fun `tonight at N to twelve is 23 minutes to midnight, not tomorrow`() {
+        assertScheduleAtClocks("tonight at twenty to twelve", "time", "time", List(4) { "23:40" })
+        assertScheduleAtClocks("tonight at quarter to 12", "time", "time", List(4) { "23:45" })
+        assertScheduleAtClocks("tonight at ten to twelve", "time", "time", List(4) { "23:50" })
+    }
+
+    @Test
+    fun `no N to H slot reply emits an hour above 23`() {
+        val phrases = listOf(
+            "this evening at twenty to eight", "this evening at quarter to 8", "tonight at twenty to twelve",
+            "tonight at quarter to 12", "this evening at twenty one to eight pm", "tonight at ten to twelve",
+        )
+        for (phrase in phrases) for (clock in listOf("00:30", "06:30", "14:00", "23:50")) {
+            val time = parseReminderSlotReply(phrase, "time", emptyMap(), now(clock)).schedule["time"]
+            assertNotNull(time, "time for '$phrase' at $clock")
+            assertTrue(time!!.substringBefore(":").toInt() in 0..23, "hour of '$time' for '$phrase' at $clock")
+        }
     }
 
     @Test

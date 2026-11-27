@@ -37,7 +37,12 @@ internal data class BareHour(
     val minute: Int,
     val spokenHour: Int = hour,
     val spoken: String? = null,
-)
+) {
+    // Adding 12 for pm then stays within 12..23: no path can build an hour above 23.
+    init {
+        require(hour in 0..11 && minute in 0..59) { "bare hour $hour:$minute is outside 0..11:0..59" }
+    }
+}
 
 private val EVENING_CUE = Regex("""\b(?:tonight|this\s+evening)\b(?!')""", RegexOption.IGNORE_CASE)
 private val TRAILING_EVENING_CUE = Regex("""\b(?:tonight|this\s+evening)\s*[.!?]*$""", RegexOption.IGNORE_CASE)
@@ -109,12 +114,15 @@ private fun isMinuteStep(match: MatchResult): Boolean {
     return QuickIntentRouter.isToMinuteCount(before)
 }
 
-/** "quarter to H" / "N to H" as a bare reading for a minute step: the spoken hour H must be 1 to 11. */
+/**
+ * "N to H" as a bare reading, from the spoken hour: "twenty to eight" is 7:40, "quarter to 12" is 11:45. The parsed
+ * hour is not used, because an evening cue has already moved it to pm ("this evening at twenty to eight" parses as 19:40).
+ */
 private fun toHourBare(match: MatchResult, parsed: Map<String, String>): BareHour? {
     val spokenHour = match.groupValues[2].toInt()
-    if (spokenHour !in 1..11) return null
-    val hours = parsed["hours"]?.toInt() ?: return null
-    return BareHour(hours, parsed.getValue("minutes").toInt(), spokenHour, match.value)
+    if (spokenHour !in 1..12) return null
+    val minute = parsed["minutes"]?.toInt() ?: return null
+    return BareHour((spokenHour + 11) % 12, minute, spokenHour, match.value)
 }
 
 /**

@@ -65,6 +65,11 @@ class QuickIntentRouterReminderTimeTest {
     }
 
     @Test
+    fun `this evening at N to H in a reminder is pm`() {
+        assertEquals("19:40", route(routerAt(14), "remind me to ring mum this evening at twenty to eight").params["time"])
+    }
+
+    @Test
     fun `set a reminder for a bare hour then tonight means pm today`() {
         val intent = route(routerAt(14), "set a reminder for 7 tonight to buy milk")
         assertEquals("19:00", intent.params["time"])

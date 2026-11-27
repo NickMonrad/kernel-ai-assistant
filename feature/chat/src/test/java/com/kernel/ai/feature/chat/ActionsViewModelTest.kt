@@ -952,6 +952,38 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `spoken this evening at N to H answers the time slot in pm`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        viewModel.onSlotReply("this evening at twenty to eight")
+        advanceUntilIdle()
+        assertEquals("19:40", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken tonight at N to twelve answers 23 minutes to midnight`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        viewModel.onSlotReply("tonight at twenty to twelve")
+        advanceUntilIdle()
+        assertEquals("23:40", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
     fun `reminder without a day then this evening at 7 on tomorrow runs without a morning or evening question`() =
         runTest(dispatcher) {
             val runIntentSkill = CapturingRunIntentSkill()
