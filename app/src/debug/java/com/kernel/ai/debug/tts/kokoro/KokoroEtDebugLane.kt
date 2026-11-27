@@ -59,9 +59,7 @@ class KokoroEtDebugLane(
         val synthesizer = checkNotNull(synthesizerModel) { "Kokoro ExecuTorch lane not initialized" }
         require(text.isNotBlank()) { "Kokoro input text is blank" }
         val startedAt = System.nanoTime()
-        val phonemized = phonemizer.phonemize(text)
-        val chunks = KokoroTts.partition(phonemized.phonemes, KokoroTts.MAX_TOKENS - 2)
-        require(chunks.isNotEmpty()) { "Kokoro phonemization produced no chunks" }
+        val chunks = splitText(text)
         val frontendMs = elapsedMs(startedAt)
 
         val laneChunks = chunks.mapIndexed { index, chunk ->
@@ -81,6 +79,26 @@ class KokoroEtDebugLane(
             laneChunk
         }
         return LaneUtterance(frontendMs = frontendMs, chunks = laneChunks)
+    }
+
+    /** Phonemizes [text] and partitions it into chunks within the duration model's token limit, in order. */
+    fun splitText(text: String): List<String> {
+        require(text.isNotBlank()) { "Kokoro input text is blank" }
+        val phonemized = phonemizer.phonemize(text)
+        val chunks = KokoroTts.partition(phonemized.phonemes, KokoroTts.MAX_TOKENS - 2)
+        require(chunks.isNotEmpty()) { "Kokoro phonemization produced no chunks" }
+        return chunks
+    }
+
+    /**
+     * Synthesizes one chunk from [splitText] on the loaded models. Unlike [synthesize] it does not check
+     * cancellation: the shared reply stream stops calling it once the reply is aborted, and a native run in
+     * progress finishes first.
+     */
+    fun synthesizeChunkAudio(chunk: String): FloatArray {
+        val duration = checkNotNull(durationModel) { "Kokoro ExecuTorch lane not initialized" }
+        val synthesizer = checkNotNull(synthesizerModel) { "Kokoro ExecuTorch lane not initialized" }
+        return synthesizeChunk(duration, synthesizer, chunk, checkNotNull(voice) { "Kokoro ExecuTorch lane not initialized" })
     }
 
     /** Port of `synthesizeChunkWorklet` in kokoroTextToSpeech.ts, minus word alignment. */
