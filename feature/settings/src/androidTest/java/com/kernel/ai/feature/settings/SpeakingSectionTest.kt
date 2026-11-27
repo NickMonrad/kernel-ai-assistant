@@ -478,7 +478,7 @@ class SpeakingSectionTest {
     @Test
     fun kokoroPackProgressCombinesAllFileBytes() {
         val models = KokoroSetup.kernelModels()
-        val states = models.associateWith { DownloadState.NotDownloaded }.toMutableMap()
+        val states = kokoroStates(DownloadState.NotDownloaded).toMutableMap()
         states[models.first()] = DownloadState.Downloaded("first")
         states[models[1]] = DownloadState.Downloading(progress = 0.5f)
         val expectedBytes = models.first().approxSizeBytes + (models[1].approxSizeBytes * 0.5f).toLong()
