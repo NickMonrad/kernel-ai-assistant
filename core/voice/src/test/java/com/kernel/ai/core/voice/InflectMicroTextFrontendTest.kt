@@ -314,6 +314,14 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun normalize_splits_million_cents_clause_for_inflect() {
+        assertEquals(
+            "The stadium holds fifteen thousand people and cost one million, two hundred thousand dollars. And fifty cents.",
+            InflectMicroTextFrontend.normalize("The stadium holds 15,000 people and cost \$1,200,000.50."),
+        )
+    }
+
+    @Test
     fun phonemizeChunks_keeps_long_text_without_and_joins_as_one_chunk() {
         val text = "Tomorrow the wind is light from the north, with showers easing by midday, clearing late in the evening, then cooler air settles over the coast overnight."
         val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = text, phonemize = { it })

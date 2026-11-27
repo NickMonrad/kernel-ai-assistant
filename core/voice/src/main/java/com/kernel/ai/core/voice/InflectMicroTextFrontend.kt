@@ -34,6 +34,13 @@ object InflectMicroTextFrontend {
         "RTX 5090" to "ar tee ex fifty ninety",
     )
 
+    /**
+     * Inflect only: "one million two hundred thousand dollars and fifty cents" garbled when read as one run (the
+     * amount came out as $1,232,050). A comma after the scale word and a sentence break before the cents read it
+     * as 1,200,000.50 on the S23U (#2115). Kokoro reads the unchanged text correctly, so this stays out of the shared normaliser.
+     */
+    private val millionCentsClause = Regex("""\b(million|billion) ((?:[a-z]+ )+?dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
+
     fun normalize(text: String): String {
         var value = text
             .replace('‘', '\'')
@@ -66,6 +73,9 @@ object InflectMicroTextFrontend {
             Regex("\\b(\\d{3})(?=\\s+(?:North|South|East|West)\\b)", RegexOption.IGNORE_CASE),
         ) { match -> EnglishSpeechTextNormaliser.expandDigits(match.groupValues[1]) }
         value = EnglishSpeechTextNormaliser.normalize(value)
+        value = millionCentsClause.replace(value) { match ->
+            "${match.groupValues[1]}, ${match.groupValues[2]}. And ${match.groupValues[3]} cents"
+        }
         value = value.replace(Regex("\\b[A-Z]{2,}\\b")) { match ->
             match.value.map { EnglishSpeechTextNormaliser.letterName(it) }.joinToString(" ")
         }
