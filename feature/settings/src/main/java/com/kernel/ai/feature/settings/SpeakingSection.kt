@@ -106,6 +106,7 @@ internal fun SpeakingSection(
     onDownloadKokoroPack: () -> Unit,
     onCancelKokoroPack: () -> Unit,
     onDeleteKokoroPack: () -> Unit,
+    onUseMobileDataForKokoro: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit,
     onCancelInflectMicro: () -> Unit,
     onDeleteInflectMicro: () -> Unit,
@@ -351,10 +352,20 @@ internal fun SpeakingSection(
                     }
 
                     SpeakingOption.KokoroPack -> {
-                        val states = uiState.kokoroStates.values
-                        val ready = states.isNotEmpty() && states.all { it is DownloadState.Downloaded }
-                        val downloading = states.filterIsInstance<DownloadState.Downloading>().firstOrNull()
-                        val failed = states.any { it is DownloadState.Error }
+                        val states = uiState.kokoroStates
+                        val models = KokoroSetup.kernelModels()
+                        val ready = states.isNotEmpty() && states.values.all { it is DownloadState.Downloaded }
+                        val downloading = states.values.any { it is DownloadState.Downloading }
+                        val failed = states.values.any { it is DownloadState.Error }
+                        val totalBytes = models.sumOf { it.approxSizeBytes }
+                        val downloadedBytes = models.sumOf { model ->
+                            when (val state = states[model]) {
+                                is DownloadState.Downloaded -> model.approxSizeBytes
+                                is DownloadState.Downloading -> (model.approxSizeBytes * state.progress.coerceIn(0f, 1f)).toLong()
+                                else -> 0L
+                            }
+                        }
+                        val progress = if (totalBytes > 0L) downloadedBytes.toFloat() / totalBytes else 0f
                         ChoiceCard(
                             title = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
                             description = VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental),
@@ -362,13 +373,14 @@ internal fun SpeakingSection(
                             onSelect = {
                                 onOutputEngineSelected(VoiceOutputEngine.KokoroExperimental)
                                 // A tap starts a missing pack, as the Download button does.
-                                if (!ready && downloading == null) onDownloadKokoroPack()
+                                if (!ready && !downloading) onDownloadKokoroPack()
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
                             tag = if (ready) downloadedChip() else sizeTag(KokoroSetup.approxSizeBytes()),
                             extraLine = when {
-                                downloading != null -> "Downloading ${(downloading.progress.coerceIn(0f, 1f) * 100).toInt()}%"
+                                uiState.kokoroWaitingForWifi -> "Waiting for Wi-Fi"
+                                downloading -> "Downloading ${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
                                 failed -> "Download failed. Tap Retry."
                                 kokoroSelected && !ready -> "Selected. Download the pack first; the phone's voice speaks until then."
                                 else -> null
@@ -377,7 +389,7 @@ internal fun SpeakingSection(
                                 TermsOfUseLinkWithSheet()
                                 if (kokoroSelected) {
                                     when {
-                                        downloading != null -> OutlinedButton(
+                                        downloading -> OutlinedButton(
                                             onClick = onCancelKokoroPack,
                                             colors = accentOutlinedColors,
                                             modifier = Modifier.semantics { contentDescription = "Cancel Kokoro download" },
@@ -396,6 +408,19 @@ internal fun SpeakingSection(
                                             onClick = onDownloadKokoroPack,
                                             modifier = Modifier.semantics { contentDescription = "Download Kokoro" },
                                         ) { Text("Download") }
+                                    }
+                                    if (uiState.kokoroWaitingForWifi) {
+                                        Text(
+                                            text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Button(
+                                            onClick = onUseMobileDataForKokoro,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Use mobile data for Kokoro"
+                                            },
+                                        ) { Text("Use mobile data") }
                                     }
                                     if (ready) {
                                         KokoroVoicePicker(

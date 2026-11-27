@@ -21,8 +21,11 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            // ExecuTorch 1.5.1 supplies only these ABIs; other native libraries retain their own ABI set.
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

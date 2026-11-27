@@ -39,6 +39,29 @@ class KokoroHandoffTest {
     }
 
     @Test
+    fun `a native Error from a chunk hands over like an Exception, so the reply is not lost`() {
+        val handoff = KokoroHandoff()
+        val units = kokoroSentenceUnits("One. Two.", handoff) { listOf(it) }.toList()
+
+        val waveform = runBlocking {
+            handoff.synthesizeOrHandOff(units[1]) { throw OutOfMemoryError("native allocation") }
+        }
+
+        assertNull(waveform)
+        assertEquals("Two.", handoff.remainder())
+    }
+
+    @Test
+    fun `a phonemizer Error hands the whole append over and yields no units`() {
+        val handoff = KokoroHandoff()
+
+        val units = kokoroSentenceUnits("One. Two.", handoff) { throw LinkageError("phonemis missing") }.toList()
+
+        assertTrue(units.isEmpty())
+        assertEquals("One. Two.", handoff.remainder())
+    }
+
+    @Test
     fun `text appended after a hand-off joins the remainder and yields no units`() {
         val handoff = KokoroHandoff()
         handoff.failed("phonemizer failed", "Two. Three.")

@@ -25,8 +25,12 @@ import com.kernel.ai.feature.settings.lastUncaughtExceptionRecordFile
 import dagger.hilt.android.HiltAndroidApp
 import com.kernel.ai.assistant.WakeWordService
 import com.kernel.ai.core.inference.diagnostics.JANDAL_EVENTS_FILE_NAME
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -52,6 +56,14 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var speechStopSessionManager: com.kernel.ai.speech.SpeechStopSessionManager
     @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
     @Inject lateinit var kokoroBackgroundWarmUp: com.kernel.ai.core.voice.kokoro.KokoroBackgroundWarmUp
+    @Inject lateinit var kokoroVoiceOutputController: KokoroVoiceOutputController
+
+    /** Process-lifetime scope for the Kokoro warm-up. A failure in it is logged; the app keeps running. */
+    private val kokoroWarmUpScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, error ->
+            Log.e("KernelAI", "Kokoro background warm-up failed", error)
+        },
+    )
 
     /**
      * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
@@ -136,8 +148,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
         }
         // Resumes an asr4all size switch that was pending when the process ended, and keeps inactive sizes swept.
         asr4allSizeSwitcher.get().start()
-        // Loads the Kokoro engine ahead of the first reply when Kokoro is the active voice (#2117).
-        kokoroBackgroundWarmUp.start(GlobalScope)
+        // Loads the Kokoro engine ahead of the first reply when Kokoro is the active voice, once the chat model is ready.
+        kokoroBackgroundWarmUp.start(kokoroWarmUpScope, inferenceEngine.isReady)
     }
 
     /**
@@ -159,6 +171,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
             Log.w("KernelAI", "onTrimMemory level=$level — releasing inference session")
             inferenceEngine.releaseForMemoryPressure()
         }
+        // Kokoro's engine (~0.95 GB) is released from RUNNING_LOW on and reloads at the next Kokoro reply (#2117).
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) kokoroVoiceOutputController.unloadEngine()
     }
 }
 internal fun shouldRunNormalBackgroundWork(isInflectProbeBuild: Boolean): Boolean =

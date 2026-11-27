@@ -21,11 +21,13 @@ internal object KokoroTextFrontend {
     private val AM = Regex("\\bI['\u2019]m\\b")
     private val CANNOT = Regex("\\bcan['\u2019]t\\b", RegexOption.IGNORE_CASE)
     private val WILL_NOT = Regex("\\bwon['\u2019]t\\b", RegexOption.IGNORE_CASE)
+    private val SHALL_NOT = Regex("\\bshan['\u2019]t\\b", RegexOption.IGNORE_CASE)
     private val NOT = Regex("\\b([A-Za-z]+)n['\u2019]t\\b")
 
     internal fun expandContractions(text: String): String = text
         .replace(CANNOT) { match -> if (match.value[0].isUpperCase()) "Cannot" else "cannot" }
         .replace(WILL_NOT) { match -> if (match.value[0].isUpperCase()) "Will not" else "will not" }
+        .replace(SHALL_NOT) { match -> if (match.value[0].isUpperCase()) "Shall not" else "shall not" }
         .replace(WILL) { match -> "${match.groupValues[1]} will" }
         .replace(HAVE) { match -> "${match.groupValues[1]} have" }
         .replace(ARE) { match -> "${match.groupValues[1]} are" }

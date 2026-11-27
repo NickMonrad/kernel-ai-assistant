@@ -139,7 +139,7 @@ class VoiceReplyStream<T>(
                 // A superseded or aborted reply unwinds quietly; a cancelled caller propagates.
                 if (isCurrent()) throw error
                 return
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 skipChunk(error)
                 continue
             }
@@ -149,7 +149,7 @@ class VoiceReplyStream<T>(
     }
 
     /** Logs one failed unit; the reply continues with the next one. */
-    private fun skipChunk(error: Exception) {
+    private fun skipChunk(error: Throwable) {
         Log.e(TAG, "$engine chunk failed; skipping it and continuing the reply", error)
         lastSynthesisError = "$engine synthesis failed: ${error.message}"
     }

@@ -10,6 +10,7 @@ import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -121,6 +122,7 @@ data class VoiceUiState(
     val activeSpeakerId: Int = 0,
     // ── Kokoro ────────────────────────────────────────────────────────────────
     val kokoroStates: Map<KernelModel, DownloadState> = emptyMap(),
+    val kokoroWaitingForWifi: Boolean = false,
     val selectedKokoroVoice: KokoroVoice = KokoroVoice.DEFAULT,
     // ── Hey Jandal / Default Assistant ───────────────────────────────────────
     /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
@@ -329,6 +331,7 @@ class VoiceViewModel @Inject constructor(
     private val piperVoiceSetup: PiperVoiceSetup,
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher,
     private val termsAcceptancePreferences: TermsAcceptancePreferences,
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController,
 ) : ViewModel() {
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -555,7 +558,10 @@ class VoiceViewModel @Inject constructor(
                     )
                 }) + (VoiceInputEngine.Asr4all to sherpaSttDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states, waiting))
                 val inflectStates = inflectModels.associateWith { model -> states[model] ?: DownloadState.NotDownloaded }
-                val kokoroStates = KokoroSetup.kernelModels().associateWith { model -> states[model] ?: DownloadState.NotDownloaded }
+                val kokoroModels = KokoroSetup.kernelModels()
+                val kokoroStates = kokoroModels.associateWith { model -> states[model] ?: DownloadState.NotDownloaded }
+                val kokoroWaitingForWifi = kokoroModels.any { it in waiting } &&
+                    kokoroModels.none { model -> model !in waiting && states[model] is DownloadState.Downloading }
                 _uiState.update {
                     val selectedVoiceState =
                         sherpaVoicePackDownloadManager.downloadStates.value[it.selectedSherpaVoice]
@@ -573,6 +579,7 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
                         kokoroStates = kokoroStates,
+                        kokoroWaitingForWifi = kokoroWaitingForWifi,
                         asr4allPendingSize = pendingSize,
                         asr4allSwitchFailure = switchState.failure?.message.takeUnless { m ->
                             m == TERMS_NOT_ACCEPTED_MESSAGE && termsAccepted
@@ -731,6 +738,14 @@ class VoiceViewModel @Inject constructor(
             if (engine != previous) piperVoiceSetup.onEngineChosen(engine)
         }
     }
+    /** Lets the Kokoro pack download over mobile data; other downloads keep the global network choice. */
+    fun useMobileDataForKokoro() {
+        val states = modelDownloadManager.downloadStates.value
+        KokoroSetup.kernelModels()
+            .filter { states[it] !is DownloadState.Downloaded }
+            .forEach { modelDownloadManager.startDownload(it, restartRunning = true, allowMobileData = true) }
+    }
+
 
     /** Lets this voice pack download over mobile data. Other downloads keep the global network choice (#1868). */
     fun useMobileDataForVoice(voice: SherpaPiperVoice) {
@@ -861,6 +876,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun deleteKokoroPack() = viewModelScope.launch(Dispatchers.IO) {
+        kokoroVoiceOutputController.unloadEngine()
         deleteModelFiles(KokoroSetup.kernelModels())
     }
     // ── Hey Jandal ────────────────────────────────────────────────────────────

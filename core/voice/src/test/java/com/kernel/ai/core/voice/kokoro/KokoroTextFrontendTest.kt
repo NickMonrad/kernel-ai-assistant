@@ -14,6 +14,18 @@ class KokoroTextFrontendTest {
     }
 
     @Test
+    fun en_gb_expands_every_negative_contraction_to_its_words() {
+        // "shan't" once became "sha not": the generic n't rule ran before any shall-not rule.
+        assertEquals(
+            "I cannot stop. We will not stop. You shall not pass. It does not work.",
+            KokoroTextFrontend.phonemizerInput(
+                "I can't stop. We won't stop. You shan't pass. It doesn't work.",
+                NativeKokoroPhonemizer.LOCALE_EN_GB,
+            ),
+        )
+    }
+
+    @Test
     fun en_us_keeps_the_contraction_because_its_lexicon_reads_it_correctly() {
         assertEquals(
             "I'll remind you",

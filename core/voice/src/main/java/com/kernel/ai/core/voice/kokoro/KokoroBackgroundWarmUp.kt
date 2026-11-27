@@ -9,41 +9,54 @@ import com.kernel.ai.core.voice.VoiceOutputResult
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
- * Loads the Kokoro engine in the background at app start and whenever Kokoro becomes the active voice or its voice
- * changes, so the first Kokoro reply does not pay the engine load (S23U cold after launch: 2.6 s of 4.45 s).
- *
- * Runs only while Kokoro is the selected engine and spoken responses are on, and only with memory headroom: a loaded
- * engine adds about 0.75 GB PSS (S23U, round 4). A failed warm-up is logged by the controller; the reply path falls
- * back as before.
+ * Loads the Kokoro engine in the background once the chat model is ready, and again whenever Kokoro becomes the active
+ * voice or its voice changes, so the first Kokoro reply does not pay the engine load (S23U cold after launch: 2.6 s of
+ * 4.45 s). Runs only while Kokoro is the selected engine and spoken responses are on, with memory headroom (a loaded
+ * engine adds about 0.75 GB PSS, S23U round 4). Selecting another engine or turning spoken responses off releases the
+ * loaded engine. A failed warm-up is logged; the reply path falls back as before.
  */
 @Singleton
 class KokoroBackgroundWarmUp @Inject constructor(
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val memoryGate: KokoroWarmUpMemoryGate,
+    private val loadMarker: KokoroLoadMarker,
     private val kokoro: KokoroVoiceOutputController,
 ) {
-    fun start(scope: CoroutineScope) {
-        combine(
-            voiceOutputPreferences.selectedEngine,
-            voiceOutputPreferences.spokenResponsesEnabled,
-            voiceOutputPreferences.selectedKokoroVoice,
-        ) { engine, spokenEnabled, voice -> Request(engine, spokenEnabled, voice) }
-            .distinctUntilChanged()
-            .onEach { request -> warmIfAllowed(request) }
-            .launchIn(scope)
+    /** Waits for [chatModelReady], so the chat model's load is not competing with the Kokoro load, then follows settings. */
+    fun start(scope: CoroutineScope, chatModelReady: Flow<Boolean>) {
+        scope.launch {
+            chatModelReady.first { ready -> ready }
+            combine(
+                voiceOutputPreferences.selectedEngine,
+                voiceOutputPreferences.spokenResponsesEnabled,
+                voiceOutputPreferences.selectedKokoroVoice,
+            ) { engine, spokenEnabled, voice -> Request(engine, spokenEnabled, voice) }
+                .distinctUntilChanged()
+                .collect { request -> warmIfAllowed(request) }
+        }
     }
 
     private suspend fun warmIfAllowed(request: Request) {
-        if (request.engine != VoiceOutputEngine.KokoroExperimental) return
+        if (request.engine != VoiceOutputEngine.KokoroExperimental) {
+            kokoro.unloadEngine()
+            return
+        }
         if (!request.spokenEnabled) {
+            kokoro.unloadEngine()
             Log.i(TAG, "kokoro background warm skipped: spoken responses off")
+            return
+        }
+        if (loadMarker.unfinishedAtLaunch) {
+            Log.w(TAG, "kokoro background warm skipped: previous native load did not finish")
             return
         }
         if (!memoryGate.hasHeadroom()) {
@@ -51,7 +64,14 @@ class KokoroBackgroundWarmUp @Inject constructor(
             return
         }
         val started = System.currentTimeMillis()
-        val result = kokoro.warmUp()
+        val result = try {
+            kokoro.warmUp()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            Log.e(TAG, "kokoro background warm failed", error)
+            return
+        }
         Log.i(
             TAG,
             "kokoro background warm voice=${request.voice.name} ok=${result == VoiceOutputResult.Spoken} " +

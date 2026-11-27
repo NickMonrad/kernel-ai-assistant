@@ -198,14 +198,16 @@ class FallbackVoiceOutputController @Inject constructor(
         val result = kokoro.warmUp()
         if (result !is VoiceOutputResult.Unavailable) {
             activate(kokoro)
+            var handedOff = false
             val kokoroSession = recordedStreamSession(
                 engine,
                 kokoro,
                 kokoro.openStreamingSessionWithRemainder(request) { text ->
+                    handedOff = true
                     speakWithInflectOrAndroid(request.copy(text = text))
                 },
             )
-            return kokoroStreamWithInflectFallback(request, kokoroSession)
+            return kokoroStreamWithInflectFallback(request, kokoroSession) { handedOff }
         }
         return openInflectStreamingSessionOrFallback(request, VoiceOutputEngine.InflectMicroExperimental)
     }
@@ -219,6 +221,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private fun kokoroStreamWithInflectFallback(
         request: VoiceSpeakRequest,
         kokoroSession: VoiceOutputStreamingSession,
+        handedOff: () -> Boolean,
     ): VoiceOutputStreamingSession = object : VoiceOutputStreamingSession {
         private val buffer = StreamedReplyBuffer()
         private var isClosed = false
@@ -231,6 +234,8 @@ class FallbackVoiceOutputController @Inject constructor(
             isClosed = true
             val kokoroResult = kokoroSession.append(text, isFinal = true)
             if (kokoroResult !is VoiceOutputResult.Unavailable) return kokoroResult
+            // A hand-off already spoke the rest of the reply through Inflect Micro: never re-speak it whole.
+            if (handedOff()) return kokoroResult
             val finalText = buffer.text()
             if (finalText.isBlank()) return kokoroResult
             Log.w(TAG, "Kokoro streaming synthesis failed (${kokoroResult.message}); routing to Inflect Micro fallback.")
