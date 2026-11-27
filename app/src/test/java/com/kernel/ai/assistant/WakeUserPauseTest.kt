@@ -42,4 +42,45 @@ class WakeUserPauseTest {
             wakeNotificationText(userPaused = false, cameraSuspended = false, otherAppRecording = false),
         )
     }
+
+    @Test
+    fun `resume from the notification shows the listening text in the foreground notification`() {
+        val pause = WakeUserPause().apply { pause() }
+        val text = foregroundWakeText(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+        )
+        assertEquals(NOTIFICATION_TEXT_LISTENING, text)
+        assertFalse(pause.paused)
+    }
+
+    @Test
+    fun `pause from the notification shows the paused text in the foreground notification`() {
+        val pause = WakeUserPause()
+        val text = foregroundWakeText(
+            pause,
+            WakeWordService.ACTION_PAUSE,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+        )
+        assertEquals(NOTIFICATION_TEXT_USER_PAUSED, text)
+        assertTrue(pause.paused)
+    }
+
+    @Test
+    fun `a notification action on a service that is not set up leaves the pause alone`() {
+        val pause = WakeUserPause().apply { pause() }
+        foregroundWakeText(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = false,
+            cameraSuspended = false,
+            otherAppRecording = false,
+        )
+        assertTrue(pause.paused)
+    }
 }

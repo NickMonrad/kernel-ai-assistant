@@ -47,6 +47,27 @@ internal fun wakeNotificationText(userPaused: Boolean, cameraSuspended: Boolean,
     }
 
 /**
+ * #2145: the text the foreground notification shows for a start intent. A Pause or Resume from the notification
+ * is applied to [pause] before the text is built, so the notification startForeground posts shows the state the
+ * user chose.
+ */
+internal fun foregroundWakeText(
+    pause: WakeUserPause,
+    action: String?,
+    setUp: Boolean,
+    cameraSuspended: Boolean,
+    otherAppRecording: Boolean,
+): String {
+    if (setUp) {
+        when (action) {
+            WakeWordService.ACTION_PAUSE -> pause.pause()
+            WakeWordService.ACTION_RESUME -> pause.resume()
+        }
+    }
+    return wakeNotificationText(pause.paused, cameraSuspended, otherAppRecording)
+}
+
+/**
  * Journals a user pause or resume to the support export (#2109). `paused` is a Boolean, so the export reads
  * `wake_user_pause paused=true` or `paused=false`. Strings are always redacted.
  */

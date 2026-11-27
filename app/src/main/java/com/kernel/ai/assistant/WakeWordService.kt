@@ -865,8 +865,21 @@ class WakeWordService : Service() {
             return START_NOT_STICKY
         }
 
+        // #2145: a Pause or Resume from the notification changes the pause state before the foreground notification
+        // is built, so the notification startForeground posts shows the state the user chose. Its side effects run
+        // after promotion, below. A stale text posted by startForeground could otherwise land after the refresh.
+        val setUp = eventCollectorJob?.isActive == true
+        val userPauseBefore = userPause.paused
+        val foregroundText = foregroundWakeText(
+            userPause,
+            intent?.action,
+            setUp,
+            isWakeCaptureSuspended,
+            contentionGate.paused,
+        )
+        val userPauseChanged = userPause.paused != userPauseBefore
         val foregroundStarted = tryPromoteToMicrophoneForeground(
-            promote = { startForeground(NOTIFICATION_ID, wakeNotification()) },
+            promote = { startForeground(NOTIFICATION_ID, wakeNotification(foregroundText)) },
             onRejected = { error ->
                 Log.w(
                     TAG,
@@ -884,7 +897,6 @@ class WakeWordService : Service() {
         // #2109: the notification's Pause and Resume actions arrive here, after the foreground promotion. They act
         // only on a set-up service. A Pause on a fresh instance has nothing to pause, and listening would undo it, so
         // the service stops. A Resume falls through to the normal start path.
-        val setUp = eventCollectorJob?.isActive == true
         when (intent?.action) {
             ACTION_PAUSE -> {
                 if (!setUp) {
@@ -892,11 +904,11 @@ class WakeWordService : Service() {
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
-                pauseByUser()
+                if (userPauseChanged) pauseByUser()
                 return START_STICKY
             }
             ACTION_RESUME -> if (setUp) {
-                resumeByUser()
+                if (userPauseChanged) resumeByUser()
                 return START_STICKY
             }
         }
@@ -1295,9 +1307,8 @@ class WakeWordService : Service() {
     /** Releases the detector from a caller outside [micLock], so a start cannot race the stop (#2109). */
     private fun requestDetectorRelease() = launchUnderMicLock { wakeWordDetector.stop() }
 
-    /** The notification's Pause action: release the mic until the user resumes (#2109). */
+    /** The notification's Pause action, once [WakeUserPause] changed: release the mic until resumed (#2109). */
     private fun pauseByUser() {
-        if (!userPause.pause()) return
         Log.i(TAG, "WakeWordService: paused by user — releasing wake mic")
         recordWakeUserPauseEvent(paused = true)
         AcousticJournalBridge.record(type = AcousticEventType.USER_PAUSED)
@@ -1305,9 +1316,8 @@ class WakeWordService : Service() {
         refreshNotification()
     }
 
-    /** The notification's Resume action: clear the user pause, then probe at once (#2109). */
+    /** The notification's Resume action, once [WakeUserPause] changed: re-arm at once (#2109). */
     private fun resumeByUser() {
-        if (!userPause.resume()) return
         Log.i(TAG, "WakeWordService: resumed by user — re-arming wake word detection")
         recordWakeUserPauseEvent(paused = false)
         AcousticJournalBridge.record(type = AcousticEventType.USER_RESUMED)
@@ -1478,9 +1488,8 @@ class WakeWordService : Service() {
             .build()
     }
 
-    /** The notification for the current state; also records it as the shown text (#2109). */
-    private fun wakeNotification(): Notification {
-        val text = currentWakeText()
+    /** The foreground notification for [text]; also records it as the shown text (#2109, #2145). */
+    private fun wakeNotification(text: String): Notification {
         notificationText = text
         return buildNotification(text)
     }
