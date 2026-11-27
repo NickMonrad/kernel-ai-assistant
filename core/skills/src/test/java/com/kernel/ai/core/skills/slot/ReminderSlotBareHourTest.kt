@@ -33,11 +33,55 @@ class ReminderSlotBareHourTest {
         assertInstanceOf(SlotFillResult.Completed::class.java, result, "expected Completed, got $result").params
 
     @Test
-    fun `bare hour answer to when uses the next occurrence and keeps the day`() {
+    fun `bare hour answer on a day other than today asks morning or evening`() {
         askFor("c1", "time", mapOf("item" to "ring mum", "day" to "tomorrow"))
-        val params = completed(manager.onUserReply("c1", "6", now = at(14)))
+        val next = assertInstanceOf(SlotFillResult.NeedsMore::class.java, manager.onUserReply("c1", "6", now = at(14))).request
+        assertEquals("time_of_day", next.missingSlot.name)
+        assertEquals("Morning or evening?", next.missingSlot.promptTemplate)
+        val params = completed(manager.onUserReply("c1", "evening", now = at(14)))
         assertEquals("18:00", params["time"])
         assertEquals("tomorrow", params["day"])
+    }
+
+    @Test
+    fun `morning answer to the morning or evening question gives the am time`() {
+        askFor("c8", "time", mapOf("item" to "ring mum", "day" to "tomorrow"))
+        manager.onUserReply("c8", "6", now = at(14))
+        assertEquals("06:00", completed(manager.onUserReply("c8", "morning", now = at(14))).getValue("time"))
+    }
+
+    @Test
+    fun `bare hour with a day in the reply asks morning or evening`() {
+        askFor("c9", "time", mapOf("item" to "ring mum"))
+        val next = assertInstanceOf(SlotFillResult.NeedsMore::class.java, manager.onUserReply("c9", "at 7 tomorrow", now = at(14))).request
+        assertEquals("time_of_day", next.missingSlot.name)
+        assertEquals("tomorrow", next.existingParams["day"])
+    }
+
+    @Test
+    fun `this evening at a bare hour is pm today`() {
+        askFor("c10", "time", mapOf("item" to "ring mum"))
+        assertEquals("19:00", completed(manager.onUserReply("c10", "this evening at 7", now = at(6, 30))).getValue("time"))
+    }
+
+    @Test
+    fun `tonight at 1 to 4 asks yes or no and yes means that hour in the morning tomorrow`() {
+        askFor("c11", "time", mapOf("item" to "ring mum", "day" to "tonight"))
+        val next = assertInstanceOf(SlotFillResult.NeedsMore::class.java, manager.onUserReply("c11", "3", now = at(14))).request
+        assertEquals("time_of_day", next.missingSlot.name)
+        assertEquals("Do you mean 3 in the morning? Yes or no.", next.missingSlot.promptTemplate)
+        val params = completed(manager.onUserReply("c11", "yes", now = at(14)))
+        assertEquals("03:00", params["time"])
+        assertEquals("tomorrow", params["day"])
+    }
+
+    @Test
+    fun `tonight at 1 to 4 no means that hour pm today`() {
+        askFor("c12", "time", mapOf("item" to "ring mum", "day" to "tonight"))
+        manager.onUserReply("c12", "3", now = at(14))
+        val params = completed(manager.onUserReply("c12", "no", now = at(14)))
+        assertEquals("15:00", params["time"])
+        assertEquals("today", params["day"])
     }
 
     @Test

@@ -4779,7 +4779,7 @@ class NativeIntentHandlerTest {
             noteDao = noteDao,
             noteSmartTitleUseCase = noteSmartTitleUseCase,
             listNotificationScheduler = listNotificationScheduler,
-            nowProvider = { now },
+            clock = java.time.Clock.fixed(now.atZone(java.time.ZoneId.systemDefault()).toInstant(), java.time.ZoneId.systemDefault()),
         )
 
         @Test
@@ -4788,6 +4788,23 @@ class NativeIntentHandlerTest {
             val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "19:00"))
             assertEquals(
                 SkillResult.Failure("add_reminder", "That time is in the past. Please specify a future date and time."),
+                result,
+            )
+        }
+
+        @Test
+        fun `add_reminder tonight at a passed late time names the tomorrow alternative`() {
+            val now = LocalDateTime.of(2026, 11, 27, 23, 50)
+            val result = handleIntent(
+                handlerAt(now),
+                "add_reminder",
+                mapOf("item" to "bins", "day" to "today", "time" to "23:00", "day_cue" to "tonight"),
+            )
+            assertEquals(
+                SkillResult.Failure(
+                    "add_reminder",
+                    "11 PM tonight has passed. Say 'tomorrow at 11 pm' to set it for tomorrow.",
+                ),
                 result,
             )
         }

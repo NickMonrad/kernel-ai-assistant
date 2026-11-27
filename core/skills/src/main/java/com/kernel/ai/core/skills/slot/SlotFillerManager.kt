@@ -75,7 +75,7 @@ class SlotFillerManager @Inject constructor(
     ): SlotFillResult {
         val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
         val reminderReply = if (pending.intentName == "add_reminder") {
-            parseReminderSlotReply(message, pending.missingSlot.name, pending.existingParams["day"], now)
+            parseReminderSlotReply(message, pending.missingSlot.name, pending.existingParams, now)
         } else {
             null
         }
@@ -99,6 +99,9 @@ class SlotFillerManager @Inject constructor(
                 pendingRequests[conversationId] = nextRequest
                 return SlotFillResult.NeedsMore(nextRequest)
             }
+            // The schedule alone answered the asked slot (e.g. the am/pm question) and nothing else is missing.
+            pendingRequests.remove(conversationId)
+            return SlotFillResult.Completed(pending.intentName, resolveTonightCue(mergedParams))
         }
         val normalizedMessage = reminderSchedule[pending.missingSlot.name]
             ?: normalizeSlotReply(reminderReply?.value ?: message, pending.missingSlot.name)
@@ -156,8 +159,7 @@ class SlotFillerManager @Inject constructor(
             pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                // "tonight" is the cue for a bare-hour time answer; the reminder itself is for today (#2132).
-                params = if (mergedParams["day"] == "tonight") mergedParams + ("day" to "today") else mergedParams,
+                params = resolveTonightCue(mergedParams),
             )
         }
     }

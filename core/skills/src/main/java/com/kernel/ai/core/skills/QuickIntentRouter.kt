@@ -57,30 +57,14 @@ class QuickIntentRouter(
 ) {
 
     /**
-     * Day and time params for a reminder whose time phrase may be a bare hour 1 to 11 (#2132).
-     * [dayToken] is the day word in the utterance, if any; [input] is the whole utterance.
-     * "tonight" or "this evening" makes a bare hour PM today. With no day and no cue, a bare hour
-     * is its next occurrence. An explicit non-tonight day with a bare hour gives no time, so the
-     * time is asked for rather than guessed.
+     * Day and time params for a reminder time phrase (#2132), resolved by [reminderScheduleParams].
+     * [dayToken] is the day word in the utterance, if any; [input] is the whole utterance, read only
+     * for "tonight at <time>" and "this evening by <time>" so "watch tonight's game at 7" is not a cue.
      */
     private fun reminderTimeParams(timePhrase: String, dayToken: String?, input: String): Map<String, String> {
-        val evening = if (dayToken == null) hasEveningCue(input) else dayToken.equals("tonight", ignoreCase = true)
-        val explicitDay = dayToken != null && !evening
-        val bare = bareHourIn(timePhrase)
-        return if (bare == null) {
-            buildMap {
-                putAll(parseAlarmTime(timePhrase))
-                if (evening) put("day", "today")
-            }
-        } else if (explicitDay) {
-            emptyMap()
-        } else {
-            val time = resolveBareHour(bare, evening, clock())
-            buildMap {
-                put("time", "%02d:%02d".format(time.hour, time.minute))
-                if (evening) put("day", "today")
-            }
-        }
+        val day = dayToken?.let(::normalizeDayName)
+        val eveningCue = day == "tonight" || hasEveningCue(timePhrase) || eveningCueBeforeTime(input, timePhrase)
+        return reminderScheduleParams(timePhrase, day, eveningCue, clock())
     }
 
     // ── Result types ──────────────────────────────────────────────────────────
@@ -828,7 +812,7 @@ class QuickIntentRouter(
                 buildMap {
                     put("item", normalizeReminderItem(match.groupValues[1]))
                     // "tonight" stays as the cue, so the time answer means PM today (#2132).
-                    if (hasEveningCue(input)) put("day", "tonight")
+                    if (endsWithEveningCue(input)) put("day", "tonight")
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -4761,7 +4745,7 @@ class QuickIntentRouter(
         requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec>,
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? =
-        requiredSlots.entries.firstOrNull { (key, _) -> params[key].isNullOrBlank() }?.value
+        com.kernel.ai.core.skills.slot.firstMissingSlot(requiredSlots, params)
 
     fun nextMissingSlot(
         intentName: String,

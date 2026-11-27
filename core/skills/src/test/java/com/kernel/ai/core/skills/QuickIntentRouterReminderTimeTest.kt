@@ -20,11 +20,15 @@ class QuickIntentRouterReminderTimeTest {
         return assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result, "route('$text')").intent
     }
 
-    private fun needsTime(router: QuickIntentRouter, text: String): QuickIntentRouter.RouteResult.NeedsSlot {
+    private fun askedSlot(
+        router: QuickIntentRouter,
+        text: String,
+        slot: String = "time",
+    ): QuickIntentRouter.RouteResult.NeedsSlot {
         val result = router.route(text)
         val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result, "route('$text')")
         assertEquals("add_reminder", needsSlot.intent.intentName)
-        assertEquals("time", needsSlot.missingSlot.name)
+        assertEquals(slot, needsSlot.missingSlot.name)
         return needsSlot
     }
 
@@ -72,7 +76,8 @@ class QuickIntentRouterReminderTimeTest {
 
     @Test
     fun `explicit tomorrow with a bare hour asks for the time and keeps the day`() {
-        val needsSlot = needsTime(routerAt(14), "remind me to ring mum tomorrow at 6")
+        val needsSlot = askedSlot(routerAt(14), "remind me to ring mum tomorrow at 6", "time_of_day")
+        assertEquals("06:00", needsSlot.intent.params["bare_time"])
         assertEquals("tomorrow", needsSlot.intent.params["day"])
         assertEquals("ring mum", needsSlot.intent.params["item"])
         assertNull(needsSlot.intent.params["time"])
@@ -80,14 +85,14 @@ class QuickIntentRouterReminderTimeTest {
 
     @Test
     fun `day before the task with a bare hour asks for the time and keeps the day`() {
-        val needsSlot = needsTime(routerAt(14), "remind me tomorrow at 6 to ring mum")
+        val needsSlot = askedSlot(routerAt(14), "remind me tomorrow at 6 to ring mum", "time_of_day")
         assertEquals("tomorrow", needsSlot.intent.params["day"])
         assertEquals("ring mum", needsSlot.intent.params["item"])
     }
 
     @Test
     fun `tonight with no time asks for the time and keeps tonight as the cue`() {
-        val needsSlot = needsTime(routerAt(14), "remind me to put the bins out tonight")
+        val needsSlot = askedSlot(routerAt(14), "remind me to put the bins out tonight")
         assertEquals("tonight", needsSlot.intent.params["day"])
     }
 
@@ -105,5 +110,30 @@ class QuickIntentRouterReminderTimeTest {
     @Test
     fun `spoken bare hour in the item reminder resolves like digits`() {
         assertEquals("18:00", route(routerAt(14), "remind me to ring mum at six").params["time"])
+    }
+
+    @Test
+    fun `tonight at 1 to 4 asks morning or evening with the bare hour`() {
+        val needsSlot = askedSlot(routerAt(14), "remind me tonight at 3 to ring mum", "time_of_day")
+        assertEquals("03:00", needsSlot.intent.params["bare_time"])
+        assertEquals("tonight", needsSlot.intent.params["day"])
+    }
+
+    @Test
+    fun `day in the time phrase with a bare hour asks morning or evening`() {
+        val needsSlot = askedSlot(routerAt(14), "remind me to watch tonight's game at 7 tomorrow", "time_of_day")
+        assertEquals("07:00", needsSlot.intent.params["bare_time"])
+        assertEquals("tomorrow", needsSlot.intent.params["day"])
+    }
+
+    @Test
+    fun `minutes are kept for a bare hour without a day`() {
+        assertEquals("19:30", route(routerAt(14), "remind me to ring mum at 7 30").params["time"])
+        assertEquals("07:30", route(routerAt(20), "remind me to ring mum at 7 30").params["time"])
+    }
+
+    @Test
+    fun `day part word keeps the hour as written`() {
+        assertEquals("7:00", route(routerAt(14), "remind me to ring mum at 7 in the morning").params["time"])
     }
 }
