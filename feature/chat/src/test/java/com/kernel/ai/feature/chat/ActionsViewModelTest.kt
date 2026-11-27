@@ -879,6 +879,45 @@ class ActionsViewModelTest {
     }
 
     @Test
+    fun `spoken hour oh minutes pm reply runs the reminder at the clock minutes`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        viewModel.onSlotReply("seven oh five pm")
+        advanceUntilIdle()
+        assertEquals("19:05", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken this evening at 2 asks do you mean 2 in the morning`() = runTest(dispatcher) {
+        viewModel.executeAction("Remind me to buy milk")
+        advanceUntilIdle()
+        viewModel.onSlotReply("this evening at 2")
+        advanceUntilIdle()
+        assertEquals(
+            "Do you mean 2 in the morning? Yes or no.",
+            viewModel.pendingSlot.value?.request?.missingSlot?.promptTemplate,
+        )
+    }
+
+    @Test
+    fun `spoken item before a day word keeps its number word`() = runTest(dispatcher) {
+        viewModel.executeAction("Set a reminder")
+        advanceUntilIdle()
+        viewModel.onSlotReply("buy one tomorrow")
+        advanceUntilIdle()
+        val pending = requireNotNull(viewModel.pendingSlot.value).request
+        assertEquals("buy one", pending.existingParams["item"])
+        assertEquals("tomorrow", pending.existingParams["day"])
+    }
+
+    @Test
     fun `reminder without a day then this evening at 7 on tomorrow runs without a morning or evening question`() =
         runTest(dispatcher) {
             val runIntentSkill = CapturingRunIntentSkill()

@@ -55,6 +55,41 @@ class ReminderTimeFollowupsTest {
     }
 
     @Test
+    fun `hour oh minutes and hour minute words read as clock minutes`() {
+        assertScheduleAtClocks("seven oh five pm", "time", "time", List(4) { "19:05" })
+        assertScheduleAtClocks("seven ten pm", "time", "time", List(4) { "19:10" })
+        assertScheduleAtClocks("nine oh five in the morning", "time", "time", List(4) { "9:05" })
+        assertScheduleAtClocks("at seven oh five pm", "time", "time", List(4) { "19:05" })
+        assertScheduleAtClocks("ten oh five pm", "time", "time", List(4) { "22:05" })
+    }
+
+    @Test
+    fun `this evening at 2 asks the morning question today and morning or evening tomorrow`() {
+        val today = parseReminderSlotReply("this evening at 2", "time", now = now("14:00"))
+        assertEquals("02:00", today.schedule[BARE_TIME_PARAM])
+        assertEquals("Do you mean 2 in the morning? Yes or no.", pendingTimeOfDaySlot(today.schedule)?.promptTemplate)
+        val tomorrow = parseReminderSlotReply("this evening at 2", "time", mapOf("day" to "tomorrow"), now("14:00"))
+        assertEquals("tomorrow", tomorrow.schedule["day"])
+        assertEquals("Morning or evening?", pendingTimeOfDaySlot(tomorrow.schedule)?.promptTemplate)
+    }
+
+    @Test
+    fun `item keeps a number word that sits right before a day word`() {
+        clocks.forEach { clock ->
+            val buy = parseReminderSlotReply("buy one tomorrow", "item", now = now(clock))
+            assertEquals("buy one", buy.value, "at $clock")
+            assertEquals("tomorrow", buy.schedule["day"], "at $clock")
+            val take = parseReminderSlotReply("take two tonight", "item", now = now(clock))
+            assertEquals("take two", take.value, "at $clock")
+        }
+    }
+
+    @Test
+    fun `at 7 to 8 is not a minute phrase so the bare hour rule applies`() {
+        assertScheduleAtClocks("at 7 to 8", "time", "time", listOf("07:00", "07:00", "19:00", "07:00"))
+    }
+
+    @Test
     fun `spoken item with number words keeps them when the time is a spoken half past`() {
         assertScheduleAtClocks(
             "take two tablets at half past seven", "item", "time",

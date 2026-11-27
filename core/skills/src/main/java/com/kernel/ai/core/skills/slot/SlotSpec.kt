@@ -155,28 +155,17 @@ fun parseReminderSlotReply(
         val schedule = parseReminderPhraseSchedule(phrase, existingDay, now)
         if (schedule.isNotEmpty()) return ReminderSlotReply(value = null, schedule = schedule)
     }
-    // Earliest split first, so the item keeps as many words as possible.
-    for (separator in Regex("\\s+").findAll(phrase)) {
-        val head = phrase.substring(0, separator.range.first).trim()
-        val tail = phrase.substring(separator.range.last + 1)
-        if (head.isEmpty() || !isReminderSchedulePhrase(tail)) continue
+    // Earliest split first, so the item keeps as many words as possible. Splits are on the raw words, so the
+    // item keeps number words as said; each tail is normalised on its own.
+    val words = trimmed.trimEnd('.', '!', '?').split(Regex("\\s+"))
+    for (count in 1 until words.size) {
+        val head = words.take(count).joinToString(" ")
+        val tail = normalizeSpokenClock(words.drop(count).joinToString(" "))
+        if (!isReminderSchedulePhrase(tail)) continue
         val schedule = parseReminderPhraseSchedule(tail, existingDay, now)
-        if (schedule.isNotEmpty()) return ReminderSlotReply(value = itemAsSpoken(trimmed, head), schedule = schedule)
+        if (schedule.isNotEmpty()) return ReminderSlotReply(value = head, schedule = schedule)
     }
     return ReminderSlotReply(value = trimmed, schedule = emptyMap())
-}
-
-/**
- * The item as the user said it. [spokenHead] is the item after [normalizeSpokenClock]; the matching prefix
- * of [raw] is returned so number words in the item stay as said. Falls back to [spokenHead].
- */
-private fun itemAsSpoken(raw: String, spokenHead: String): String {
-    val words = raw.trimEnd('.', '!', '?').split(Regex("\\s+"))
-    for (count in words.size downTo 1) {
-        val prefix = words.take(count).joinToString(" ")
-        if (normalizeSpokenClock(prefix) == spokenHead) return prefix
-    }
-    return spokenHead
 }
 
 /**

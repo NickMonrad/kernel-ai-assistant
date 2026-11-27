@@ -1,5 +1,7 @@
 package com.kernel.ai.core.skills
 
+import java.util.Locale
+
 /*
  * Spoken clock words to digits for reminder times (#2146). Shared by every reminder reply path: typed,
  * voice, and the chat screen. Number words are rewritten only in a clock context: an hour word after
@@ -21,15 +23,18 @@ private val HOUR_WORD = HOUR_WORDS.keys.joinToString("|")
 private val MINUTE_WORD = MINUTE_WORDS.keys.sortedByDescending { it.length }
     .joinToString("|") { it.replace(" ", "\\s+") }
 
+/** A number word right before an hour word makes it part of a larger number ("oh seven", "twenty one"), not a clock hour. */
+private val NUMBER_BEFORE_HOUR = """(?<!\b(?:oh|o|twenty|thirty|forty|fifty|$HOUR_WORD)\s)"""
+
 /** "ten to eight", "twenty five past seven": a minute word, "to" or "past", then an hour. */
 private val MINUTE_TO_HOUR = Regex("""\b($MINUTE_WORD)\s+(to|past)\s+($HOUR_WORD|\d{1,2})\b""", RegexOption.IGNORE_CASE)
 
 /** "half seven" is seven thirty. */
 private val HALF_HOUR_WORD = Regex("""\bhalf\s+($HOUR_WORD)\b""", RegexOption.IGNORE_CASE)
 
-/** "seven thirty", "seven fifteen". */
+/** "seven thirty", "seven fifteen", "seven oh five", "seven ten". */
 private val HOUR_WORD_THEN_MINUTE = Regex(
-    """\b($HOUR_WORD)\s+(fifteen|twenty(?:\s+five)?|thirty(?:\s+five)?|forty(?:\s+five)?|fifty(?:\s+five)?)\b""",
+    """$NUMBER_BEFORE_HOUR\b($HOUR_WORD)\s+(?:(?:oh|o)\s+)?(five|ten|fifteen|twenty(?:\s+five)?|thirty(?:\s+five)?|forty(?:\s+five)?|fifty(?:\s+five)?)\b""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -41,7 +46,7 @@ private val HOUR_WORD_IN_CONTEXT = Regex(
 
 /** An hour word before o'clock, am/pm, a day part or a day: "seven o'clock", "seven in the evening", "seven tomorrow". */
 private val HOUR_WORD_BEFORE_DAY_PART = Regex(
-    """\b($HOUR_WORD)(?=\s+(?:o'?clock|[ap]\.?m\b|in\s+the\s+(?:morning|afternoon|evening)\b|at\s+night\b|tonight\b|this\s+evening\b|tomorrow\b|today\b))""",
+    """$NUMBER_BEFORE_HOUR\b($HOUR_WORD)(?=\s+(?:o'?clock|[ap]\.?m\b|in\s+the\s+(?:morning|afternoon|evening)\b|at\s+night\b|tonight\b|this\s+evening\b|tomorrow\b|today\b))""",
     RegexOption.IGNORE_CASE,
 )
 
@@ -68,7 +73,7 @@ internal fun normalizeSpokenClock(text: String): String {
     }
     out = HALF_HOUR_WORD.replace(out) { m -> "${hourValue(m.groupValues[1])}:30" }
     out = HOUR_WORD_THEN_MINUTE.replace(out) { m ->
-        "%d:%02d".format(hourValue(m.groupValues[1]), minuteValue(m.groupValues[2]))
+        String.format(Locale.ROOT, "%d:%02d", hourValue(m.groupValues[1]), minuteValue(m.groupValues[2]))
     }
     out = HOUR_WORD_IN_CONTEXT.replace(out) { m -> "${m.groupValues[1]}${m.groupValues[2]}${hourValue(m.groupValues[3])}" }
     out = HOUR_WORD_BEFORE_DAY_PART.replace(out) { m -> hourValue(m.groupValues[1]).toString() }

@@ -84,7 +84,8 @@ internal fun bareHourIn(timePhrase: String): BareHour? {
         if (!asked) return null
     }
 
-    TO_HOUR_PHRASE.find(cleaned)?.let { return toHourBare(it, parsed) }
+    // "at 7 to 8" is not a minute phrase, so the bare hour rule reads its hour.
+    TO_HOUR_PHRASE.find(cleaned)?.takeIf { isMinuteStep(it) }?.let { return toHourBare(it, parsed) }
 
     val hours = parsed["hours"]
     if (hours != null) {
@@ -102,14 +103,16 @@ internal fun bareHourIn(timePhrase: String): BareHour? {
     return if (hour in 1..11) BareHour(hour, 0) else null
 }
 
-/**
- * "quarter to H" / "N to H" as a bare reading: the spoken hour H must be 1 to 11 and N a multiple of 5 from
- * 5 to 55. "quarter to 12" is not bare; it keeps its 11:45 meaning.
- */
-private fun toHourBare(match: MatchResult, parsed: Map<String, String>): BareHour? {
+/** True when the "N to H" phrase names a minute step: N is 5 to 55 in fives, or "quarter" (15). */
+private fun isMinuteStep(match: MatchResult): Boolean {
     val before = match.groupValues[1].let { if (it == "quarter") 15 else it.toInt() }
+    return before in 5..55 && before % 5 == 0
+}
+
+/** "quarter to H" / "N to H" as a bare reading for a minute step: the spoken hour H must be 1 to 11. */
+private fun toHourBare(match: MatchResult, parsed: Map<String, String>): BareHour? {
     val spokenHour = match.groupValues[2].toInt()
-    if (before !in 5..55 || before % 5 != 0 || spokenHour !in 1..11) return null
+    if (spokenHour !in 1..11) return null
     val hours = parsed["hours"]?.toInt() ?: return null
     return BareHour(hours, parsed.getValue("minutes").toInt(), spokenHour, match.value)
 }
