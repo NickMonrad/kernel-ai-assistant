@@ -697,7 +697,7 @@ class InflectMicroTextFrontendTest {
             "Fill until 1/2 full" to "Fill until half full",
             "Microwave on 1/2 power" to "Microwave on half power",
             "After 1/4 of the year" to "After a quarter of the year",
-            "On 1/2 the days" to "On half the days",
+            "after 1/2 an hour" to "after half an hour",
             "Set 1/2 cup aside" to "Set half a cup aside",
             "part 1/2 cup water" to "part half a cup water",
             "level 1/2 teaspoon" to "level half a teaspoon",

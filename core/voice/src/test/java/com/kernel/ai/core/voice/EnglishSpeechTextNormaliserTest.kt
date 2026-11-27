@@ -415,15 +415,22 @@ class EnglishSpeechTextNormaliserTest {
         assertEquals("Reduce the sauce by half", kokoroText("Reduce the sauce by 1/2"))
         assertEquals("Reduce by a third before serving", kokoroText("Reduce by 1/3 before serving"))
         assertEquals("after half an hour add salt", kokoroText("after 1/2 hour add salt"))
+        assertEquals("after half an hour", kokoroText("after 1/2 an hour"))
         assertEquals("Use from half to three quarters of a cup of water", kokoroText("Use from 1/2 to 3/4 cup of water"))
         assertEquals("Between a third and half of users", kokoroText("Between 1/3 and 1/2 of users"))
         assertEquals("Fill until half full", kokoroText("Fill until 1/2 full"))
         assertEquals("Microwave on half power", kokoroText("Microwave on 1/2 power"))
         assertEquals("After a quarter of the year", kokoroText("After 1/4 of the year"))
-        assertEquals("On half the days", kokoroText("On 1/2 the days"))
         assertEquals("Set half a cup aside", kokoroText("Set 1/2 cup aside"))
         assertEquals("part half a cup water", kokoroText("part 1/2 cup water"))
         assertEquals("level half a teaspoon", kokoroText("level 1/2 teaspoon"))
+    }
+
+    @Test
+    fun slash_numbers_after_a_cue_followed_by_the_or_a_read_as_dates() {
+        assertEquals("On the fifth of December the team meets", kokoroText("On 5/12 the team meets"))
+        assertEquals("Monday the third of April the shop opens late", kokoroText("Monday 3/4 the shop opens late"))
+        assertEquals("Friday the sixth of August a new store opens", kokoroText("Friday 6/8 a new store opens"))
     }
 
     @Test
@@ -463,6 +470,9 @@ class EnglishSpeechTextNormaliserTest {
         assertEquals("five to ten kilometres", kokoroText("5–10 km"))
         assertEquals("I ran the ten kilometres.", kokoroText("I ran the 10 km."))
         assertEquals("the five kilometre walk", kokoroText("the 5 km walk"))
+        assertEquals("the ten kilometres of road", kokoroText("the 10 km of road"))
+        assertEquals("the ten kilometres to Wellington", kokoroText("the 10 km to Wellington"))
+        assertEquals("Did you do the five kilometres and the ten kilometres?", kokoroText("Did you do the 5 km and the 10 km?"))
     }
 
     @Test

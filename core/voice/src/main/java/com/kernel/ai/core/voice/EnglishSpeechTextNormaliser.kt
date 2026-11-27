@@ -193,8 +193,8 @@ object EnglishSpeechTextNormaliser {
     private val yearBeforeVerb = Regex("""(?<![\p{L}\p{N}.,:/$])((?:10|1[1-9]|20)\d{2})(?=\s+(?:was|were|is)\b)""")
     /** "a", "an" or "the" as a whole word right before a number, or before an "N to " range: "Japan 5 km" has no article. */
     private val articleBefore = Regex("""(?i)(?<!\p{L})(a|an|the)\s+(?:\d+\s+to\s+)?\z""")
-    /** A word after a unit: "the 5 km walk" has one, "I ran the 10 km." does not. */
-    private val wordAfter = Regex("""\A\s+\p{L}""")
+    /** A word after a unit: "the 5 km walk" has one, "I ran the 10 km." does not, nor "the 10 km of road" (a function word). */
+    private val wordAfter = Regex("""\A\s+(?!(?i:of|to|and|or|in|at|for|from|with|is|was)(?!\p{L}))\p{L}""")
     /** Fraction names for denominators read as words. Other denominators read "N out of D". */
     private val fractionNames = mapOf(
         2 to ("half" to "halves"), 3 to ("third" to "thirds"), 4 to ("quarter" to "quarters"),
@@ -214,9 +214,12 @@ object EnglishSpeechTextNormaliser {
     private val sequenceFraction = Regex(
         """(?i)\b(step|page|score|question|q|round|part|level|chapter|episode|game|set|rep)\s+([0-9]{1,3})/([0-9]{1,3})(?![0-9/])(?!\s+(?:$fractionMeasureWords)(?!\p{L}))""",
     )
-    /** What follows a slash pair that makes it a fraction, not a date: "1/2 cup", "1/2 of", "1/2 the", "from 1/2 to 3/4 cup". */
+    /**
+     * What follows a slash pair that makes it a fraction, not a date: "1/2 cup", "1/2 of", "1/2 full", "from 1/2 to 3/4 cup",
+     * "1/2 an hour". A bare "a", "an" or "the" does not: "On 5/12 the team meets" is a date.
+     */
     private val fractionContext = Regex(
-        """\A(?:\s+(?:to|and|until|till)\s+[0-9]{1,2}/[0-9]{1,2}(?![0-9/]))?\s+(?:$fractionMeasureWords|of|a|an|the|full|empty|power)(?!\p{L})""",
+        """\A(?:\s+(?:to|and|until|till)\s+[0-9]{1,2}/[0-9]{1,2}(?![0-9/]))?\s+(?:$fractionMeasureWords|of|full|empty|power|(?:a|an)\s+(?:$fractionMeasureWords))(?!\p{L})""",
         RegexOption.IGNORE_CASE,
     )
     private val reductionVerb = Regex("""(?i)\b(?:reduce|increase|cut|divide|multiply)\b[^.!?;\n]*\z""")
