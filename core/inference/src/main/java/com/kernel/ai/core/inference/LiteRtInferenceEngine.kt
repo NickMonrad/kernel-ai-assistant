@@ -2,6 +2,7 @@ package com.kernel.ai.core.inference
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -2402,12 +2403,16 @@ class LiteRtInferenceEngine @Inject constructor(
             }
             try {
                 Log.d(TAG, "Trying backend: $backendType")
+                val socManufacturer = Build.SOC_MANUFACTURER
+                val activationDataType = backendType.activationDataType(socManufacturer)
+                Log.i(TAG, "Backend $backendType activation: soc_manufacturer=$socManufacturer " +
+                    "activation=${activationDataType ?: "default"}")
                 val engineConfig = EngineConfig(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
-                    activationDataType = backendType.activationDataType(),
+                    activationDataType = activationDataType,
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
