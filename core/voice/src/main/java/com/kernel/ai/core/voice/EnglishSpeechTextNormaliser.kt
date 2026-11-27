@@ -40,8 +40,8 @@ import java.util.Locale
  * - Digit strings: phone-style groups, grouped identifiers ("1300 555 019") and leading-zero or very long runs are
  *   read digit by digit, so no number is lost to a `Long` overflow.
  *
- * Output has no digits from the supported forms. Symbols such as "/", ":", "+", "#", "€" and "£" are only removed
- * from the forms above; fractions, ratios, time ranges and currency symbols other than "$" are not handled here.
+ * Output has no digits from the supported forms. Symbols such as "/", ":", "+", "#", "=", "<", ">", "€", "£" and "¥"
+ * are removed only from the forms listed above.
  * Engine-specific pronunciation (identifier letter names, acronyms, punctuation) is not decided here, except that the
  * letter names used for spelled letters are [letterName].
  */
@@ -118,14 +118,60 @@ object EnglishSpeechTextNormaliser {
         "x" to ("time" to "times"),
     )
     private val unitAlternatives = units.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
+    private val spacedUnitAlternatives = listOf(
+        "km/h", "mph", "km", "kms", "cm", "mm", "kg", "mg", "ml", "mL", "kW", "GB", "MB", "TB",
+        "kHz", "MHz", "GHz", "Hz", "hPa", "min", "mins", "hr", "hrs", "sec", "secs",
+    ).sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
 
     private val minusSign = Regex("""(?<![\p{L}\p{N}])[-\u2212\u2013](?=\$?\d)""")
+    /** Pre-passes: "$-5" → "-$5" and "--5" → "-5", so [minusSign] reads the sign before any currency. */
+    private val dollarMinus = Regex("""\$-(?=\d)""")
+    private val doubleMinus = Regex("""(?<![-\p{L}\p{N}])--(?=\d)""")
+    private val versionPrefix = Regex("""(?<![\p{L}\p{N}])[vV](?=\d+(?:\.\d+)+)""")
+    private val hashNumber = Regex("""#(?=\d)""")
+    /** "24/7" is a fixed phrase, not a date or fraction. */
+    private val twentyFourSeven = Regex("""(?<![\p{N}/])24/7(?![\p{N}/])""")
+    private val orMore = Regex("""(\d+)\+(?=\s+[A-Za-z])""")
+    private val lessThan = Regex("""(?<![\p{L}\p{N}])<(?=\s*\d)""")
+    private val moreThan = Regex("""(?<![\p{L}\p{N}])>(?=\s*\d)""")
+    private val digitPlus = Regex("""(?<=\d)\+(?=\d)""")
+    private val digitEquals = Regex("""(?<=\d)=(?=\d)""")
+    /** A leading "+" is "plus" unless it starts a "+64" country code, which [countryCodeNz] reads. */
+    private val leadingPlus = Regex("""(?<![\p{L}\p{N}])\+(?!64[\s-])(?=\d)""")
+    /** An NZ area code in brackets: "(09) 123 4567" → "09 123 4567", read as grouped digits. */
+    private val bracketedArea = Regex("""\((0\d{1,2})\)\s*""")
+    private val slashDateShortYear = Regex("""(?<![\p{N}.,:/-])(\d{1,2})/(\d{1,2})/(\d{2})(?![\p{N}/])""")
+    /** Day/month or fraction, read after the date and money rules. The optional following word decides "of a". */
+    private val slashDayMonth = Regex(
+        """(?<![\p{N}.,:/$])(\d{1,2})/(\d{1,2})(?![\p{N}/])(?:(?=\s+(?!(?:and|or|to|the|of|is|are|was|in|on|at|for|with)\b)([A-Za-z]+)))?""",
+    )
+    private val flatAddress = Regex("""\b(?i:(flat|unit|apartment|apt|suite|room))\s+(\d+)/(\d+)\b""")
+    private val symbolMoney = Regex("""(?<![\p{L}\p{N}])([€£¥])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?!\p{N})""")
+    private val perUnit = Regex("""(?<=dollars|euros|pounds|yen|cents)/(month|week|day|year|hour)\b""")
+    private val countryCodeNz = Regex("""\+64[\s-]+(\d{1,2})[\s-]+(\d{3})[\s-]+(\d{3,4})(?!\p{N})""")
+    private val duration = Regex("""\b(\d{1,2}):([0-5]\d):([0-5]\d)\b""")
+    /** "9am-5pm", "10:30–11:30". Only a time cue (colon or a.m./p.m.) makes it a time; "3-5 days" is left alone. */
+    private val clockRange = Regex(
+        """(?<![\p{L}\p{N}:.,/$])(\d{1,2}(?::\d{2})?)(?:\s*([AaPp])\.?\s*[Mm]\.?)?\s*[-\u2212\u2013]\s*(\d{1,2}(?::\d{2})?)(?:\s*([AaPp])\.?\s*[Mm]\.?)?(?![\p{N}:/])""",
+    )
+    private val ratio = Regex("""(?<![\p{N}:.,/$])(\d{1,2}):(\d)(?![\p{N}:/])""")
+    private val spacedRange = Regex("""(?<![\p{L}\p{N}/:.,$])(\d+)\s+[-\u2212\u2013]\s+(\d+)(?![\p{N}/:.,])""")
+    private val spacedUnit = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+($spacedUnitAlternatives)(?![\p{L}\p{N}/])""",
+    )
+    private val yearBeforeVerb = Regex("""(?<![\p{L}\p{N}.,:/$])((?:10|1[1-9]|20)\d{2})(?=\s+(?:was|were|is)\b)""")
+    private val articleBefore = Regex("""(?i)\b(?:a|an)\s+\z""")
+    /** Fraction names for denominators read as words. Other denominators read "N out of D". */
+    private val fractionNames = mapOf(
+        2 to ("half" to "halves"), 3 to ("third" to "thirds"), 4 to ("quarter" to "quarters"),
+        6 to ("sixth" to "sixths"), 8 to ("eighth" to "eighths"), 10 to ("tenth" to "tenths"),
+    )
     private val isoDate = Regex("""(?<![\p{N}.,:/-])(\d{4})-(\d{2})-(\d{2})(?!\p{N})""")
     private val slashDate = Regex("""(?<![\p{N}.,:/-])(\d{1,2})/(\d{1,2})/(\d{4})(?![\p{N}/])""")
     private val dayMonthYear = Regex("""\b([Tt]he\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?($monthAlternation),?\s+(\d{4})(?!\p{N})""")
     private val monthDayYear = Regex("""\b($monthAlternation)\.?\s+(?:[Tt]he\s+)?(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?!\p{N})""")
     private val money = Regex(
-        """(?<![\p{L}\p{N}])(NZ|US|AU|A)?\$(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:\s?(?i:(million|billion|trillion|thousand))\b|(?i:(bn|k|m|b))(?!\p{L}))?(?!\p{N})""",
+        """(?<![\p{L}\p{N}])(NZ|US|AU|A)?\$(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(?:\s?(?i:(million|billion|trillion|thousand))\b(?:\s+(?i:dollars?)\b)?|(?i:(bn|k|m|b))(?!\p{L}))?(?!\p{N})""",
     )
     private val emergencyCue = Regex("""(?i)\b(call|ring|dial|emergency)\s+111(?!\p{N})""")
     private val emergencyLead = Regex("""\b111(?=\s+in an emergency\b)""")
@@ -158,19 +204,38 @@ object EnglishSpeechTextNormaliser {
         """\b(in|since|from|until|till|by|during|circa|around|before|after|of|founded|established|built|renamed|updated|released|copyright|season|born|died|edition|year|January|February|March|April|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec)\s+((?:10|1[1-9]|20)\d{2})(?!\p{N})(?![.,]\p{N})""",
         RegexOption.IGNORE_CASE,
     )
-    private val mixedToken = Regex("""(?<![\p{L}\p{N}])([A-Za-z]{1,4})?(\d+)([A-Za-z]{1,4})?(?![\p{L}\p{N}])""")
+    /** A token with letters and digits, split into letter runs and digit runs: "A1B2", "Qwen3", "H2O". */
+    private val mixedToken = Regex("""(?<![\p{L}\p{N}])(?=[\p{L}\p{N}]*\p{L})(?=[\p{L}\p{N}]*\p{N})[\p{L}\p{N}]+(?![\p{L}\p{N}])""")
+    private val alnumParts = Regex("""\p{L}+|\p{N}+""")
     private val plainNumber = Regex("""(?<![\p{L}\p{N}])(\d{1,3}(?:,\d{3})+|\d+)(?![\p{L}\p{N}])""")
 
     /** Letter name for spelled letters ("B" → "bee"). Non-letters are returned unchanged. */
     fun letterName(letter: Char): String = letterNames[letter.uppercaseChar()] ?: letter.toString()
 
     fun normalize(text: String): String {
-        var value = minusSign.replace(text) { "minus " }
+        var value = bracketedArea.replace(text) { match -> "${match.groupValues[1]} " }
+        value = dollarMinus.replace(value) { "-\$" }
+        value = doubleMinus.replace(value, "-")
+        value = versionPrefix.replace(value, "version ")
+        value = hashNumber.replace(value, "number ")
+        value = twentyFourSeven.replace(value, "twenty four seven")
+        value = orMore.replace(value) { match -> "${match.groupValues[1]} or more" }
+        value = lessThan.replace(value, "less than ")
+        value = moreThan.replace(value, "more than ")
+        value = digitPlus.replace(value, " plus ")
+        value = digitEquals.replace(value, " equals ")
+        value = leadingPlus.replace(value, "plus ")
+        value = minusSign.replace(value) { "minus " }
         value = isoDate.replace(value) { match ->
             spokenDate(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt()) ?: match.value
         }
         value = slashDate.replace(value) { match ->
             spokenSlashDate(match.groupValues[1].toInt(), match.groupValues[2].toInt(), match.groupValues[3].toInt()) ?: match.value
+        }
+        value = slashDateShortYear.replace(value) { match ->
+            val twoDigitYear = match.groupValues[3].toInt()
+            val year = if (twoDigitYear <= 50) 2000 + twoDigitYear else 1900 + twoDigitYear
+            spokenSlashDate(match.groupValues[1].toInt(), match.groupValues[2].toInt(), year) ?: match.value
         }
         value = dayMonthYear.replace(value) { match ->
             val spoken = spokenDate(
@@ -188,10 +253,18 @@ object EnglishSpeechTextNormaliser {
             ) ?: match.value
         }
         value = money.replace(value) { match -> expandMoney(match) }
+        value = symbolMoney.replace(value) { match -> expandSymbolMoney(match) }
+        value = perUnit.replace(value) { match -> " a ${match.groupValues[1]}" }
         value = emergencyCue.replace(value) { match -> "${match.groupValues[1]} one one one" }
         value = emergencyLead.replace(value, "one one one")
+        value = countryCodeNz.replace(value) { match ->
+            "plus six four, ${expandDigits(match.groupValues[1])}, ${expandDigits(match.groupValues[2])}, ${expandDigits(match.groupValues[3])}"
+        }
         value = countryCode.replace(value, "plus six four, ")
+        value = duration.replace(value) { match -> expandDuration(match) }
+        value = clockRange.replace(value) { match -> expandClockRange(match) }
         value = timeColon.replace(value) { match -> expandTime(match) }
+        value = ratio.replace(value) { match -> "${match.groupValues[1]} by ${match.groupValues[2]}" }
         value = timeSuffix.replace(value) { match ->
             val suffix = lettersOnly(match.groupValues[2]).lowercase(Locale.US)
             "${numberToWords(match.groupValues[1].toLong())} ${suffix.map { it.toString() }.joinToString(" ")}"
@@ -215,6 +288,10 @@ object EnglishSpeechTextNormaliser {
             val number = match.groupValues[1].replace(",", "").toLongOrNull() ?: return@replace match.value
             numberToWords(number, ordinal = true)
         }
+        value = flatAddress.replace(value) { match ->
+            "${match.groupValues[1].lowercase(Locale.US)} ${integerWords(match.groupValues[2])}, ${integerWords(match.groupValues[3])}"
+        }
+        value = slashDayMonth.replace(value) { match -> expandSlashFraction(match) }
         value = digitGroups.replace(value) { match ->
             match.value.split(Regex("\\s+")).joinToString(", ") { group -> expandDigits(group) }
         }
@@ -222,14 +299,13 @@ object EnglishSpeechTextNormaliser {
             "${yearWords(match.groupValues[1].toInt())} to ${yearWords(match.groupValues[2].toInt())}"
         }
         value = seasonYear.replace(value) { match -> yearWords(match.groupValues[1].toInt()) }
+        value = yearBeforeVerb.replace(value) { match -> yearWords(match.groupValues[1].toInt()) }
         value = range.replace(value) { match -> "${match.groupValues[1]} to ${match.groupValues[2]}" }
-        value = gluedUnit.replace(value) { match ->
-            val whole = match.groupValues[1]
-            val fraction = match.groupValues[2]
-            val (singular, plural) = units.getValue(match.groupValues[3])
-            val isOne = fraction.isEmpty() && whole.replace(",", "") == "1"
-            "${spokenNumber(whole, fraction)} ${if (isOne) singular else plural}"
-        }
+        value = spacedRange.replace(value) { match -> "${match.groupValues[1]} to ${match.groupValues[2]}" }
+        val glued = value
+        value = gluedUnit.replace(glued) { match -> expandUnit(glued, match) }
+        val spaced = value
+        value = spacedUnit.replace(spaced) { match -> expandUnit(spaced, match) }
         value = decimal.replace(value) { match ->
             // "Qwen2.5" → "Qwen two point five": a letter directly before the number needs a space.
             val lead = if (match.range.first > 0 && value[match.range.first - 1].isLetter()) " " else ""
@@ -241,6 +317,105 @@ object EnglishSpeechTextNormaliser {
         value = mixedToken.replace(value) { match -> expandMixedToken(match) }
         value = plainNumber.replace(value) { match -> integerWords(match.groupValues[1].replace(",", "")) }
         return value
+    }
+
+    /** "26/11" → "the twenty sixth of November" (day first, only when the second number is a month and the first is over 12). */
+    private fun expandSlashFraction(match: MatchResult): String {
+        val first = match.groupValues[1].toInt()
+        val second = match.groupValues[2].toInt()
+        val following = match.groupValues[3]
+        if (first > 12 && second in 1..12 && isRealDay(first, second)) {
+            return "the ${numberToWords(first.toLong(), ordinal = true)} of ${monthNames[second - 1]}"
+        }
+        val names = fractionNames[second]
+            ?: return "${cardinal(first.toLong())} out of ${cardinal(second.toLong())}"
+        val (single, plural) = names
+        val isHalf = second == 2 && first == 1
+        val head = when {
+            isHalf -> "half"
+            first == 1 -> "a $single"
+            else -> "${cardinal(first.toLong())} $plural"
+        }
+        if (following.isEmpty()) return head
+        return if (isHalf) "$head ${indefiniteArticle(following)}" else "$head of ${indefiniteArticle(following)}"
+    }
+
+    private fun isRealDay(day: Int, month: Int): Boolean = try {
+        LocalDate.of(2000, month, day)
+        true
+    } catch (_: DateTimeException) {
+        false
+    }
+
+    private fun indefiniteArticle(word: String): String = if (word.first().lowercaseChar() in "aeiou") "an" else "a"
+
+    /**
+     * A glued or spaced unit: "5km" → "five kilometres"; a unit after "a" or "an" is singular: "a 45s clip" →
+     * "a forty five second clip".
+     */
+    private fun expandUnit(source: String, match: MatchResult): String {
+        val whole = match.groupValues[1]
+        val fraction = match.groupValues[2]
+        val (singular, plural) = units.getValue(match.groupValues[3])
+        val isOne = fraction.isEmpty() && (whole.replace(",", "") == "1" || precededByArticle(source, match.range.first))
+        return "${spokenNumber(whole, fraction)} ${if (isOne) singular else plural}"
+    }
+
+    private fun precededByArticle(source: String, start: Int): Boolean =
+        articleBefore.containsMatchIn(source.substring(maxOf(0, start - 3), start))
+
+    /** "1:30:45" → "one hour, thirty minutes and forty five seconds"; zero parts are dropped. */
+    private fun expandDuration(match: MatchResult): String {
+        val parts = listOf(
+            match.groupValues[1].toLong() to "hour",
+            match.groupValues[2].toLong() to "minute",
+            match.groupValues[3].toLong() to "second",
+        ).filter { it.first > 0L }.map { (count, unit) -> "${cardinal(count)} $unit${if (count == 1L) "" else "s"}" }
+        return if (parts.isEmpty()) "zero seconds" else joinList(parts)
+    }
+
+    private fun joinList(items: List<String>): String =
+        if (items.size == 1) items.single() else items.dropLast(1).joinToString(", ") + " and " + items.last()
+
+    /** "9am-5pm" → "nine a m to five p m"; "10:30-11:30" → "ten thirty to eleven thirty". Without a cue it is not a time. */
+    private fun expandClockRange(match: MatchResult): String {
+        val left = match.groupValues[1]
+        val leftSuffix = match.groupValues[2]
+        val right = match.groupValues[3]
+        val rightSuffix = match.groupValues[4]
+        val hasCue = left.contains(':') || leftSuffix.isNotEmpty() || right.contains(':') || rightSuffix.isNotEmpty()
+        if (!hasCue) return match.value
+        return "${clockWords(left, leftSuffix)} to ${clockWords(right, rightSuffix)}"
+    }
+
+    private fun clockWords(clock: String, suffix: String): String {
+        val parts = clock.split(':')
+        val pieces = mutableListOf(numberToWords(parts[0].toLong()))
+        if (parts.size == 2) {
+            val minute = parts[1].toInt()
+            if (minute != 0) pieces += if (minute < 10) listOf("oh", cardinal(minute.toLong())) else listOf(cardinal(minute.toLong()))
+        }
+        if (suffix.isNotEmpty()) pieces += listOf(suffix.lowercase(Locale.US), "m")
+        return pieces.joinToString(" ")
+    }
+
+    /** "€30" → "thirty euros", "£4.20" → "four pounds and twenty pence", "¥1000" → "one thousand yen". */
+    private fun expandSymbolMoney(match: MatchResult): String {
+        val symbol = match.groupValues[1]
+        val whole = match.groupValues[2].replace(",", "")
+        val fraction = match.groupValues[3]
+        if (symbol == "¥") return "${spokenNumber(whole, fraction)} yen"
+        val (unitSingular, unitPlural, subSingular, subPlural) = if (symbol == "€") {
+            listOf("euro", "euros", "cent", "cents")
+        } else {
+            listOf("pound", "pounds", "penny", "pence")
+        }
+        val unitWord = if (whole.toLongOrNull() == 1L) unitSingular else unitPlural
+        if (fraction.isEmpty() || fraction.all { it == '0' }) return "${integerWords(whole)} $unitWord"
+        if (fraction.length > 2) return "${spokenNumber(whole, fraction)} $unitPlural"
+        val cents = fraction.padEnd(2, '0').toInt()
+        val centWords = "${cardinal(cents.toLong())} ${if (cents == 1) subSingular else subPlural}"
+        return if (whole.toLongOrNull() == 0L) centWords else "${integerWords(whole)} $unitWord and $centWords"
     }
 
     /** Every digit as a word, with "oh" for zero: phone groups ("oh two one"), decimals ("point oh"), codes. */
@@ -263,10 +438,12 @@ object EnglishSpeechTextNormaliser {
             fraction.length > 2 -> "$dollarWords point ${expandDigits(fraction)} ${currency}dollars"
             else -> {
                 val cents = fraction.padEnd(2, '0').toInt()
-                if (cents == 0) {
-                    "$dollarWords ${currency}$dollarUnit"
-                } else {
-                    "$dollarWords ${currency}$dollarUnit and ${cardinal(cents.toLong())} ${if (cents == 1) "cent" else "cents"}"
+                val centWord = if (cents == 1) "cent" else "cents"
+                when {
+                    cents == 0 -> "$dollarWords ${currency}$dollarUnit"
+                    // "$0.99" → "ninety nine cents", not "zero dollars and ninety nine cents".
+                    rawDollars == "0" -> "${cardinal(cents.toLong())} $centWord"
+                    else -> "$dollarWords ${currency}$dollarUnit and ${cardinal(cents.toLong())} $centWord"
                 }
             }
         }
@@ -323,16 +500,21 @@ object EnglishSpeechTextNormaliser {
         return if (value == null || (digits.length > 1 && digits[0] == '0')) expandDigits(digits) else cardinal(value)
     }
 
+    /** Letter runs are spelled ("A" → "eh", "NZ" → "en zed"); digits after letters of three or more are read digit by digit. */
     private fun expandMixedToken(match: MatchResult): String {
-        val prefix = match.groupValues[1]
-        val digits = match.groupValues[2]
-        val suffix = match.groupValues[3]
-        if (prefix.isEmpty() && suffix.isEmpty()) return match.value
         val parts = mutableListOf<String>()
-        if (prefix.isNotEmpty()) parts += spelledLetters(prefix)
-        // A code after letters ("NZ123", "B1234") is read digit by digit; "B12" and "1080p" keep cardinals.
-        parts += if (prefix.isNotEmpty() && digits.length >= 3) expandDigits(digits) else integerWords(digits)
-        if (suffix.isNotEmpty()) parts += spelledLetters(suffix)
+        var afterLetters = false
+        alnumParts.findAll(match.value).forEach { part ->
+            val text = part.value
+            if (text[0].isLetter()) {
+                parts += spelledLetters(text)
+                afterLetters = true
+            } else {
+                // A code after letters ("NZ123", "B1234") is read digit by digit; "B12" and "1080p" keep cardinals.
+                parts += if (afterLetters && text.length >= 3) expandDigits(text) else integerWords(text)
+                afterLetters = false
+            }
+        }
         return parts.joinToString(" ")
     }
 

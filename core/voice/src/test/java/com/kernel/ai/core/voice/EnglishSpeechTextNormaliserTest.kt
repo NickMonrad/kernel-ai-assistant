@@ -64,7 +64,7 @@ class EnglishSpeechTextNormaliserTest {
     @Test
     fun ranges_read_to() {
         assertEquals("three to five days", kokoroText("3-5 days"))
-        assertEquals("five to ten km", kokoroText("5–10 km"))
+        assertEquals("five to ten kilometres", kokoroText("5–10 km"))
     }
 
     @Test
@@ -131,7 +131,7 @@ class EnglishSpeechTextNormaliserTest {
     @Test
     fun seconds_after_a_number_are_seconds_and_decades_need_the_or_an_apostrophe_or_four_digits() {
         assertEquals("wait thirty seconds", kokoroText("wait 30s"))
-        assertEquals("a forty five seconds clip", kokoroText("a 45s clip"))
+        assertEquals("a forty five second clip", kokoroText("a 45s clip"))
         assertEquals("the nineties", kokoroText("the 90s"))
         assertEquals("the eighties", kokoroText("the '80s"))
         assertEquals("nineteen nineties", kokoroText("1990s"))
@@ -239,5 +239,101 @@ class EnglishSpeechTextNormaliserTest {
             "one two three four five six seven eight nine oh one two three four five six seven eight nine oh one two three",
             kokoroText("12345678901234567890123"),
         )
+    }
+
+    @Test
+    fun fractions_and_ratios_read_as_words() {
+        assertEquals("half a cup", kokoroText("1/2 cup"))
+        assertEquals("three quarters", kokoroText("3/4"))
+        assertEquals("three quarters of a cup", kokoroText("3/4 cup"))
+        assertEquals("a quarter of a cup", kokoroText("1/4 cup"))
+        assertEquals("twenty four seven", kokoroText("24/7"))
+        assertEquals("sixteen by nine", kokoroText("16:9"))
+        assertEquals("four out of five stars", kokoroText("4/5 stars"))
+    }
+
+    @Test
+    fun money_symbols_and_scale_words_read_naturally() {
+        assertEquals("five dollars a month", kokoroText("\$5/month"))
+        assertEquals("thirty euros", kokoroText("€30"))
+        assertEquals("four pounds and twenty pence", kokoroText("£4.20"))
+        assertEquals("one thousand yen", kokoroText("¥1000"))
+        assertEquals("ninety nine cents", kokoroText("\$0.99"))
+        assertEquals("one point five billion dollars", kokoroText("\$1.5 billion dollars"))
+        assertEquals("minus five dollars", kokoroText("\$-5"))
+    }
+
+    @Test
+    fun durations_time_ranges_and_spaced_ranges() {
+        assertEquals("one hour, thirty minutes and forty five seconds", kokoroText("1:30:45"))
+        assertEquals("ten thirty to eleven thirty", kokoroText("10:30–11:30"))
+        assertEquals("nine a m to five p m", kokoroText("9am-5pm"))
+        assertEquals("eighteen to twenty two degrees", kokoroText("18 – 22°C"))
+    }
+
+    @Test
+    fun spaced_units_read_in_full_and_a_number_adjective_takes_the_singular() {
+        assertEquals("five kilometres", kokoroText("5 km"))
+        assertEquals("ten minutes", kokoroText("10 min"))
+        assertEquals("five kilohertz", kokoroText("5 kHz"))
+        assertEquals("one minute", kokoroText("1 min"))
+        assertEquals("wait thirty seconds", kokoroText("wait 30s"))
+    }
+
+    @Test
+    fun hash_plus_greater_than_and_equals_read_as_words() {
+        assertEquals("number one", kokoroText("#1"))
+        assertEquals("plus five percent", kokoroText("+5%"))
+        assertEquals("plus three degrees", kokoroText("+3°C"))
+        assertEquals("two plus two equals four", kokoroText("2+2=4"))
+        assertEquals("three or more people", kokoroText("3+ people"))
+        assertEquals("more than five", kokoroText(">5"))
+        assertEquals("minus five", kokoroText("--5"))
+    }
+
+    @Test
+    fun slash_dates_without_a_year_or_with_a_two_digit_year_read_as_dates() {
+        assertEquals("the twenty sixth of November", kokoroText("26/11"))
+        assertEquals("the first of February, twenty twenty six", kokoroText("1/2/26"))
+        assertEquals("Due the first of February, twenty twenty six", kokoroText("Due 1/2/26"))
+    }
+
+    @Test
+    fun a_year_before_was_or_is_reads_as_a_year() {
+        assertEquals("nineteen ninety nine was a great year", kokoroText("1999 was a great year"))
+        assertEquals("one thousand three hundred people were there", kokoroText("1300 people were there"))
+    }
+
+    @Test
+    fun nz_phone_forms_with_hyphens_and_a_bracketed_area_code() {
+        assertEquals("plus six four, two one, one two three, four five six seven", kokoroText("+64-21-123-4567"))
+        assertEquals("oh nine, one two three, four five six seven", kokoroText("(09) 123 4567"))
+    }
+
+    @Test
+    fun dotted_versions_read_with_version_and_point() {
+        assertEquals("version one point two point three", kokoroText("v1.2.3"))
+    }
+
+    @Test
+    fun flat_numbers_with_a_slash_read_as_flat_and_number() {
+        assertEquals("flat three, forty five", kokoroText("Flat 3/45"))
+    }
+
+    @Test
+    fun new_forms_leave_no_digits_or_symbols() {
+        val inputs = listOf(
+            "1/2 cup, 3/4, 24/7, 16:9, 4/5 stars, Flat 3/45.",
+            "\$5/month, €30, £4.20, ¥1000, \$0.99, \$1.5 billion dollars, \$-5, --5.",
+            "1:30:45, 10:30–11:30, 9am-5pm, 18 – 22°C, 5 km, 10 min, 5 kHz, 5–10 km.",
+            "a 45s clip, #1, +5%, +3°C, 2+2=4, 3+ people, >5, 26/11, 1/2/26, v1.2.3.",
+            "+64-21-123-4567, (09) 123 4567, 1999 was a great year.",
+        )
+        val symbol = Regex("""[/+#€£¥<>=]|\S[-–−:]\S""")
+        inputs.forEach { input ->
+            val spoken = kokoroText(input)
+            assertEquals(false, spoken.any { it.isDigit() }, "$input → $spoken")
+            assertEquals(false, symbol.containsMatchIn(spoken), "$input → $spoken")
+        }
     }
 }

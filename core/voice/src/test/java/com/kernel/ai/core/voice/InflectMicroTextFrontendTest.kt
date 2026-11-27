@@ -122,7 +122,7 @@ class InflectMicroTextFrontendTest {
                 "Booked for the twenty sixth of November, twenty twenty six, about three to five days away.",
             ),
             Triple("3-5 days", "three-five days", "three to five days"),
-            Triple("5–10 km", "five-ten km", "five to ten km"),
+            Triple("5–10 km", "five-ten km", "five to ten kilometres"),
             Triple("1/21/2026", "January twenty first two thousand and twenty six", "the twenty first of January, twenty twenty six"),
             Triple("Qwen3 runs on 1080p.", "Qwen three runs on 1080p.", "Qwen three runs on ten eighty p."),
             Triple("mp3 files, 4K and 3D", "mp3 files, 4K and 3D", "em pee three files, four kay and three dee"),
@@ -136,7 +136,7 @@ class InflectMicroTextFrontendTest {
             Triple("1300 people", "one thousand three hundred people", "one thousand three hundred people"),
             Triple("2025", "two thousand and twenty five", "two thousand and twenty five"),
             Triple("203-0678", "two oh three, zero six seven eight", "two oh three, oh six seven eight"),
-            Triple("Use 2 500 ml bottles", "Use two five hundred ml bottles", "Use two five hundred ml bottles"),
+            Triple("Use 2 500 ml bottles", "Use two five hundred ml bottles", "Use two five hundred millilitres bottles"),
             Triple("\$49.95", "forty nine dollars and ninety five cents", "forty nine dollars and ninety five cents"),
         )
         cases.forEach { (input, _, after) ->
@@ -199,7 +199,7 @@ class InflectMicroTextFrontendTest {
             InflectMicroTextFrontend.normalize("I found 3 20-minute slots"),
         )
         assertEquals(
-            "Use two five hundred ml bottles",
+            "Use two five hundred millilitres bottles",
             InflectMicroTextFrontend.normalize("Use 2 500 ml bottles"),
         )
     }
@@ -551,5 +551,51 @@ class InflectMicroTextFrontendTest {
             "nˈaɪn tˈiːnz",
             InflectMicroTextFrontend.applyPhonemeOverrides("nˈaɪn tˈiːnz"),
         )
+    }
+
+    /**
+     * #2124 forms through the production Inflect path (`speakable` → `normalize`). Inflect's own teen respelling
+     * (`eigh teen`, `nine teen`) applies to every teen word, so those outputs differ from the Kokoro lane by design.
+     */
+    @Test
+    fun issue_2124_forms_read_naturally_through_the_inflect_frontend() {
+        val cases = listOf(
+            "1/2 cup" to "half a cup",
+            "3/4" to "three quarters",
+            "24/7" to "twenty four seven",
+            "16:9" to "six teen by nine",
+            "4/5 stars" to "four out of five stars",
+            "\$5/month" to "five dollars a month",
+            "9am-5pm" to "nine a m to five p m",
+            "18 – 22°C" to "eigh teen to twenty two degrees",
+            "5 km" to "five kilometres",
+            "10 min" to "ten minutes",
+            "#1" to "number one",
+            "€30" to "thirty euros",
+            "£4.20" to "four pounds and twenty pence",
+            "¥1000" to "one thousand yen",
+            "\$0.99" to "ninety nine cents",
+            "\$1.5 billion dollars" to "one point five billion dollars",
+            "\$-5" to "minus five dollars",
+            "--5" to "minus five",
+            "26/11" to "the twenty sixth of November",
+            "1/2/26" to "the first of February, twenty twenty six",
+            "+64-21-123-4567" to "plus six four, two one, one two three, four five six seven",
+            "(09) 123 4567" to "oh nine, one two three, four five six seven",
+            "v1.2.3" to "version one point two point three",
+            "a 45s clip" to "a forty five second clip",
+            "10:30–11:30" to "ten thirty to eleven thirty",
+            "1:30:45" to "one hour, thirty minutes and forty five seconds",
+            "Flat 3/45" to "flat three, forty five",
+            "1999 was a great year" to "nine teen ninety nine was a great year",
+            "2+2=4" to "two plus two equals four",
+            "3+ people" to "three or more people",
+            ">5" to "more than five",
+            "+5%" to "plus five percent",
+            "+3°C" to "plus three degrees",
+        )
+        cases.forEach { (input, expected) ->
+            assertEquals(expected, InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)), input)
+        }
     }
 }
