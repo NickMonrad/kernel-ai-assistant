@@ -17,6 +17,7 @@ import com.kernel.ai.core.voice.VoiceReplyHooks
 import com.kernel.ai.core.voice.VoiceReplyStream
 import com.kernel.ai.core.voice.VoiceSpeakRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -50,6 +51,7 @@ class KokoroVoiceOutputController @Inject constructor(
 
     private val audioManager by lazy { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private val playbackGeneration = AtomicLong(0L)
+    private val replyIds = AtomicLong(0L)
     /** Guards engine load, unload and chunk synthesis: a voice switch never closes an engine mid-chunk. */
     private val synthesisLock = Mutex()
     /** Serialises reply opens so stop-capture-publish happens as one step; the newest open always wins. */
@@ -59,6 +61,7 @@ class KokoroVoiceOutputController @Inject constructor(
     @Volatile private var engine: KokoroEngine? = null
     @Volatile private var engineVoice: KokoroVoice? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
+    @Volatile private var latestTiming: KokoroReplyTiming? = null
     private val speakingStopGate = SpeakingStopGate()
     private val activeReply = AtomicReference<VoiceReplyStream<String>?>(null)
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -89,6 +92,8 @@ class KokoroVoiceOutputController @Inject constructor(
 
     /** Stops any reply still playing, then prepares a new one. Only the newest reply may emit audio. */
     private suspend fun openReply(request: VoiceSpeakRequest): VoiceReplyStream<String> = withContext(Dispatchers.IO) {
+        val timing = KokoroReplyTiming(replyIds.incrementAndGet())
+        timing.mark("open", "chars=${request.text.length}")
         openLock.withLock {
             stop()
             stopped = false
@@ -96,7 +101,10 @@ class KokoroVoiceOutputController @Inject constructor(
             val gain = voiceOutputPreferences.voiceGain.first()
             val pitch = voiceOutputPreferences.voicePitch.first()
             val voice = voiceOutputPreferences.selectedKokoroVoice.first()
-            val preparation = synthesisLock.withLock { prepare(voice) }
+            timing.mark("settingsRead", "voice=${voice.name}")
+            val cached = engine != null && engineVoice == voice
+            val preparation = synthesisLock.withLock { prepare(voice, timing) }
+            timing.mark("prepared", "cached=$cached ok=${preparation == VoiceOutputResult.Spoken}")
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
             val unavailable = preparation as? VoiceOutputResult.Unavailable
                 ?: if (loaded == null) VoiceOutputResult.Unavailable("Kokoro engine is not initialized.") else null
@@ -111,21 +119,26 @@ class KokoroVoiceOutputController @Inject constructor(
                 chunker = { text, onSkip ->
                     // Phonemizing failures reach onSkip; the final append reports them so the fallback speaks once.
                     val chunks = try {
-                        loaded?.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)).orEmpty()
+                        val started = System.currentTimeMillis()
+                        loaded?.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)).orEmpty().also {
+                            val splitMs = System.currentTimeMillis() - started
+                            timing.mark("split", "chars=${text.length} chunks=${it.size} splitMs=$splitMs")
+                        }
                     } catch (error: Exception) {
                         onSkip(error)
                         emptyList()
                     }
                     chunks.asSequence()
                 },
-                synthesize = { chunk -> loaded?.let { synthesizeChunk(it, chunk, generation) } },
-                sink = sink,
+                synthesize = { chunk -> loaded?.let { synthesizeChunk(it, chunk, generation, timing) } },
+                sink = timing.timed(sink),
                 sampleRate = KokoroTts.SAMPLE_RATE_HZ,
                 hooks = hooks,
                 gain = gain,
                 pitch = pitch,
                 scope = playbackScope,
             )
+            latestTiming = timing
             activeReply.getAndSet(reply)?.abort()
             reply
         }
@@ -142,14 +155,32 @@ class KokoroVoiceOutputController @Inject constructor(
     private fun isCurrent(generation: Long): Boolean = !stopped && playbackGeneration.get() == generation
 
     /** Returns null when the reply was superseded before or during synthesis. */
-    private suspend fun synthesizeChunk(loaded: KokoroEngine, chunk: String, generation: Long): FloatArray? =
-        synthesisLock.withLock {
+    private suspend fun synthesizeChunk(
+        loaded: KokoroEngine,
+        chunk: String,
+        generation: Long,
+        timing: KokoroReplyTiming,
+    ): FloatArray? {
+        val requested = System.currentTimeMillis()
+        return synthesisLock.withLock {
             // stop() bumps the generation before anything else, so a stop racing this check is caught by the next one.
-            if (!isCurrent(generation)) null else loaded.synthesizeChunk(chunk).takeIf { isCurrent(generation) }
+            if (!isCurrent(generation)) return@withLock null
+            val started = System.currentTimeMillis()
+            loaded.synthesizeChunk(chunk).takeIf { isCurrent(generation) }?.also { audio ->
+                val synthMs = System.currentTimeMillis() - started
+                val audioMs = audio.size * 1000L / KokoroTts.SAMPLE_RATE_HZ
+                val rtf = synthMs.toDouble() / audioMs.coerceAtLeast(1L)
+                timing.mark(
+                    "synth",
+                    "chars=${chunk.length} lockWaitMs=${started - requested} synthMs=$synthMs audioMs=$audioMs " +
+                        "rtf=${"%.2f".format(Locale.ROOT, rtf)}",
+                )
+            }
         }
+    }
 
     /** Loads the engine for [voice] unless it is already loaded. Caller holds [synthesisLock]. */
-    private fun prepare(voice: KokoroVoice): VoiceOutputResult {
+    private fun prepare(voice: KokoroVoice, timing: KokoroReplyTiming? = null): VoiceOutputResult {
         KokoroModelFiles.firstMissing(context, voice)?.let { missing ->
             return VoiceOutputResult.Unavailable(
                 "Download ${missing.displayName} in Settings → Voice before selecting Kokoro.",
@@ -170,6 +201,7 @@ class KokoroVoiceOutputController @Inject constructor(
         } catch (error: LinkageError) {
             return loadFailure("Kokoro native library is unavailable", error)
         }
+        timing?.mark("phonemizerReady")
         val candidate = KokoroEngine(
             durationFile = KokoroModelFiles.durationFile(context),
             synthesizerFile = KokoroModelFiles.synthesizerFile(context),
@@ -189,6 +221,7 @@ class KokoroVoiceOutputController @Inject constructor(
             candidate.close()
             return loadFailure("Kokoro needs more memory than is free", error)
         }
+        timing?.mark("modelsLoaded")
         engine = candidate
         engineVoice = voice
         return VoiceOutputResult.Spoken
@@ -222,6 +255,7 @@ class KokoroVoiceOutputController @Inject constructor(
 
     private inner class ControllerHooks : VoiceReplyHooks {
         override fun onPlaybackStarting(generation: Long, text: String) {
+            latestTiming?.mark("playbackStarting")
             requestAudioFocus()
             VoiceOutputTrace.speakingStarted("kokoro", text)
             VoiceOutputTrace.logSpeakingStarted("kokoro", text.length)
