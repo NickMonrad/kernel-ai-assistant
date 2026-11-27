@@ -1,29 +1,41 @@
 package com.kernel.ai.core.voice
 
 import java.text.Normalizer
-import java.time.DateTimeException
-import java.time.LocalDate
-import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Kotlin port of the pinned Inflect v2 reference frontend's deterministic text preparation.
  *
  * This intentionally stops before eSpeak: the custom Sherpa JNI seam supplies the reference
  * Piper/eSpeak phonemes, while this class owns all runtime text expansion and Inflect-specific
- * pronunciation corrections.
+ * pronunciation corrections. Language-level numbers, money, dates and times come from [EnglishSpeechTextNormaliser].
  */
 object InflectMicroTextFrontend {
     private val whitespace = Regex("\\s+")
     private val sentenceBoundary = Regex("(?<=[.!?])\\s+")
     private val clauseBoundary = Regex("(?<=[,;:])\\s+")
-    private val letterNames = mapOf(
-        'A' to "ay", 'B' to "bee", 'C' to "see", 'D' to "dee", 'E' to "ee",
-        'F' to "eff", 'G' to "gee", 'H' to "aitch", 'I' to "eye", 'J' to "jay",
-        'K' to "kay", 'L' to "ell", 'M' to "em", 'N' to "en", 'O' to "oh",
-        'P' to "pee", 'Q' to "cue", 'R' to "ar", 'S' to "ess", 'T' to "tee",
-        'U' to "you", 'V' to "vee", 'W' to "double you", 'X' to "ex", 'Y' to "why",
-        'Z' to "zee",
-    )
+    /** Sentences longer than this many phonemes, joined by " and ", are split at the join (see [phonemizeChunks]). */
+    private const val CLAUSE_SPLIT_PHONEME_LENGTH = 100
+    /** Minimum characters on each side of an " and " clause split, so a split never leaves a fragment. */
+    private const val MIN_CLAUSE_SPLIT_CHARS = 20
+    /** Number words, plus the respelled teen stems (`thir`, `fif`, `eigh`) that [splitTeens] produces. */
+    private const val NUMBER_WORD_ALTERNATION = "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|" +
+        "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|" +
+        "ninety|hundred|thousand|million|billion|trillion|thir|fif|eigh"
+    private val numberWordAfterAnd = Regex("^and (?:$NUMBER_WORD_ALTERNATION)\\b")
+    private val numberWordInText = Regex("\\b(?:$NUMBER_WORD_ALTERNATION)\\b", RegexOption.IGNORE_CASE)
+
+    private val teenSplitPatterns = listOf(
+        "thirteen" to "thir teen", "fourteen" to "four teen", "fifteen" to "fif teen", "sixteen" to "six teen",
+        "seventeen" to "seven teen", "eighteen" to "eigh teen", "nineteen" to "nine teen",
+    ).map { (word, split) -> Regex("\\b$word\\b", RegexOption.IGNORE_CASE) to split }
+
+    /** Splits teen words so eSpeak keeps the unreduced "teen" (#2115 Inflect teen round). */
+    private fun splitTeens(text: String): String = teenSplitPatterns.fold(text) { acc, (pattern, split) ->
+        pattern.replace(acc) { match ->
+            if (match.value[0].isUpperCase()) split.replaceFirstChar { it.uppercaseChar() } else split
+        }
+    }
 
     private val abbreviations = listOf(
         "Dr." to "doctor", "Mr." to "mister", "Mrs." to "missus", "Ms." to "miss",
@@ -39,20 +51,13 @@ object InflectMicroTextFrontend {
         "RTX 5090" to "ar tee ex fifty ninety",
     )
 
-    private val smallCardinals = arrayOf(
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-        "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
-        "eighteen", "nineteen",
-    )
-    private val tens = arrayOf("", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
-    private val ordinalSmall = arrayOf(
-        "zeroth", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
-        "tenth", "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth", "sixteenth",
-        "seventeenth", "eighteenth", "nineteenth",
-    )
-    private val ordinalTens = arrayOf("", "", "twentieth", "thirtieth", "fortieth", "fiftieth", "sixtieth", "seventieth", "eightieth", "ninetieth")
-    private val scales = arrayOf("", "thousand", "million", "billion", "trillion", "quadrillion")
-    private val scaleOrdinals = arrayOf("", "thousandth", "millionth", "billionth", "trillionth", "quadrillionth")
+    /**
+     * Inflect only: "one million two hundred thousand dollars and fifty cents" garbled when read as one run (the
+     * amount came out as $1,232,050). A comma after the scale word and a sentence break before the cents read it
+     * as 1,200,000.50 on the S23U (#2115). Kokoro reads the unchanged text correctly, so this stays out of the shared normaliser.
+     * The number phrase may also contain "and" and respelled teens ("two hundred and fifty thousand", "fif teen thousand").
+     */
+    private val millionCentsClause = Regex("""\b(million|billion) ((?:(?:$NUMBER_WORD_ALTERNATION|and|teen) )+dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
 
     fun normalize(text: String): String {
         var value = text
@@ -84,40 +89,14 @@ object InflectMicroTextFrontend {
         ) { match -> "${match.groupValues[1]} ${expandIdentifierToken(match.groupValues[2])}" }
         value = value.replace(
             Regex("\\b(\\d{3})(?=\\s+(?:North|South|East|West)\\b)", RegexOption.IGNORE_CASE),
-        ) { match -> expandDigits(match.groupValues[1]) }
-        value = value.replace(Regex("\\$(\\d[\\d,]*(?:\\.\\d{1,2})?)")) { match -> expandMoney(match.groupValues[1]) }
-        value = value.replace(Regex("\\b(0?[1-9]|1[0-2])/(0?[1-9]|[12]\\d|3[01])/(20\\d{2}|19\\d{2})\\b")) { match -> expandDate(match) }
-        value = value.replace(Regex("\\b(\\d{1,2}):(\\d{2})(?:\\s*([AaPp]\\.?\\s*[Mm]\\.?))?\\b")) { match -> expandTime(match) }
-        value = value.replace(Regex("\\b(\\d{1,2})\\s*([AaPp]\\.?\\s*[Mm]\\.?)\\b")) { match ->
-            val suffix = lettersOnly(match.groupValues[2]).lowercase(Locale.US)
-            "${numberToWords(match.groupValues[1].toLong())} ${suffix.map { it.toString() }.joinToString(" ")}"
-        }
-        value = value.replace(Regex("\\b(\\d{3})-(\\d{4})\\b")) { match ->
-            "${expandDigits(match.groupValues[1])}, ${expandDigits(match.groupValues[2])}"
-        }
-        value = value.replace(Regex("\\b\\d+(?:\\.\\d+){2,}\\b")) { match ->
-            match.value.split('.').joinToString(" point ") { numberToWords(it.toLong()) }
-        }
-        value = value.replace(Regex("\\b(\\d+)\\.(\\d+)\\b")) { match ->
-            "${numberToWords(match.groupValues[1].toLong())} point ${expandDigits(match.groupValues[2])}"
-        }
-        value = value.replace(Regex("\\b(\\d+)(st|nd|rd|th)\\b", RegexOption.IGNORE_CASE)) { match ->
-            numberToWords(match.groupValues[1].toLong(), ordinal = true)
-        }
-        // #1486 grouped-digit identifiers: only runs of THREE OR MORE space-separated integer
-        // groups are treated as a digit-sequence (e.g. "1300 555 019"). Two adjacent integers
-        // such as "3 20" or "2 500" are ordinary quantities and must keep cardinal semantics.
-        value = value.replace(Regex("\\b(\\d+(?:\\s+\\d+){2,})\\b")) { match ->
-            match.value.split(whitespace).joinToString(", ") { group ->
-                group.map { smallCardinals[it - '0'] }.joinToString(" ")
-            }
-        }
-        value = value.replace(Regex("\\b\\d[\\d,]*\\b")) { match ->
-            val raw = match.value.replace(",", "")
-            if (raw.length >= 5 && !raw.startsWith("20")) expandDigits(raw) else numberToWords(raw.toLong())
+        ) { match -> EnglishSpeechTextNormaliser.expandDigits(match.groupValues[1]) }
+        value = EnglishSpeechTextNormaliser.normalize(value)
+        value = splitTeens(value)
+        value = millionCentsClause.replace(value) { match ->
+            "${match.groupValues[1]}, ${match.groupValues[2]}. And ${match.groupValues[3]} cents"
         }
         value = value.replace(Regex("\\b[A-Z]{2,}\\b")) { match ->
-            match.value.map { letterNames[it] ?: it.toString() }.joinToString(" ")
+            match.value.map { EnglishSpeechTextNormaliser.letterName(it) }.joinToString(" ")
         }
 
         value = value.replace(Regex(",(?:\\s*,)+"), ",")
@@ -179,6 +158,33 @@ object InflectMicroTextFrontend {
         ).asSequence()
     }
 
+    /**
+     * Lazy synthesis units for one raw reply: speakable text, normalized, speech chunks, then phonemized pieces in
+     * order. A part that cannot be normalized or phonemized goes to [onSkip] and the rest of the text still yields
+     * (the reply stream's failure contract).
+     */
+    fun speechPieces(
+        rawText: String,
+        onSkip: (Exception) -> Unit,
+        phonemize: (String) -> String,
+    ): Sequence<PhonemizedChunk> = sequence {
+        val normalized = try {
+            normalize(SpeechCardText.speakable(rawText))
+        } catch (error: Exception) {
+            onSkip(error)
+            return@sequence
+        }
+        for (speechChunk in speechChunks(normalized)) {
+            val pieces = try {
+                phonemizeChunks(speechChunk, phonemize = phonemize)
+            } catch (error: Exception) {
+                onSkip(error)
+                continue
+            }
+            yieldAll(pieces)
+        }
+    }
+
     private fun boundedPieces(sentence: String, maxChunkChars: Int): List<String> {
         if (sentence.length <= maxChunkChars) return listOf(sentence)
         return sentence.split(clauseBoundary).flatMap { clause ->
@@ -209,6 +215,10 @@ object InflectMicroTextFrontend {
         var value = Normalizer.normalize(phonemes, Normalizer.Form.NFD)
         value = value.replace("sˈæskɐtʃˌuːən", "sɐskˈætʃəwən")
         value = value.replace("flʊɹɹˈɛsənt", "flʊˈɹɛsənt")
+        value = value.replace("θˈaʊzənd", "θˈaʊzˌænd")
+        value = value.replace("mˈɪliən", "mˈɪljən")
+        // eSpeak reads the split "nine teen" with a stress on both halves; "nineteen" is naɪntˈiːn (#2118 owner pick).
+        value = value.replace(Regex("(?<!\\S)nˈaɪn tˈiːn(?=[\\s.,;:!?]|$)"), "naɪntˈiːn")
         return value.replace(whitespace, " ").trim()
     }
 
@@ -220,10 +230,17 @@ object InflectMicroTextFrontend {
     /**
      * Keeps normalized text as one chunk when it fits, then splits at punctuation boundaries and
      * at words only when one punctuation-delimited segment still exceeds the ONNX frontend bound.
+     *
+     * A text longer than [clauseSplitPhonemeLength] that contains a number word is first split at " and " joins between
+     * clauses, nearest the middle first. Inflect garbled "fifteen thousand" in "The stadium holds fifteen thousand people
+     * and cost one million …" (#2115) while the same phrase alone rendered correctly. Joins before a number word ("two
+     * thousand and five", "two thousand and eighteen") are kept, as are joins that would leave a side under
+     * [MIN_CLAUSE_SPLIT_CHARS] characters.
      */
     fun phonemizeChunks(
         normalizedText: String,
         maxPhonemeLength: Int = InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH,
+        clauseSplitPhonemeLength: Int = CLAUSE_SPLIT_PHONEME_LENGTH,
         phonemize: (String) -> String,
     ): List<PhonemizedChunk> {
         require(maxPhonemeLength > 0) { "maxPhonemeLength must be positive" }
@@ -234,12 +251,50 @@ object InflectMicroTextFrontend {
             phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
 
         val completePhonemes = phonemizeChecked(text)
-        if (completePhonemes.length <= maxPhonemeLength) {
+        val clauses = if (completePhonemes.length > clauseSplitPhonemeLength && numberWordInText.containsMatchIn(text)) {
+            splitAtAndClauses(text, clauseSplitPhonemeLength, ::phonemizeChecked)
+        } else {
+            listOf(text)
+        }
+        if (clauses.size == 1 && completePhonemes.length <= maxPhonemeLength) {
             return listOf(PhonemizedChunk(text, completePhonemes))
         }
+        return clauses.flatMap { clause ->
+            chunkClause(
+                text = clause,
+                maxPhonemeLength = maxPhonemeLength,
+                phonemize = ::phonemizeChecked,
+                knownPhonemes = completePhonemes.takeIf { clauses.size == 1 },
+            )
+        }
+    }
 
+    /**
+     * Splits at " and " joins that begin a clause, nearest the middle first, until each part fits or no join is left.
+     * Each side keeps at least [MIN_CLAUSE_SPLIT_CHARS] characters, so a split never leaves a fragment like "Fish."
+     */
+    private fun splitAtAndClauses(text: String, softLength: Int, phonemize: (String) -> String): List<String> {
+        if (phonemize(text).length <= softLength) return listOf(text)
+        val middle = text.length / 2
+        val join = Regex(" and ").findAll(text)
+            .map { it.range.first }
+            .filterNot { numberWordAfterAnd.containsMatchIn(text.substring(it + 1)) }
+            .filter { it >= MIN_CLAUSE_SPLIT_CHARS && text.length - it - 1 >= MIN_CLAUSE_SPLIT_CHARS }
+            .minByOrNull { abs(it - middle) }
+            ?: return listOf(text)
+        val before = text.substring(0, join).trimEnd(',').let { if (it.last() in ".!?;:") it else "$it." }
+        val after = text.substring(join + 1)
+        return splitAtAndClauses(before, softLength, phonemize) + splitAtAndClauses(after, softLength, phonemize)
+    }
+
+    private fun chunkClause(
+        text: String,
+        maxPhonemeLength: Int,
+        phonemize: (String) -> String,
+        knownPhonemes: String?,
+    ): List<PhonemizedChunk> {
         val segments = text.split(Regex("(?<=[.!?;,:])\\s+"))
-        val initialSegmentPhonemes = completePhonemes.takeIf { segments.size == 1 }
+        val initialSegmentPhonemes = knownPhonemes.takeIf { segments.size == 1 }
         return segments
             .asSequence()
             .map(String::trim)
@@ -248,7 +303,7 @@ object InflectMicroTextFrontend {
                 phonemizeSegment(
                     text = segment,
                     maxPhonemeLength = maxPhonemeLength,
-                    phonemize = ::phonemizeChecked,
+                    phonemize = phonemize,
                     initialPhonemes = initialSegmentPhonemes,
                 ).asSequence()
             }
@@ -293,134 +348,16 @@ object InflectMicroTextFrontend {
         return chunks
     }
 
-    private fun expandDigits(value: String): String =
-        value.mapIndexed { index, digit ->
-            if (digit == '0' && index > 0) "oh" else smallCardinals[digit - '0']
-        }.joinToString(" ")
-
     private fun expandIdentifierToken(token: String): String {
         val match = Regex("^([A-Za-z]?)(\\d+)([A-Za-z]?)$").matchEntire(token) ?: return token
         val prefix = match.groupValues[1]
         val digits = match.groupValues[2]
         val suffix = match.groupValues[3]
         val pieces = buildList {
-            if (prefix.isNotEmpty()) add(letterNames[prefix[0].uppercaseChar()]!!)
-            add(if (digits.length == 3 || digits.startsWith('0')) expandDigits(digits) else numberToWords(digits.toLong()))
-            if (suffix.isNotEmpty()) add(letterNames[suffix[0].uppercaseChar()]!!)
+            if (prefix.isNotEmpty()) add(EnglishSpeechTextNormaliser.letterName(prefix[0]))
+            add(if (digits.length == 3 || digits.startsWith('0')) EnglishSpeechTextNormaliser.expandDigits(digits) else EnglishSpeechTextNormaliser.numberToWords(digits.toLong()))
+            if (suffix.isNotEmpty()) add(EnglishSpeechTextNormaliser.letterName(suffix[0]))
         }
         return pieces.joinToString(" ")
-    }
-
-    private fun expandMoney(raw: String): String {
-        val parts = raw.replace(",", "").split('.', limit = 2)
-        val dollars = parts[0].toLong()
-        val result = mutableListOf(numberToWords(dollars), if (dollars == 1L) "dollar" else "dollars")
-        if (parts.size == 2) {
-            val cents = parts[1].padEnd(2, '0').take(2).toLong()
-            if (cents != 0L) result += listOf("and", numberToWords(cents), if (cents == 1L) "cent" else "cents")
-        }
-        return result.joinToString(" ")
-    }
-
-    private fun expandDate(match: MatchResult): String {
-        val month = match.groupValues[1].toInt()
-        val day = match.groupValues[2].toInt()
-        val year = match.groupValues[3].toInt()
-        return try {
-            LocalDate.of(year, month, day)
-            val monthName = LocalDate.of(year, month, 1).month.name.lowercase().replaceFirstChar { it.titlecase() }
-            "$monthName ${numberToWords(day.toLong(), ordinal = true)} ${numberToWords(year.toLong())}"
-        } catch (_: DateTimeException) {
-            match.value
-        }
-    }
-
-    private fun expandTime(match: MatchResult): String {
-        val hour = match.groupValues[1].toLong()
-        val minute = match.groupValues[2].toInt()
-        val suffix = lettersOnly(match.groupValues[3]).lowercase(Locale.US)
-        val pieces = mutableListOf(numberToWords(hour))
-        if (minute == 0) pieces += "o clock"
-        else if (minute < 10) pieces += listOf("oh", numberToWords(minute.toLong()))
-        else pieces += numberToWords(minute.toLong())
-        if (suffix.isNotEmpty()) pieces += suffix.map { it.toString() }
-        return pieces.joinToString(" ")
-    }
-
-    private fun lettersOnly(value: String): String = value.filter { it.isLetter() }
-
-    private fun numberToWords(value: Long, ordinal: Boolean = false): String {
-        require(value >= 0) { "Only non-negative numbers are supported" }
-        if (!ordinal) return cardinal(value)
-        if (value < ordinalSmall.size) return ordinalSmall[value.toInt()]
-        if (value < 100L) {
-            val remainder = (value % 10).toInt()
-            return if (remainder == 0) {
-                ordinalTens[(value / 10).toInt()]
-            } else {
-                "${tens[(value / 10).toInt()]} ${ordinalSmall[remainder]}"
-            }
-        }
-        val scale = largestScale(value)
-        if (scale == 0) {
-            val hundreds = value / 100
-            val remainder = value % 100
-            return if (remainder == 0L) {
-                "${cardinal(hundreds)} hundredth"
-            } else {
-                "${cardinal(hundreds)} hundred and ${numberToWords(remainder, ordinal = true)}"
-            }
-        }
-        val unit = scaleValue(scale)
-        val major = value / unit
-        val remainder = value % unit
-        return if (remainder == 0L) {
-            "${cardinal(major)} ${scaleOrdinals[scale]}"
-        } else {
-            val conjunction = if (remainder < 100L) " and " else " "
-            "${cardinal(major)} ${scales[scale]}$conjunction${numberToWords(remainder, ordinal = true)}"
-        }
-    }
-
-    private fun cardinal(value: Long): String {
-        if (value < 20L) return smallCardinals[value.toInt()]
-        if (value < 100L) {
-            val remainder = (value % 10).toInt()
-            return if (remainder == 0) {
-                tens[(value / 10).toInt()]
-            } else {
-                "${tens[(value / 10).toInt()]} ${smallCardinals[remainder]}"
-            }
-        }
-        val scale = largestScale(value)
-        if (scale == 0) {
-            val hundreds = value / 100
-            val remainder = value % 100
-            return if (remainder == 0L) {
-                "${cardinal(hundreds)} hundred"
-            } else {
-                "${cardinal(hundreds)} hundred and ${cardinal(remainder)}"
-            }
-        }
-        val unit = scaleValue(scale)
-        val major = value / unit
-        val remainder = value % unit
-        return if (remainder == 0L) {
-            "${cardinal(major)} ${scales[scale]}"
-        } else {
-            val conjunction = if (remainder < 100L) " and " else " "
-            "${cardinal(major)} ${scales[scale]}$conjunction${cardinal(remainder)}"
-        }
-    }
-
-    private fun largestScale(value: Long): Int =
-        scales.indices.reversed().firstOrNull { it > 0 && value >= scaleValue(it) } ?: 0
-
-    private fun scaleValue(index: Int): Long = 10L.pow(index * 3)
-
-    private fun Long.pow(exponent: Int): Long {
-        var result = 1L
-        repeat(exponent) { result = Math.multiplyExact(result, 10L) }
-        return result
     }
 }

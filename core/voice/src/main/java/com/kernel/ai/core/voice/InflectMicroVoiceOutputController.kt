@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.AudioTrack
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -45,9 +44,9 @@ class InflectMicroVoiceOutputController @Inject constructor(
     @Volatile private var frontendDataDirectory: File? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
     private val speakingStopGate = SpeakingStopGate()
-    private val activeReply = AtomicReference<InflectReplyStream?>(null)
+    private val activeReply = AtomicReference<VoiceReplyStream<InflectMicroTextFrontend.PhonemizedChunk>?>(null)
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val sink = AudioTrackInflectSink()
+    private val sink = AudioTrackVoicePcmSink()
     private val hooks = ControllerHooks()
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
@@ -72,7 +71,9 @@ class InflectMicroVoiceOutputController @Inject constructor(
     }
 
     /** Stops any reply still playing, then prepares a new one. Only the newest reply may emit audio. */
-    private suspend fun openReply(request: VoiceSpeakRequest): InflectReplyStream = withContext(Dispatchers.IO) {
+    private suspend fun openReply(
+        request: VoiceSpeakRequest,
+    ): VoiceReplyStream<InflectMicroTextFrontend.PhonemizedChunk> = withContext(Dispatchers.IO) {
         openLock.withLock {
             stop()
             stopped = false
@@ -93,18 +94,22 @@ class InflectMicroVoiceOutputController @Inject constructor(
             } else {
                 null
             }
-            val reply = InflectReplyStream(
+            val reply = VoiceReplyStream(
+                engine = "Inflect",
                 spokenText = request.text,
                 generation = generation,
                 isCurrent = { isCurrent(generation) },
                 unavailable = unavailable,
-                synthesize = { phonemes -> prepared?.let { synthesizeChunk(it, phonemes, generation) } },
-                phonemizeChunk = { chunkText ->
-                    InflectMicroTextFrontend.applyPhonemeOverrides(
-                        InflectPhonemizer.phonemize(chunkText, checkNotNull(prepared).dataDirectory),
-                    )
+                chunker = { text, onSkip ->
+                    InflectMicroTextFrontend.speechPieces(text, onSkip) { chunkText ->
+                        InflectMicroTextFrontend.applyPhonemeOverrides(
+                            InflectPhonemizer.phonemize(chunkText, checkNotNull(prepared).dataDirectory),
+                        )
+                    }
                 },
+                synthesize = { piece -> prepared?.let { synthesizeChunk(it, piece.phonemes, generation) } },
                 sink = sink,
+                sampleRate = InflectMicroOnnxRunner.SAMPLE_RATE_HZ,
                 hooks = hooks,
                 gain = gain,
                 pitch = pitch,
@@ -204,7 +209,7 @@ class InflectMicroVoiceOutputController @Inject constructor(
         audioFocusRequest = null
     }
 
-    private inner class ControllerHooks : InflectReplyHooks {
+    private inner class ControllerHooks : VoiceReplyHooks {
         override fun onPlaybackStarting(generation: Long, text: String) {
             requestAudioFocus()
             VoiceOutputTrace.speakingStarted("inflect", text)
@@ -221,47 +226,6 @@ class InflectMicroVoiceOutputController @Inject constructor(
         }
     }
 
-    private inner class AudioTrackInflectSink : InflectPcmSink {
-        private val activeTrack = AtomicReference<AudioTrack?>(null)
-
-        override fun open(pitch: Float): InflectPcmTrack {
-            val created = createVoicePcmTrack(InflectMicroOnnxRunner.SAMPLE_RATE_HZ)
-            try {
-                startVoicePcmTrack(created, pitch)
-            } catch (error: Throwable) {
-                created.release()
-                throw error
-            }
-            activeTrack.set(created)
-            return AudioPcmTrack(created)
-        }
-
-        override fun silenceActive() {
-            activeTrack.getAndSet(null)?.let { track ->
-                try {
-                    track.pause()
-                    track.flush()
-                } catch (_: Exception) {
-                    // AudioTrack may already have completed on the playback thread.
-                }
-            }
-        }
-
-        private inner class AudioPcmTrack(private val track: AudioTrack) : InflectPcmTrack {
-            override fun write(samples: FloatArray, gain: Float, isCurrent: () -> Boolean) =
-                writeVoicePcm(track, samples, gain, isCurrent)
-
-            override fun drain(isCurrent: () -> Boolean) = drainVoicePcmTrack(track, isCurrent)
-
-            override fun discard() = fadeOutAndDiscard(track)
-
-            override fun release() {
-                activeTrack.compareAndSet(track, null)
-                track.release()
-            }
-        }
-    }
-
     private companion object {
         const val TAG = "KernelAI"
         const val SHERPA_ESPEAK_DATA_DIR = "espeak-ng-data"
@@ -270,19 +234,3 @@ class InflectMicroVoiceOutputController @Inject constructor(
 
 /** Pairs a reply's runner with its eSpeak data directory; exists only once prepare() has succeeded. */
 private class PreparedSynthesis(val runner: InflectMicroOnnxRunner, val dataDirectory: File)
-
-private const val CHUNK_EDGE_FADE_MS = 5
-private const val CHUNK_TAIL_PAD_MS = 50
-
-/**
- * Finishes one synthesized chunk for joining (#2096): appends [CHUNK_TAIL_PAD_MS] of silence, then fades the head
- * in over [CHUNK_EDGE_FADE_MS]. The tail is never faded: the model's last samples can be speech (a chunk that ends
- * without trailing silence), and fading them clipped the final phoneme decay. Returns a new array; the runner's
- * output stays unprocessed.
- */
-internal fun finishChunkEdges(samples: FloatArray, sampleRate: Int = InflectMicroOnnxRunner.SAMPLE_RATE_HZ): FloatArray {
-    val padded = samples.copyOf(samples.size + sampleRate * CHUNK_TAIL_PAD_MS / 1000)
-    val fadeFrames = minOf(padded.size / 2, sampleRate * CHUNK_EDGE_FADE_MS / 1000)
-    for (index in 0 until fadeFrames) padded[index] *= index.toFloat() / fadeFrames
-    return padded
-}

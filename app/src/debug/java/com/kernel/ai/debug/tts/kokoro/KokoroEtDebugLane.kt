@@ -6,6 +6,8 @@ import com.kernel.ai.core.executorch.MethodSignature
 import com.kernel.ai.core.executorch.TensorDType
 import com.kernel.ai.core.executorch.TensorDim
 import com.kernel.ai.core.executorch.TensorSpec
+import com.kernel.ai.core.voice.EnglishSpeechTextNormaliser
+import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.debug.tts.DebugTtsLane
 import com.kernel.ai.debug.tts.sha256Of
 import com.kernel.ai.debug.tts.DebugTtsLanes
@@ -54,20 +56,45 @@ class KokoroEtDebugLane(
         return elapsedMs(startedAt)
     }
 
-    override fun synthesize(text: String, onChunkReady: (index: Int, elapsedMs: Long) -> Unit): LaneUtterance {
+    override fun synthesize(text: String, onChunkReady: (index: Int, elapsedMs: Long) -> Unit): LaneUtterance =
+        synthesizeText(text, onChunkReady, sink = null)
+
+    /** Debug render for listening checks: the samples [synthesize] produces for [text], in order. */
+    fun renderSamples(text: String): FloatArray {
+        val parts = ArrayList<FloatArray>()
+        synthesizeText(text, { _, _ -> }, sink = parts)
+        val samples = FloatArray(parts.sumOf { it.size })
+        var offset = 0
+        for (part in parts) {
+            part.copyInto(samples, offset)
+            offset += part.size
+        }
+        return samples
+    }
+
+    /** Text as the phonemiser receives it: [SpeechCardText] card cleanup, then the shared number normaliser (#2115). */
+    internal fun spokenText(text: String): String = EnglishSpeechTextNormaliser.normalize(SpeechCardText.speakable(text))
+
+    /** Normalised text through the phonemiser. Internal so the Kokoro-path test can observe its input. */
+    internal fun phonemize(text: String): PhonemizedText = phonemizer.phonemize(spokenText(text))
+
+    private fun synthesizeText(
+        text: String,
+        onChunkReady: (index: Int, elapsedMs: Long) -> Unit,
+        sink: MutableList<FloatArray>?,
+    ): LaneUtterance {
         val duration = checkNotNull(durationModel) { "Kokoro ExecuTorch lane not initialized" }
         val synthesizer = checkNotNull(synthesizerModel) { "Kokoro ExecuTorch lane not initialized" }
         require(text.isNotBlank()) { "Kokoro input text is blank" }
         val startedAt = System.nanoTime()
-        val phonemized = phonemizer.phonemize(text)
-        val chunks = KokoroTts.partition(phonemized.phonemes, KokoroTts.MAX_TOKENS - 2)
-        require(chunks.isNotEmpty()) { "Kokoro phonemization produced no chunks" }
+        val chunks = splitText(text)
         val frontendMs = elapsedMs(startedAt)
 
         val laneChunks = chunks.mapIndexed { index, chunk ->
             if (cancelRequested) throw CancellationException("Kokoro ExecuTorch synthesis cancelled")
             val chunkStarted = System.nanoTime()
             val audio = synthesizeChunk(duration, synthesizer, chunk, voice!!)
+            sink?.add(audio)
             val synthMs = elapsedMs(chunkStarted)
             val laneChunk = LaneChunk(
                 index = index,
@@ -81,6 +108,29 @@ class KokoroEtDebugLane(
             laneChunk
         }
         return LaneUtterance(frontendMs = frontendMs, chunks = laneChunks)
+    }
+
+    /**
+     * Phonemizes [text] through [phonemize] (card cleanup and the shared number normaliser, #2115) and partitions
+     * it within the duration model's token limit, in order.
+     */
+    fun splitText(text: String): List<String> {
+        require(text.isNotBlank()) { "Kokoro input text is blank" }
+        val phonemized = phonemize(text)
+        val chunks = KokoroTts.partition(phonemized.phonemes, KokoroTts.MAX_TOKENS - 2)
+        require(chunks.isNotEmpty()) { "Kokoro phonemization produced no chunks" }
+        return chunks
+    }
+
+    /**
+     * Synthesizes one chunk from [splitText] on the loaded models. Unlike [synthesize] it does not check
+     * cancellation: the shared reply stream stops calling it once the reply is aborted, and a native run in
+     * progress finishes first.
+     */
+    fun synthesizeChunkAudio(chunk: String): FloatArray {
+        val duration = checkNotNull(durationModel) { "Kokoro ExecuTorch lane not initialized" }
+        val synthesizer = checkNotNull(synthesizerModel) { "Kokoro ExecuTorch lane not initialized" }
+        return synthesizeChunk(duration, synthesizer, chunk, checkNotNull(voice) { "Kokoro ExecuTorch lane not initialized" })
     }
 
     /** Port of `synthesizeChunkWorklet` in kokoroTextToSpeech.ts, minus word alignment. */
