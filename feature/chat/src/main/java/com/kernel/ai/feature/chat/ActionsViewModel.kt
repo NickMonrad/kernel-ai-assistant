@@ -25,6 +25,7 @@ import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.skills.slot.parseReminderSlotReply
+import com.kernel.ai.core.skills.slot.resolveTonightCue
 import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -1782,7 +1783,7 @@ class ActionsViewModel @Inject constructor(
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
         val reminderReply = if (pending.request.intentName == "add_reminder") {
-            parseReminderSlotReply(text, pending.request.missingSlot.name)
+            parseReminderSlotReply(text, pending.request.missingSlot.name, pending.request.existingParams)
         } else {
             null
         }
@@ -1807,6 +1808,8 @@ class ActionsViewModel @Inject constructor(
                 )
                 return
             }
+            completeSlotFill(pending, mergedParams)
+            return
         }
         val normalizedText = reminderSchedule[pending.request.missingSlot.name]
             ?: if (pending.inputMode == InputMode.Voice) {
@@ -1837,6 +1840,11 @@ class ActionsViewModel @Inject constructor(
             )
             return
         }
+        completeSlotFill(pending, mergedParams)
+    }
+
+    /** Runs the completed reminder or intent with its merged params (#2132 tonight maps to today). */
+    private fun completeSlotFill(pending: PendingSlotState, mergedParams: Map<String, String>) {
         Log.d(TAG, "ADB_SLOT_STATE action=complete intent=${pending.request.intentName} finalSlots=${mergedParams.keys}")
         _pendingSlot.value = null
         viewModelScope.launch {
@@ -1846,7 +1854,7 @@ class ActionsViewModel @Inject constructor(
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
-                    params = mergedParams,
+                    params = resolveTonightCue(mergedParams),
                     inputMode = pending.inputMode,
                     route = IntentRoute.SLOT_FILL,
                 )
