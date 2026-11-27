@@ -4761,7 +4761,7 @@ class NativeIntentHandlerTest {
             )
         }
 
-        private fun handlerAt(now: LocalDateTime): NativeIntentHandler = NativeIntentHandler(
+        private fun handlerAt(now: LocalDateTime, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): NativeIntentHandler = NativeIntentHandler(
             context = context,
             clockRepository = clockRepository,
             clockAlertController = clockAlertController,
@@ -4779,7 +4779,7 @@ class NativeIntentHandlerTest {
             noteDao = noteDao,
             noteSmartTitleUseCase = noteSmartTitleUseCase,
             listNotificationScheduler = listNotificationScheduler,
-            clock = java.time.Clock.fixed(now.atZone(java.time.ZoneId.systemDefault()).toInstant(), java.time.ZoneId.systemDefault()),
+            clock = java.time.Clock.fixed(now.atZone(zone).toInstant(), zone),
         )
 
         @Test
@@ -4822,6 +4822,20 @@ class NativeIntentHandlerTest {
                 "Reminder set: \"bins\" today at 7:00 PM.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
+        }
+
+        @Test
+        fun `add_reminder later today across the DST fall-back is accepted in the device zone`() {
+            val zone = java.time.ZoneId.of("Australia/Sydney")
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            // 01:30 AEDT on 2026-04-05; 02:30 that day is still ahead on the real timeline.
+            val now = LocalDateTime.of(2026, 4, 5, 1, 30)
+            val result = handleIntent(handlerAt(now, zone), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "02:30"))
+            assertTrue(assertInstanceOf(SkillResult.DirectReply::class.java, result).content.startsWith("Reminder set"))
         }
 
         @Test

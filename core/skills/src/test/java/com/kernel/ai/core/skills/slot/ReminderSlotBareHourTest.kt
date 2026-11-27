@@ -91,6 +91,14 @@ class ReminderSlotBareHourTest {
     }
 
     @Test
+    fun `bare hour with a day and no at asks morning or evening`() {
+        askFor("c13", "time", mapOf("item" to "ring mum"))
+        val next = assertInstanceOf(SlotFillResult.NeedsMore::class.java, manager.onUserReply("c13", "7 tomorrow", now = at(14))).request
+        assertEquals("time_of_day", next.missingSlot.name)
+        assertEquals("tomorrow", next.existingParams["day"])
+    }
+
+    @Test
     fun `bare hour answer just before midnight is the morning occurrence`() {
         askFor("c3", "time", mapOf("item" to "ring mum"))
         assertEquals("06:00", completed(manager.onUserReply("c3", "6", now = at(23, 30))).getValue("time"))
