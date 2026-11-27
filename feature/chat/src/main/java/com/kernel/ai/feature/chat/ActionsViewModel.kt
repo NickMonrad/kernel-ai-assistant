@@ -68,6 +68,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
@@ -431,7 +432,6 @@ class ActionsViewModel @Inject constructor(
 
     /** #2079 experimental: place question awaiting yes/no/silence (voice only). Never acted on without a yes. */
     private var pendingPlaceQuestion: PendingPlaceDidYouMean? = null
-    private var placeDidYouMeanEnabled = false
     /** Capture session this screen started; errors and notes are shown only for it (#1853). */
     private var actionsVoiceSessionId: Long? = null
     private var actionsVoiceAwaitingFinal = false
@@ -470,7 +470,6 @@ class ActionsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             voiceOutputPreferences.placeDidYouMeanEnabled.collect { enabled ->
-                placeDidYouMeanEnabled = enabled
                 if (!enabled) pendingPlaceQuestion = null
             }
         }
@@ -1955,7 +1954,11 @@ class ActionsViewModel @Inject constructor(
         route: QuickIntentRouter.RouteResult,
         text: String,
     ): PendingPlaceDidYouMean? {
-        if (!placeDidYouMeanEnabled || !spokenResponsesEnabled) return null
+        // Read the stored flags now: the collectors that fill the cached flags may not have emitted yet when a
+        // command runs right after this screen opens (widget or ADB quick action).
+        val enabled = voiceOutputPreferences.placeDidYouMeanEnabled.firstOrNull() == true
+        val spoken = voiceOutputPreferences.spokenResponsesEnabled.firstOrNull() ?: true
+        if (!enabled || !spoken) return null
         val suggester = placeDidYouMeanSuggester ?: return null
         return placeDidYouMeanQuestionWithin(suggester, route, text)
     }

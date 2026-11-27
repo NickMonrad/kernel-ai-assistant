@@ -394,7 +394,6 @@ class ChatViewModel @Inject constructor(
      * "Did you mean" setting is on. Never acted on without an explicit yes.
      */
     private var pendingPlaceDidYouMean: PendingPlaceDidYouMean? = null
-    private var placeDidYouMeanEnabled = false
 
     /**
      * Set true by [submitInitialQueryIfNeeded] to signal [sendMessage] that the upcoming
@@ -834,7 +833,6 @@ class ChatViewModel @Inject constructor(
         }
         viewModelScope.launch {
             voiceOutputPreferences.placeDidYouMeanEnabled.collect { enabled ->
-                placeDidYouMeanEnabled = enabled
                 if (!enabled) pendingPlaceDidYouMean = null
             }
         }
@@ -1820,6 +1818,8 @@ class ChatViewModel @Inject constructor(
         route: QuickIntentRouter.RouteResult,
         text: String,
     ): PendingPlaceDidYouMean? {
+        // Read the stored flag now: its collector may not have emitted yet on a freshly created view model.
+        if (voiceOutputPreferences.placeDidYouMeanEnabled.firstOrNull() != true) return null
         val suggester = placeDidYouMeanSuggester ?: return null
         return placeDidYouMeanQuestionWithin(suggester, route, text)
     }
@@ -2538,7 +2538,7 @@ class ChatViewModel @Inject constructor(
 
             // #2079 (experimental, off by default): a navigation or weather place that is a near miss of an
             // NZ place name is confirmed first. Only a yes acts on the suggested place.
-            if (!safeRunIntentTest && !placeCheckSkipped && placeDidYouMeanEnabled) {
+            if (!safeRunIntentTest && !placeCheckSkipped) {
                 val question = placeDidYouMeanQuestionFor(mealPlannerRoute, text)
                 if (question != null) {
                     pendingPlaceDidYouMean = question
