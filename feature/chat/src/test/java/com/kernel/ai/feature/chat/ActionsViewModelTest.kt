@@ -724,15 +724,37 @@ class ActionsViewModelTest {
     }
 
     @Test
-    fun `reminder item reply with a bare hour keeps the day and asks for the time`() = runTest(dispatcher) {
+    fun `reminder item reply with a bare hour on tomorrow asks morning or evening and keeps the day`() = runTest(dispatcher) {
         viewModel.executeAction("Set a reminder")
         advanceUntilIdle()
         viewModel.onSlotReply("ring mum tomorrow at 6")
         advanceUntilIdle()
 
         val pending = requireNotNull(viewModel.pendingSlot.value).request
-        assertEquals("time", pending.missingSlot.name)
-        assertEquals(mapOf("item" to "ring mum", "day" to "tomorrow"), pending.existingParams)
+        assertEquals("time_of_day", pending.missingSlot.name)
+        assertEquals("ring mum", pending.existingParams["item"])
+        assertEquals("tomorrow", pending.existingParams["day"])
+        assertEquals("06:00", pending.existingParams["bare_time"])
+    }
+
+    @Test
+    fun `reminder tonight then a bare hour reply runs with day today`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> runIntentSkill
+                else -> null
+            }
+        }
+
+        viewModel.executeAction("Remind me to buy milk tonight")
+        advanceUntilIdle()
+        viewModel.onSlotReply("5 pm")
+        advanceUntilIdle()
+
+        val arguments = runIntentSkill.calls.single().arguments
+        assertEquals("today", arguments["day"])
+        assertEquals("17:00", arguments["time"])
     }
 
     @Test

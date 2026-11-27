@@ -535,22 +535,28 @@ class SlotFillerManagerTest {
     }
 
     @Test
-    fun `reminder item reply with a bare hour keeps the day and still asks for the time`() {
+    fun `reminder item reply with a bare hour on another day asks morning or evening and keeps the day`() {
         startItemSlotFill()
         val needsMore = assertInstanceOf(
             SlotFillResult.NeedsMore::class.java,
             manager.onUserReply(conversationOne, "ring mum tomorrow at 6"),
         )
-        assertEquals(mapOf("item" to "ring mum", "day" to "tomorrow"), needsMore.request.existingParams)
-        assertEquals("time", needsMore.request.missingSlot.name)
+        assertEquals(
+            mapOf("item" to "ring mum", "day" to "tomorrow", "bare_time" to "06:00"),
+            needsMore.request.existingParams,
+        )
+        assertEquals("time_of_day", needsMore.request.missingSlot.name)
 
         startItemSlotFill()
         val kidsNeedsMore = assertInstanceOf(
             SlotFillResult.NeedsMore::class.java,
             manager.onUserReply(conversationOne, "pick up the kids on Monday at 3"),
         )
-        assertEquals(mapOf("item" to "pick up the kids", "day" to "monday"), kidsNeedsMore.request.existingParams)
-        assertEquals("time", kidsNeedsMore.request.missingSlot.name)
+        assertEquals(
+            mapOf("item" to "pick up the kids", "day" to "monday", "bare_time" to "03:00"),
+            kidsNeedsMore.request.existingParams,
+        )
+        assertEquals("time_of_day", kidsNeedsMore.request.missingSlot.name)
     }
 
     private fun startItemSlotFill() {
