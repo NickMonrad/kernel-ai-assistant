@@ -108,7 +108,8 @@ class LiteRtInferenceEngineInitializationFailureTest {
             failure?.message?.contains("native init cancelled") == true,
             "Expected the backend cancellation detail in the final error, got: $failure",
         )
-        verify(exactly = 2) { anyConstructed<Engine>().close() }
+        // FLOAT32 GPU, default-precision GPU retry (#2137), then CPU: each candidate is closed.
+        verify(exactly = 3) { anyConstructed<Engine>().close() }
     }
 
     @Test
