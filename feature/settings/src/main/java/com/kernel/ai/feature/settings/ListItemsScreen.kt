@@ -120,6 +120,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -198,6 +200,7 @@ private fun SubItemRow(
     ) {
         Checkbox(
             checked = child.checked,
+            modifier = Modifier.semantics { contentDescription = child.text },
             onCheckedChange = { onToggle() },
             enabled = enabled,
         )
@@ -450,6 +453,7 @@ fun ListItemsScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ListItemEntity?>(null) }
+    var subItemInSheet by remember { mutableStateOf<ListItemEntity?>(null) }
     var addSubItemParentId by remember(listId) { mutableStateOf<String?>(null) }
     var showItemBulkDeleteDialog by remember { mutableStateOf(false) }
 
@@ -485,6 +489,7 @@ fun ListItemsScreen(
         if (isRemoteReadOnly || hasUnsyncedChanges) {
             viewModel.exitItemMultiSelect()
             editingItem = null
+            subItemInSheet = null
             showAddDialog = false
             addSubItemParentId = null
             showRenameDialog = false
@@ -552,11 +557,10 @@ fun ListItemsScreen(
             snapshotFlow {
                 val persistedGroups = completeEffectiveGroups(
                     currentDisplayedHierarchy.value.sourceItems,
-                ).filterNot { it.parent.checked }
+                )
                 !viewModel.isHierarchyTransitionPending &&
                     viewModel.itemSort == ItemSort.MANUAL &&
-                    persistedGroups.map { it.parent.id to it.children.map(ListItemEntity::id) } ==
-                    committedPreview.resultGroups.map { it.parent.id to it.children.map(ListItemEntity::id) }
+                    hierarchyPlacementSettled(persistedGroups, committedPreview.resultGroups)
             }.first { it }
         }
         if (pendingPlacement == committedPreview) pendingPlacement = null
@@ -1284,7 +1288,8 @@ fun ListItemsScreen(
 
     // ── Edit bottom sheet ────────────────────────────────────────────────────────────────────────
     editingItem?.let { editing ->
-        // The live row, so Save never writes back a stale checked state after sub-item ticks.
+        // The live row, so the sheet shows current sub-items and checked state. Save persists only
+        // text, due date, favourite, reminder and description; ticks are separate writes.
         val item = completeGroups.flatMap { listOf(it.parent) + it.children }
             .firstOrNull { it.id == editing.id } ?: editing
         val isSubItem = completeGroups.any { group -> group.children.any { it.id == item.id } }
@@ -1301,13 +1306,34 @@ fun ListItemsScreen(
             subItems = completeGroups.firstOrNull { it.parent.id == item.id }?.children.orEmpty(),
             interactionsEnabled = !isRemoteReadOnly,
             onToggleSubItem = { viewModel.toggleChecked(it) },
-            onOpenSubItem = { editingItem = it },
+            onOpenSubItem = { subItemInSheet = it },
             onSave = { updated ->
                 viewModel.updateItem(updated)
                 editingItem = null
+                subItemInSheet = null
             },
-            onDismiss = { editingItem = null },
+            onDismiss = {
+                editingItem = null
+                subItemInSheet = null
+            },
         )
+        // Stacked over the parent sheet, so the parent's unsaved edits survive the detour.
+        subItemInSheet?.let { child ->
+            ItemDetailsSheet(
+                item = completeGroups.flatMap { listOf(it.parent) + it.children }
+                    .firstOrNull { it.id == child.id } ?: child,
+                title = "Edit item",
+                primaryActionLabel = "Save",
+                canAddSubItem = false,
+                onAddSubItem = {},
+                interactionsEnabled = !isRemoteReadOnly,
+                onSave = { updated ->
+                    viewModel.updateItem(updated)
+                    subItemInSheet = null
+                },
+                onDismiss = { subItemInSheet = null },
+            )
+        }
     }
 
     // ── Rename dialog ────────────────────────────────────────────────────────────────────────────
@@ -1872,14 +1898,22 @@ internal fun ListItemRow(
                 )
             }
             if (doneChildCount > 0 && !isMultiSelectMode) {
-                Text(
-                    text = "$doneChildCount done",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                Box(
                     modifier = Modifier
-                        .clickable(enabled = interactionsEnabled, onClick = onEdit)
-                        .padding(vertical = 8.dp),
-                )
+                        .heightIn(min = 48.dp)
+                        .clickable(
+                            enabled = interactionsEnabled,
+                            onClickLabel = "Show done sub-items",
+                            onClick = onEdit,
+                        ),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = "$doneChildCount done",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {
@@ -2176,18 +2210,20 @@ internal fun ItemDetailsSheet(
 
                 if (showSubItems) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Sub-items · ${openSubItems.size} left",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    openSubItems.forEach { child ->
-                        SubItemRow(
-                            child = child,
-                            enabled = interactionsEnabled,
-                            onToggle = { onToggleSubItem(child) },
-                            onOpen = { onOpenSubItem(child) },
+                    if (subItems.isNotEmpty()) {
+                        Text(
+                            text = "Sub-items · ${openSubItems.size} left",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        openSubItems.forEach { child ->
+                            SubItemRow(
+                                child = child,
+                                enabled = interactionsEnabled,
+                                onToggle = { onToggleSubItem(child) },
+                                onOpen = { onOpenSubItem(child) },
+                            )
+                        }
                     }
                     if (canAddSubItem) {
                         TextButton(onClick = onAddSubItem) {

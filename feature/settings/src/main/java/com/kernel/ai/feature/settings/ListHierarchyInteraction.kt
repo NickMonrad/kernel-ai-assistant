@@ -161,6 +161,20 @@ private fun nextOrderKeyAfter(lower: String?, siblings: List<ListItemEntity>): S
     .minWithOrNull(Comparator { left, right -> OrderKey.compare(left, right) })
 
 /**
+ * True when every open parent has the same unticked children, in the same order, in the persisted
+ * data and in the committed drop. Ticked children are excluded: the drop lists them after the open
+ * ones, but they keep their stored position, so comparing them would never settle.
+ */
+internal fun hierarchyPlacementSettled(
+    persisted: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    committed: List<EffectiveHierarchyGroup<ListItemEntity>>,
+): Boolean = openChildShape(persisted) == openChildShape(committed)
+
+private fun openChildShape(groups: List<EffectiveHierarchyGroup<ListItemEntity>>) = groups
+    .filterNot { it.parent.checked }
+    .map { group -> group.parent.id to group.children.filterNot { it.checked }.map(ListItemEntity::id) }
+
+/**
  * Calculates a complete destination from the effective hierarchy plus the current visible group
  * order. Collapsed groups take hidden children from the authoritative hierarchy; expanded groups
  * take their visible sibling order (including the active automatic-sort presentation).

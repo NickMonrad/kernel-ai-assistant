@@ -132,6 +132,49 @@ class ListsViewModelHiddenDoneChildrenTest {
     }
 
     @Test
+    fun `favourites filter hides a parent whose only favourite sub-item is ticked`() = runTest(dispatcher) {
+        // Set before observing: snapshot state changes are not re-emitted to plain unit-test collectors.
+        viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
+        items.value = listOf(
+            pantry(),
+            subItem(SALT_ROW, "Salt", order = "2", checked = true, favourite = true),
+            subItem(SUMAC_ROW, "Sumac", order = "3"),
+        )
+        val hierarchy = observe()
+
+        assertTrue(hierarchy.value.activeGroups.isEmpty())
+    }
+
+    @Test
+    fun `favourites filter keeps a parent with a visible favourite sub-item`() = runTest(dispatcher) {
+        viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
+        items.value = listOf(
+            pantry(),
+            subItem(SALT_ROW, "Salt", order = "2", favourite = true),
+            subItem(SUMAC_ROW, "Sumac", order = "3"),
+        )
+        val hierarchy = observe()
+
+        assertEquals(listOf("Salt"), hierarchy.value.activeGroups.single().children.map { it.text })
+    }
+
+    @Test
+    fun `favourites filter with a search hides a parent whose only match is a non-favourite sub-item`() =
+        runTest(dispatcher) {
+            viewModel.itemFilter = ItemFilter.FAVOURITES_ONLY
+            items.value = listOf(
+                pantry(),
+                subItem(SALT_ROW, "Salt", order = "2", favourite = true),
+                subItem(SUMAC_ROW, "Sumac", order = "3"),
+            )
+            val hierarchy = observe()
+
+            viewModel.setItemSearchQuery("sumac")
+
+            assertTrue(hierarchy.value.activeGroups.isEmpty())
+        }
+
+    @Test
     fun `clear done deletes ticked sub-items and leaves the open parent and sub-items`() = runTest(dispatcher) {
         coEvery { dao.getAllByList(LIST_ID) } returns groceries(salt = false, sumac = true)
         coEvery { listMutations.deleteItems(listOf(SUMAC_ROW)) } returns CheckedStateMutation()
@@ -174,6 +217,25 @@ class ListsViewModelHiddenDoneChildrenTest {
             parentItemId = "pantry",
             orderKey = "3",
         ),
+    )
+
+    private fun pantry() = ListItemEntity(id = PANTRY_ROW, listId = LIST_ID, text = "Pantry", itemId = "pantry", orderKey = "1")
+
+    private fun subItem(
+        row: Long,
+        text: String,
+        order: String,
+        checked: Boolean = false,
+        favourite: Boolean = false,
+    ) = ListItemEntity(
+        id = row,
+        listId = LIST_ID,
+        text = text,
+        itemId = text.lowercase(),
+        checked = checked,
+        isFavourite = favourite,
+        parentItemId = "pantry",
+        orderKey = order,
     )
 
     private companion object {

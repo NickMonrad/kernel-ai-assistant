@@ -8,9 +8,14 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.kernel.ai.MainActivity
+import com.kernel.ai.core.memory.dao.ListItemDao
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.notification.toNotificationId
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * BroadcastReceiver that fires when a list-item due-date notification alarm triggers (#901).
@@ -21,6 +26,7 @@ import dagger.hilt.android.AndroidEntryPoint
  */
 @AndroidEntryPoint
 class ListDueNotificationReceiver : BroadcastReceiver() {
+    @Inject lateinit var listItemDao: ListItemDao
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ListNotificationScheduler.ACTION) return
@@ -30,6 +36,19 @@ class ListDueNotificationReceiver : BroadcastReceiver() {
         val itemText = intent.getStringExtra(ListNotificationScheduler.EXTRA_ITEM_TEXT) ?: return
         val listName = intent.getStringExtra(ListNotificationScheduler.EXTRA_LIST_NAME) ?: ""
 
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // The alarm can fire after the item was ticked; a ticked item owes no reminder.
+                if (listItemDao.getById(itemId)?.checked == true) return@launch
+                showNotification(context, itemId, itemText, listName)
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+
+    private fun showNotification(context: Context, itemId: Long, itemText: String, listName: String) {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
         ensureChannel(notificationManager)
 

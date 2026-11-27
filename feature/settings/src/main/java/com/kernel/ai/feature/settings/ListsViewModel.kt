@@ -428,7 +428,8 @@ class ListsViewModel @Inject constructor(
                     }
                     val filterMatches = when (filter) {
                         ItemFilter.ALL -> true
-                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || group.children.any { it.isFavourite }
+                        // Visible children only: a ticked favourite leaves the active list.
+                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || children.any { it.isFavourite }
                         ItemFilter.ACTIVE_ONLY -> !group.parent.checked
                         ItemFilter.COMPLETED_ONLY -> group.parent.checked || children.isNotEmpty()
                     }
@@ -1034,7 +1035,8 @@ class ListsViewModel @Inject constructor(
                     item.description,
                 )
             } ?: return@launch
-            val nt = item.notificationTime
+            // A ticked item owes no reminder: its tick cancelled it, and a save must not revive it.
+            val nt = item.notificationTime.takeUnless { item.checked }
             if (nt != null) scheduler.schedule(itemId = item.id, itemText = item.text, listId = item.listId, listName = listName, triggerAtMs = nt)
             else scheduler.cancel(item.id)
         }

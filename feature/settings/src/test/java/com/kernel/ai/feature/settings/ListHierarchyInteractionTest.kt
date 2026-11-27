@@ -496,6 +496,31 @@ class ListHierarchyInteractionTest {
         )
     }
 
+    @Test
+    fun `settle check ignores a ticked sub-item stored between open siblings`() {
+        val parent = item(1)
+        val open = item(2, parentItemId = parent.itemId)
+        val ticked = item(3, parentItemId = parent.itemId, checked = true)
+        val later = item(4, parentItemId = parent.itemId)
+        val persisted = listOf(EffectiveHierarchyGroup(parent, listOf(open, ticked, later)))
+        // The drop lists the open children first and the ticked child after them.
+        val committed = listOf(EffectiveHierarchyGroup(parent, listOf(open, later, ticked)))
+
+        assertTrue(hierarchyPlacementSettled(persisted, committed))
+    }
+
+    @Test
+    fun `settle check fails when open sub-items are not in the committed order`() {
+        val parent = item(1)
+        val open = item(2, parentItemId = parent.itemId)
+        val ticked = item(3, parentItemId = parent.itemId, checked = true)
+        val later = item(4, parentItemId = parent.itemId)
+        val persisted = listOf(EffectiveHierarchyGroup(parent, listOf(open, ticked, later)))
+        val committed = listOf(EffectiveHierarchyGroup(parent, listOf(later, open, ticked)))
+
+        assertFalse(hierarchyPlacementSettled(persisted, committed))
+    }
+
     private fun item(id: Long, parentItemId: String? = null, checked: Boolean = false) =
         ListItemEntity(
             id = id,
