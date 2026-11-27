@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.slot
 
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,10 +71,11 @@ class SlotFillerManager @Inject constructor(
         conversationId: String,
         message: String,
         validationRegistry: SlotValidationRegistry = this.slotValidationRegistry,
+        now: LocalDateTime = LocalDateTime.now(),
     ): SlotFillResult {
         val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
         val reminderReply = if (pending.intentName == "add_reminder") {
-            parseReminderSlotReply(message, pending.missingSlot.name)
+            parseReminderSlotReply(message, pending.missingSlot.name, pending.existingParams, now)
         } else {
             null
         }
@@ -97,6 +99,9 @@ class SlotFillerManager @Inject constructor(
                 pendingRequests[conversationId] = nextRequest
                 return SlotFillResult.NeedsMore(nextRequest)
             }
+            // The schedule alone answered the asked slot (e.g. the am/pm question) and nothing else is missing.
+            pendingRequests.remove(conversationId)
+            return SlotFillResult.Completed(pending.intentName, resolveTonightCue(mergedParams))
         }
         val normalizedMessage = reminderSchedule[pending.missingSlot.name]
             ?: normalizeSlotReply(reminderReply?.value ?: message, pending.missingSlot.name)
@@ -154,7 +159,7 @@ class SlotFillerManager @Inject constructor(
             pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                params = mergedParams,
+                params = resolveTonightCue(mergedParams),
             )
         }
     }
