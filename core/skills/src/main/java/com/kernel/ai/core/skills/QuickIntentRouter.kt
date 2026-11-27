@@ -334,7 +334,7 @@ class QuickIntentRouter(
         .takeIf { it.isNotBlank() }
         ?.takeUnless { it.lowercase() in placeholderItems }
 
-    private fun normalizeReminderItem(raw: String): String = raw.trim()
+    private fun normalizeReminderItem(raw: String): String = raw.trim().trimEnd('.', '!', '?')
         .replace(Regex("""^buying\b\s*""", RegexOption.IGNORE_CASE), "buy ")
 
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
@@ -685,15 +685,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|tonight|this\s+evening|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
-                val dayToken = match.groupValues[2].trim().lowercase()
+                val dayToken = match.groupValues[2].trim().lowercase().let { if (it.startsWith("this")) "tonight" else it }
                 buildMap {
                     put("item", normalizeReminderItem(match.groupValues[1]))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[3].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[4].trim(), match.groupValues[3]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -746,15 +746,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
                 val dayToken = match.groupValues[1].trim().lowercase()
                 buildMap {
-                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("item", normalizeReminderItem(match.groupValues[4].trim()))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[2].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[3].trim(), match.groupValues[2]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -5465,6 +5465,7 @@ class QuickIntentRouter(
         private val PM_DAY_PART_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?(?:in\s+the\s+(?:evening|afternoon)|evening|afternoon)\b""")
         private val AT_NIGHT_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?at\s+night\b""")
         private val PM_DAY_PART_BEFORE_HOUR = Regex("""\b(?:evening|afternoon)\s+(?:at\s+)?$""")
+        private val NIGHT_BEFORE_HOUR = Regex("""\bnight\s+(?:at\s+)?$""")
         private val EVENING_CUE_BEFORE_HOUR = Regex("""\b(?:tonight|this\s+evening)\s+(?:at\s+|by\s+)?$""")
 
         /**
@@ -5532,14 +5533,14 @@ class QuickIntentRouter(
             // Convert to 24h
             if (meridiem == "pm" && hours < 12) hours += 12
             if (meridiem == "am" && hours == 12) hours = 0
-            // "7 in the evening", "evening at 7" and "7 at night" are pm (#2146). "at night" is pm only for hours 5 to 11:
+            // "7 in the evening", "evening at 7", "night at 9" and "7 at night" are pm (#2146). "at night" is pm only for hours 5 to 11:
             // "at 2 at night" stays 02:00 and "tonight at 2 at night" is asked which. "this evening at 2" is pm only
             // for hours 5 to 11; 1 to 4 are asked by bareHourIn.
             val afterHour = cleaned.substring(match.range.last + 1)
             val beforeHour = cleaned.substring(0, match.range.first)
             if (meridiem.isBlank() && hours in 1..11 && (
                     PM_DAY_PART_AFTER_HOUR.containsMatchIn(afterHour) ||
-                        (hours in 5..11 && AT_NIGHT_AFTER_HOUR.containsMatchIn(afterHour)) ||
+                        (hours in 5..11 && (AT_NIGHT_AFTER_HOUR.containsMatchIn(afterHour) || NIGHT_BEFORE_HOUR.containsMatchIn(beforeHour))) ||
                         (PM_DAY_PART_BEFORE_HOUR.containsMatchIn(beforeHour) &&
                             (hours in 5..11 || !EVENING_CUE_BEFORE_HOUR.containsMatchIn(beforeHour))))
             ) {
