@@ -32,4 +32,17 @@ class KokoroEtDebugLaneTest {
             phonemizer.inputs,
         )
     }
+
+    @Test
+    fun split_text_sends_normalised_numbers_to_the_phonemiser() {
+        val phonemizer = RecordingPhonemizer()
+        val lane = KokoroEtDebugLane(File("unused"), "af_heart", phonemizer)
+
+        lane.splitText("Tomorrow it will be -4 degrees, the coldest since 1999.")
+
+        assertEquals(
+            listOf("Tomorrow it will be minus four degrees, the coldest since nineteen ninety nine."),
+            phonemizer.inputs,
+        )
+    }
 }

@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Drives [InflectReplyStream] through fake PCM and hook seams. Each waveform carries its synthesis index in every
+ * Drives [VoiceReplyStream] through fake PCM and hook seams. Each waveform carries its synthesis index in every
  * sample, so a track's writes show exactly which chunks reached the speaker and in what order.
  */
-class InflectReplyStreamTest {
+class VoiceReplyStreamTest {
     private val longReply = (1..12).joinToString(" ") { "This is sentence number $it of the reply." }
     /** Three sentences of about 70 characters each, so each becomes its own speech chunk (limit 120). */
     private val threeChunks = listOf("Alpha", "Broken", "Gamma").joinToString(" ") {
@@ -30,7 +30,7 @@ class InflectReplyStreamTest {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private class FakeTrack(private val onWrite: (Int) -> Unit) : InflectPcmTrack {
+    private class FakeTrack(private val onWrite: (Int) -> Unit) : VoicePcmTrack {
         val writes = mutableListOf<Float>()
         var drained = false
         var discarded = false
@@ -55,7 +55,7 @@ class InflectReplyStreamTest {
         }
     }
 
-    private class FakeSink(var openError: Throwable? = null) : InflectPcmSink {
+    private class FakeSink(var openError: Throwable? = null) : VoicePcmSink {
         val tracks = mutableListOf<FakeTrack>()
         val firstWriteEntered = CountDownLatch(1)
         /** When set, the first write blocks until the test releases it. */
@@ -63,7 +63,7 @@ class InflectReplyStreamTest {
         /** When set, the write with this 1-based index throws, as a device failure would. */
         var failWriteAt: Int? = null
 
-        override fun open(pitch: Float): InflectPcmTrack {
+        override fun open(sampleRate: Int, pitch: Float): VoicePcmTrack {
             openError?.let { throw it }
             return FakeTrack { count ->
                 if (count == 1) {
@@ -77,7 +77,7 @@ class InflectReplyStreamTest {
         override fun silenceActive() = Unit
     }
 
-    private class FakeHooks : InflectReplyHooks {
+    private class FakeHooks : VoiceReplyHooks {
         val starts = mutableListOf<Long>()
         val ends = mutableListOf<Long>()
 
@@ -101,18 +101,22 @@ class InflectReplyStreamTest {
         var synthesizer: suspend (String) -> Float = { synthCalls.get().toFloat() }
         var phonemizer: (String) -> String = { it }
         val myGeneration = generation.incrementAndGet()
-        val stream = InflectReplyStream(
+        val stream = VoiceReplyStream<InflectMicroTextFrontend.PhonemizedChunk>(
+            engine = "Inflect",
             spokenText = "reply",
             generation = myGeneration,
             isCurrent = { generation.get() == myGeneration },
             unavailable = unavailable,
-            synthesize = { phonemes ->
+            chunker = { text, onSkip ->
+                InflectMicroTextFrontend.speechPieces(text, onSkip) { phonemizer(it) }
+            },
+            synthesize = { piece ->
                 synthCalls.incrementAndGet()
-                val index = synthesizer(phonemes)
+                val index = synthesizer(piece.phonemes)
                 FloatArray(1000) { index }
             },
-            phonemizeChunk = { phonemizer(it) },
             sink = sink,
+            sampleRate = 24_000,
             hooks = hooks,
             gain = 1f,
             pitch = 1f,
@@ -212,7 +216,7 @@ class InflectReplyStreamTest {
 
         val producer = launch(Dispatchers.Default) { h.stream.append(longReply, isFinal = true) }
         // Wait until the track is open and chunk 1 is blocked in write. Aborting before open is a valid silent path
-        // (see InflectReplyStream.playAudio), so this test must not race the consumer's open.
+        // (see VoiceReplyStream playback loop), so this test must not race the consumer's open.
         assertTrue(sink.firstWriteEntered.await(5, TimeUnit.SECONDS))
         // Chunk 2 sits in the one-slot channel, chunk 3 is blocked in send.
         withTimeout(5_000) {
@@ -230,6 +234,39 @@ class InflectReplyStreamTest {
         val track = sink.tracks.single()
         assertTrue(track.discarded)
         assertEquals(1, track.writes.size)
+    }
+
+    @Test
+    fun `stop while a chunk plays and the next is synthesizing discards the track and the late chunk`() = runBlocking {
+        val generation = AtomicLong(0)
+        val sink = FakeSink().apply { blockFirstWrite = CountDownLatch(1) }
+        val h = harness(sink, FakeHooks(), generation)
+        val nextEntered = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        h.synthesizer = {
+            if (h.synthCalls.get() == 2) {
+                nextEntered.complete(Unit)
+                gate.await()
+            }
+            h.synthCalls.get().toFloat()
+        }
+
+        val append = async(Dispatchers.Default) { h.stream.append(longReply, isFinal = true) }
+        // Chunk 1 is playing (its write blocks); chunk 2 is inside synthesis.
+        assertTrue(sink.firstWriteEntered.await(5, TimeUnit.SECONDS))
+        withTimeout(5_000) { nextEntered.await() }
+        generation.incrementAndGet()
+        h.stream.abort()
+        sink.blockFirstWrite!!.countDown()
+        gate.complete(Unit)
+
+        assertEquals(VoiceOutputResult.Spoken, withTimeout(5_000) { append.await() })
+        h.stream.awaitPlayback()
+        assertEquals(2, h.synthCalls.get())
+        val track = sink.tracks.single()
+        assertEquals(listOf(1f), track.writes)
+        assertTrue(track.discarded)
+        assertFalse(track.drained)
     }
 
     @Test

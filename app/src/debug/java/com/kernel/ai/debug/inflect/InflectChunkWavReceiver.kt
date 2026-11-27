@@ -8,12 +8,13 @@ import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.InflectMicroOnnxRunner
 import com.kernel.ai.core.voice.InflectMicroTextFrontend
 import com.kernel.ai.core.voice.InflectPhonemizer
-import com.kernel.ai.core.voice.InflectReplyHooks
-import com.kernel.ai.core.voice.InflectReplyStream
-import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.voice.VoiceOutputPreferences
 import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceReplyHooks
+import com.kernel.ai.core.voice.VoiceReplyStream
+import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.debug.sample.SampleWav
+import com.kernel.ai.debug.tts.ChunkWavRecorder
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -30,10 +31,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Debug-only (#2096): renders reply text to a WAV through the production reply pipeline, [InflectReplyStream]
+ * Debug-only (#2096): renders reply text to a WAV through the production reply pipeline, [VoiceReplyStream]
  * (normalize, speech chunks, lazy phonemize, one decode per chunk, edge fades, voice gain and pitch from the
- * device's preferences), with [InflectChunkWavRecorder] standing in for AudioTrack. Each reply is one
- * InflectReplyStream; replies are concatenated with no gap, and the JSON records every chunk's sample offsets.
+ * device's preferences), with [ChunkWavRecorder] standing in for AudioTrack. Each reply is one VoiceReplyStream;
+ * replies are concatenated with no gap, and the JSON records every chunk's sample offsets.
  *
  * Extras: `paths` = `|`-separated absolute, app-readable text files, one reply each, rendered in order;
  * `label` = output name. Output: `files/inflect_chunk_wav/<label>.wav` and `<label>.json`; the result data is the
@@ -80,7 +81,7 @@ class InflectChunkWavReceiver : BroadcastReceiver() {
         val jsonFile = File(outputDirectory, "$label.json")
 
         val runner = InflectMicroOnnxRunner(modelDirectory)
-        val recorder = InflectChunkWavRecorder()
+        val recorder = ChunkWavRecorder()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         val replyReports = JSONArray()
         try {
@@ -88,21 +89,25 @@ class InflectChunkWavReceiver : BroadcastReceiver() {
                 val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
                 val speechChunks = InflectMicroTextFrontend.speechChunks(normalized)
                 val replyCountBefore = recorder.replies.size
-                val stream = InflectReplyStream(
+                val stream = VoiceReplyStream(
+                    engine = "Inflect",
                     spokenText = text,
                     generation = replyIndex.toLong(),
                     isCurrent = { true },
                     unavailable = null,
-                    synthesize = { phonemes ->
-                        runner.resetCancellation()
-                        runner.synthesize(phonemes).waveform
+                    chunker = { raw, onSkip ->
+                        InflectMicroTextFrontend.speechPieces(raw, onSkip) { chunkText ->
+                            InflectMicroTextFrontend.applyPhonemeOverrides(
+                                InflectPhonemizer.phonemize(chunkText, dataDirectory),
+                            )
+                        }
                     },
-                    phonemizeChunk = { chunkText ->
-                        InflectMicroTextFrontend.applyPhonemeOverrides(
-                            InflectPhonemizer.phonemize(chunkText, dataDirectory),
-                        )
+                    synthesize = { piece ->
+                        runner.resetCancellation()
+                        runner.synthesize(piece.phonemes).waveform
                     },
                     sink = recorder,
+                    sampleRate = InflectMicroOnnxRunner.SAMPLE_RATE_HZ,
                     hooks = NoHooks,
                     gain = gain,
                     pitch = pitch,
@@ -143,7 +148,7 @@ class InflectChunkWavReceiver : BroadcastReceiver() {
         text: String,
         normalized: String,
         speechChunks: List<String>,
-        recorder: InflectChunkWavRecorder,
+        recorder: ChunkWavRecorder,
         replyCountBefore: Int,
     ): JSONObject {
         // A reply that produced no audio has no record; a reply with audio opens exactly one track.
@@ -173,7 +178,7 @@ class InflectChunkWavReceiver : BroadcastReceiver() {
             .put("chunks", chunkArray)
     }
 
-    private object NoHooks : InflectReplyHooks {
+    private object NoHooks : VoiceReplyHooks {
         override fun onPlaybackStarting(generation: Long, text: String) = Unit
         override fun onPlaybackEnded(generation: Long) = Unit
     }
