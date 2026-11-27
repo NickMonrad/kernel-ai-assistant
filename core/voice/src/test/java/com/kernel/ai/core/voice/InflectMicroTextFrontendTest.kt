@@ -528,4 +528,28 @@ class InflectMicroTextFrontendTest {
         ) { text -> InflectMicroTextFrontend.applyPhonemeOverrides(fakeEspeak.getValue(text)) }
         assertEquals(listOf("ɪt hˈæpənd ɪn naɪntˈiːn nˈaɪnti nˈaɪn."), year.map { it.phonemes })
     }
+
+    @Test
+    fun applyPhonemeOverrides_joins_nineteen_before_punctuation() {
+        assertEquals(
+            "twˈɛnti naɪntˈiːn.",
+            InflectMicroTextFrontend.applyPhonemeOverrides("twˈɛnti nˈaɪn tˈiːn."),
+        )
+        assertEquals(
+            "naɪntˈiːn, pˈiːpəl",
+            InflectMicroTextFrontend.applyPhonemeOverrides("nˈaɪn tˈiːn, pˈiːpəl"),
+        )
+    }
+
+    @Test
+    fun applyPhonemeOverrides_leaves_nine_teenagers_and_nine_teens_unchanged() {
+        assertEquals(
+            "nˈaɪn tˈiːnɪdʒɚz",
+            InflectMicroTextFrontend.applyPhonemeOverrides("nˈaɪn tˈiːnɪdʒɚz"),
+        )
+        assertEquals(
+            "nˈaɪn tˈiːnz",
+            InflectMicroTextFrontend.applyPhonemeOverrides("nˈaɪn tˈiːnz"),
+        )
+    }
 }
