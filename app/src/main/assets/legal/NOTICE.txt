@@ -165,9 +165,9 @@ NZ Place Names (layer 51681), Land Information New Zealand (LINZ)
   https://data.linz.govt.nz/license/attribution-4-0-international/
   https://data.linz.govt.nz/layer/51681-nz-place-names-nzgb/
   Used: core/skills/src/main/assets/place_dym/linz_localities.txt. Names of Locality and
-  Suburb features only, de-duplicated and sorted, with no other change. Attribution:
-  "NZ Place Names (layer 51681), LINZ, CC BY 4.0". Used as a known-place list for the
-  experimental "Did you mean" prompt (#2079).
+  Suburb features only, de-duplicated and sorted, with no other change. Used as a
+  known-place list for the experimental "Did you mean" prompt (#2079).
+  Attribution: "Contains data sourced from the LINZ Data Service licensed for reuse under CC BY 4.0"
 
 GeoNames
   Place names © GeoNames, licensed under Creative Commons Attribution 4.0 International

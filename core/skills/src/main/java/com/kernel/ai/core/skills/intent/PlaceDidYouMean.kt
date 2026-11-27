@@ -42,9 +42,14 @@ internal object PlaceDidYouMeanConfig {
 enum class PlaceDidYouMeanAnswer { Yes, No, Other }
 
 object PlaceDidYouMeanReply {
-    /** Yes and no use the shared affirmation and negation sets, so "ok", "okay" and "yes please" are yes. */
+    private val NON_WORD = Regex("[^\\p{L}\\p{N}']+")
+
+    /**
+     * Yes and no use the shared affirmation and negation sets, so "ok", "okay" and "yes please" are yes.
+     * Punctuation is removed first, so "yes, please" and "Yes." are yes.
+     */
     fun interpret(reply: String): PlaceDidYouMeanAnswer {
-        val norm = reply.trim().trimEnd('.', '!', '?').lowercase()
+        val norm = reply.replace('\u2019', '\'').lowercase().split(NON_WORD).filter { it.isNotEmpty() }.joinToString(" ")
         return when {
             norm in QuickIntentRouter.AFFIRMATIONS -> PlaceDidYouMeanAnswer.Yes
             norm in QuickIntentRouter.NEGATIONS -> PlaceDidYouMeanAnswer.No
