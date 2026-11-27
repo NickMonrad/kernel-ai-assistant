@@ -1118,11 +1118,12 @@ class QuickIntentRouter(
                 }
             },
         ),
-        // "set a timer" / "start a timer" (no duration given) → ask how long
+        // "set a timer" / "start a timer" (no duration given) → ask how long. The whole utterance must
+        // be this request, optionally with a truncated or misheard final word ("set a time", "see a timer").
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """^(?:set|start|create)\s+(?:a\s+)?(?:timer|countdown)$""",
+                """^(?:set|see|start|create)\s+(?:a\s+|the\s+)?(?:timer|countdown|time|tim)[\s.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
