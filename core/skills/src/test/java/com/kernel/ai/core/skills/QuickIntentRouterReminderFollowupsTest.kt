@@ -133,4 +133,56 @@ class QuickIntentRouterReminderFollowupsTest {
             assertEquals("19:45", intent.params["time"], "at $clock")
         }
     }
+
+    /** The four clocks of the #2152 review tables: morning, afternoon, evening, and just before midnight. */
+    private val rowClocks = listOf("09:00", "14:00", "19:30", "23:50")
+
+    @Test
+    fun `day part table reads the hour, not the trailing text, at every clock`() {
+        val rows = listOf(
+            Triple("remind me to ring mum tomorrow evening at 7.", "tomorrow", "19:00"),
+            Triple("remind me to ring mum tomorrow evening at 7?", "tomorrow", "19:00"),
+            Triple("remind me to ring mum tomorrow evening at 7!", "tomorrow", "19:00"),
+            Triple("can you remind me to ring mum tomorrow evening at 7?", "tomorrow", "19:00"),
+            Triple("remind me to ring mum tomorrow evening at 7 please", "tomorrow", "19:00"),
+            Triple("remind me to ring mum tomorrow evening at 7:30.", "tomorrow", "19:30"),
+            Triple("remind me to ring mum friday evening at 7.", "friday", "19:00"),
+            Triple("remind me to ring mum tomorrow afternoon at 3.", "tomorrow", "15:00"),
+            Triple("remind me to ring mum tomorrow morning at 7.", "tomorrow", "7:00"),
+            Triple("remind me to ring mum tomorrow night at 9.", "tomorrow", "21:00"),
+            Triple("remind me to ring mum tomorrow night at 9 please", "tomorrow", "21:00"),
+            Triple("remind me to ring mum tomorrow night at 11.", "tomorrow", "23:00"),
+            Triple("remind me to ring mum tomorrow night at 2.", "tomorrow", "2:00"),
+        )
+        rowClocks.forEach { clock ->
+            rows.forEach { (text, day, time) ->
+                val intent = route(routerAt(clock), text)
+                assertEquals("ring mum", intent.params["item"], "'$text' at $clock")
+                assertEquals(day, intent.params["day"], "'$text' at $clock")
+                assertEquals(time, intent.params["time"], "'$text' at $clock")
+            }
+        }
+    }
+
+    @Test
+    fun `trailing full stop, question mark or bang is not kept in the item`() {
+        rowClocks.forEach { clock ->
+            listOf("ring mum.", "ring mum?", "ring mum!").forEach { text ->
+                val intent = route(routerAt(clock), "remind me tomorrow evening at 7 to $text")
+                assertEquals("ring mum", intent.params["item"], "'$text' at $clock")
+            }
+        }
+    }
+
+    @Test
+    fun `this evening is the tonight cue, not item words, and 1 to 4 still asks`() {
+        rowClocks.forEach { clock ->
+            val intent = route(routerAt(clock), "remind me to ring mum this evening at 7")
+            assertEquals("ring mum", intent.params["item"], "at $clock")
+            assertEquals("19:00", intent.params["time"], "at $clock")
+            assertEquals("today", intent.params["day"], "at $clock")
+            assertEquals("tonight", intent.params["day_cue"], "at $clock")
+            askedSlot(routerAt(clock), "remind me to ring mum this evening at 2", "time_of_day")
+        }
+    }
 }

@@ -149,19 +149,27 @@ private fun nextOccurrence(hour: Int, minute: Int, now: LocalDateTime): Pair<Loc
 internal fun clockText(hour: Int, minute: Int): String = "%02d:%02d".format(hour, minute)
 
 /**
- * A time with the day part said after its day ("tomorrow evening at 7"), written the way [reminderScheduleParams]
- * reads it: "7 in the evening", "7 at night" (pm only for hours 5 to 11, as in [QuickIntentRouter.parseAlarmTime]).
- * A time with am/pm already, or no day part, is returned unchanged.
+ * A time with the day part said after its day ("tomorrow evening at 7"), rewritten from the hour so trailing text
+ * cannot hide the day part: "7." or "7 please" still read as pm. Afternoon and evening add 12 to hours 1 to 11, as
+ * [QuickIntentRouter.parseAlarmTime] does; morning keeps hours 1 to 11 as am. "night" adds 12 to hours 5 to 11, and
+ * hours 1 to 4 keep "at night" so [bareHourIn] still asks. A time with am/pm, or an hour that cannot change, is
+ * returned unchanged.
  */
 internal fun timeWithDayPart(time: String, dayPart: String?): String {
-    val suffix = when (dayPart?.lowercase()) {
-        "morning" -> "in the morning"
-        "afternoon" -> "in the afternoon"
-        "evening" -> "in the evening"
-        "night" -> "at night"
-        else -> return time
+    if (dayPart == null || AM_PM.containsMatchIn(time)) return time
+    val parsed = QuickIntentRouter.parseAlarmTime(time)
+    val hours = parsed["hours"]?.toInt() ?: return time
+    val minutes = parsed.getValue("minutes").toInt()
+    return when (dayPart.lowercase()) {
+        "morning" -> if (hours in 1..11) "%d:%02d am".format(hours, minutes) else time
+        "afternoon", "evening" -> if (hours in 1..11) "%d:%02d pm".format(hours, minutes) else time
+        "night" -> when (hours) {
+            in 5..11 -> "%d:%02d pm".format(hours, minutes)
+            in 1..4 -> "%d:%02d at night".format(hours, minutes)
+            else -> time
+        }
+        else -> time
     }
-    return if (AM_PM.containsMatchIn(time)) time else "$time $suffix"
 }
 
 /**

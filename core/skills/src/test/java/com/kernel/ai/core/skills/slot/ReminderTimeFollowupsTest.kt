@@ -353,4 +353,56 @@ class ReminderTimeFollowupsTest {
             assertEquals("tonight", reply.schedule["day"], "at $clock")
         }
     }
+
+    /** #2152 review: "night" after the day reads hours 5 to 11 as pm, in item and time replies, at all four clocks. */
+    private val rowClocks = listOf("09:00", "14:00", "19:30", "23:50")
+
+    @Test
+    fun `night after the day reads hours 5 to 11 as pm in an item reply`() {
+        val rows = listOf(
+            Triple("ring mum tomorrow night at 9", "21:00", "tomorrow"),
+            Triple("ring mum on friday night at 8", "20:00", "friday"),
+            Triple("ring mum tomorrow night at 11", "23:00", "tomorrow"),
+        )
+        rowClocks.forEach { clock ->
+            rows.forEach { (text, time, day) ->
+                val reply = parseReminderSlotReply(text, "item", now = now(clock))
+                assertEquals("ring mum", reply.value, "'$text' at $clock")
+                assertEquals(time, reply.schedule["time"], "'$text' at $clock")
+                assertEquals(day, reply.schedule["day"], "'$text' at $clock")
+            }
+        }
+    }
+
+    @Test
+    fun `night after the day in a time reply is pm for 5 to 11, and 1 to 4 stays at night`() {
+        val rows = listOf(
+            Triple("tomorrow night at 9", "21:00", "tomorrow"),
+            Triple("friday night at 8", "20:00", "friday"),
+            Triple("tomorrow night at 2", "2:00", "tomorrow"),
+        )
+        rowClocks.forEach { clock ->
+            rows.forEach { (text, time, day) ->
+                val schedule = parseReminderSlotReply(text, "time", now = now(clock)).schedule
+                assertEquals(time, schedule["time"], "'$text' at $clock")
+                assertEquals(day, schedule["day"], "'$text' at $clock")
+            }
+        }
+    }
+
+    @Test
+    fun `trailing full stop, question mark or bang does not change an item or time reply`() {
+        rowClocks.forEach { clock ->
+            listOf("ring mum tomorrow night at 9.", "ring mum tomorrow evening at 7?", "ring mum tomorrow night at 9!")
+                .forEach { text ->
+                    val reply = parseReminderSlotReply(text, "item", now = now(clock))
+                    assertEquals("ring mum", reply.value, "'$text' at $clock")
+                    assertEquals(if (text.contains("night")) "21:00" else "19:00", reply.schedule["time"], "'$text' at $clock")
+                }
+            listOf("tomorrow night at 9.", "tomorrow evening at 7?").forEach { text ->
+                val schedule = parseReminderSlotReply(text, "time", now = now(clock)).schedule
+                assertEquals(if (text.contains("night")) "21:00" else "19:00", schedule["time"], "'$text' at $clock")
+            }
+        }
+    }
 }
