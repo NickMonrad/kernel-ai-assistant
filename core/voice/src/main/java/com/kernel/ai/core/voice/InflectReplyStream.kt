@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Plays one reply's waveforms. The controller implements it over AudioTrack; tests fake it. */
-internal interface InflectPcmSink {
+interface InflectPcmSink {
     /** Opens and starts a track for one reply. Must release anything it allocated before it throws. */
     fun open(pitch: Float): InflectPcmTrack
 
@@ -22,7 +22,7 @@ internal interface InflectPcmSink {
     fun silenceActive()
 }
 
-internal interface InflectPcmTrack {
+interface InflectPcmTrack {
     fun write(samples: FloatArray, gain: Float, isCurrent: () -> Boolean)
     fun drain(isCurrent: () -> Boolean)
     /** Fades out what is queued in the track and drops it; used when the reply is superseded or aborted. */
@@ -31,7 +31,7 @@ internal interface InflectPcmTrack {
 }
 
 /** Focus and speaking-event side effects that belong to the controller, not the reply stream. */
-internal interface InflectReplyHooks {
+interface InflectReplyHooks {
     fun onPlaybackStarting(generation: Long, text: String)
     fun onPlaybackEnded(generation: Long)
 }
@@ -48,7 +48,7 @@ internal interface InflectReplyHooks {
  * Cancellation contract: [cancel] (caller cancelled) finishes queued audio and synthesizes nothing more, like
  * Sherpa. [abort] (the controller's stop, which bumps the generation first) silences the reply at once.
  */
-internal class InflectReplyStream(
+class InflectReplyStream(
     private val spokenText: String,
     private val generation: Long,
     private val isCurrent: () -> Boolean,
