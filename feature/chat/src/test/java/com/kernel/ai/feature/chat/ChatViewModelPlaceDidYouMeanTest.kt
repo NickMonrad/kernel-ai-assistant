@@ -332,8 +332,10 @@ class ChatViewModelPlaceDidYouMeanTest {
         // Blocks on a real thread until released; the real-time bound (PlaceDidYouMeanConfig.TIMEOUT_MS, 3 s) fires first.
         // Released in finally so no matcher thread outlives the test.
         val release = java.util.concurrent.CountDownLatch(1)
+        val returned = java.util.concurrent.CountDownLatch(1)
         every { suggester.suggest("Porirwa") } answers {
             release.await(15, java.util.concurrent.TimeUnit.SECONDS)
+            returned.countDown()
             "Porirua"
         }
         try {
@@ -346,7 +348,9 @@ class ChatViewModelPlaceDidYouMeanTest {
             assertEquals(listOf<Any?>("Porirwa"), destinations())
             assertFalse(vm.getConversationAsText().contains("Did you mean"))
         } finally {
+            // Let the matcher thread finish before the test ends, so no coroutine resumes after resetMain.
             release.countDown()
+            returned.await(15, java.util.concurrent.TimeUnit.SECONDS)
         }
     }
 
