@@ -10,38 +10,54 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
- * #2155 — a negated or stylistic mention of "list" inside a prompt ("No lists.") must not
- * route to get_list_items, neither via regex nor via the classifier.
+ * #2155 — a negated or stylistic mention of "list" inside a whole prompt must not route to a list
+ * intent, neither via regex (list-name capture running across sentences) nor via the classifier.
  */
 class QuickIntentRouterNegatedListTest {
 
-    /** Simulates the classifier that routed "No lists." to get_list_items on device. */
-    private class ListBiasedClassifier : QuickIntentRouter.IntentClassifier {
+    /** Simulates the one list label the production classifier actually emits (intent_phrases.json). */
+    private class AddToListBiasedClassifier : QuickIntentRouter.IntentClassifier {
+        override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification =
+            QuickIntentRouter.IntentClassifier.Classification("add_to_list", 0.95f)
+    }
+
+    /** Simulates a classifier claiming a list read; used to prove status questions are not vetoed. */
+    private class GetListItemsBiasedClassifier : QuickIntentRouter.IntentClassifier {
         override fun classify(input: String): QuickIntentRouter.IntentClassifier.Classification =
             QuickIntentRouter.IntentClassifier.Classification("get_list_items", 0.95f)
     }
 
     private lateinit var regexOnlyRouter: QuickIntentRouter
-    private lateinit var hybridRouter: QuickIntentRouter
+    private lateinit var addToListRouter: QuickIntentRouter
+    private lateinit var getListItemsRouter: QuickIntentRouter
 
     @BeforeEach
     fun setUp() {
         regexOnlyRouter = QuickIntentRouter()
-        hybridRouter = QuickIntentRouter(classifier = ListBiasedClassifier())
+        addToListRouter = QuickIntentRouter(classifier = AddToListBiasedClassifier())
+        getListItemsRouter = QuickIntentRouter(classifier = GetListItemsBiasedClassifier())
     }
 
     @Nested
-    @DisplayName("Negated or stylistic list mentions fall through")
+    @DisplayName("Whole prompts with a negated list mention fall through")
     inner class NegatedMentions {
 
-        @ParameterizedTest(name = "regex: \"{0}\" must not route to get_list_items")
+        @ParameterizedTest(name = "regex: \"{0}\" falls through")
         @ValueSource(
             strings = [
+                "What's on your mind today? No lists.",
+                "Describe New Zealand. No lists.",
+                "Read me a short story about a dragon. No lists.",
+                "Summarise WW2 in 3 paragraphs. No lists.",
                 "No lists.",
                 "answer without a list",
                 "don't list them",
                 "no bullet points or lists please",
                 "explain photosynthesis, no lists",
+                "no need to add bread to the list",
+                "don't remove eggs from my list",
+                "don't clear my shopping list",
+                "don't add anything to my list",
             ],
         )
         fun `negated mention does not match list regex`(input: String) {
@@ -49,37 +65,48 @@ class QuickIntentRouterNegatedListTest {
             assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, result, "route for '$input'")
         }
 
-        @ParameterizedTest(name = "classifier: \"{0}\" must not route to get_list_items")
+        @ParameterizedTest(name = "add_to_list classifier: \"{0}\" falls through")
         @ValueSource(
             strings = [
+                "What's on your mind today? No lists.",
+                "Describe New Zealand. No lists.",
+                "Read me a short story about a dragon. No lists.",
+                "Summarise WW2 in 3 paragraphs. No lists.",
                 "No lists.",
                 "answer without a list",
                 "don't list them",
                 "no bullet points or lists please",
                 "explain photosynthesis, no lists",
+                "no need to add bread to the list",
+                "don't remove eggs from my list",
+                "don't clear my shopping list",
+                "don't add anything to my list",
+                "I can't add eggs to my shopping list",
+                "I won't add eggs to my shopping list",
             ],
         )
-        fun `negated mention is not claimed by list classifier`(input: String) {
-            val result = hybridRouter.route(input)
+        fun `negated mention is not claimed by add_to_list classifier`(input: String) {
+            val result = addToListRouter.route(input)
             assertInstanceOf(QuickIntentRouter.RouteResult.FallThrough::class.java, result, "route for '$input'")
         }
     }
 
     @Nested
-    @DisplayName("Genuine list commands keep routing")
+    @DisplayName("Status questions and genuine list commands keep routing")
     inner class Positives {
 
-        @ParameterizedTest(name = "regex: \"{0}\" → get_list_items")
-        @ValueSource(strings = ["what's on my shopping list", "show my todo list"])
+        @ParameterizedTest(name = "regex: \"{0}\" → get_list_items list \"shopping list\"")
+        @ValueSource(strings = ["what's on my shopping list", "show my shopping list"])
         fun `list read commands still match regex`(input: String) {
             val result = regexOnlyRouter.route(input)
             val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
             assertEquals("get_list_items", match.intent.intentName, "intent for '$input'")
+            assertEquals("shopping list", match.intent.params["list_name"], "list_name for '$input'")
         }
 
         @Test
-        fun `show my lists still matches list read regex`() {
-            val result = regexOnlyRouter.route("show my lists")
+        fun `show my list not the reminders still reaches the list tool`() {
+            val result = regexOnlyRouter.route("show my list, not the reminders")
             val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, result)
             assertEquals("get_list_items", match.intent.intentName)
         }
@@ -90,6 +117,21 @@ class QuickIntentRouterNegatedListTest {
             val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
             assertEquals("add_to_list", needsSlot.intent.intentName)
             assertEquals("milk", needsSlot.intent.params["item"])
+        }
+
+        @Test
+        fun `add milk to my list still reaches add_to_list through the add_to_list classifier`() {
+            val result = addToListRouter.route("add milk to my list")
+            val needsSlot = assertInstanceOf(QuickIntentRouter.RouteResult.NeedsSlot::class.java, result)
+            assertEquals("add_to_list", needsSlot.intent.intentName)
+        }
+
+        @ParameterizedTest(name = "get_list_items classifier: \"{0}\" is not vetoed")
+        @ValueSource(strings = ["what's not done on my todo list", "what items are not checked on my list"])
+        fun `negated status question is not vetoed for list reads`(input: String) {
+            val result = getListItemsRouter.route(input)
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.ClassifierMatch::class.java, result)
+            assertEquals("get_list_items", match.intent.intentName, "intent for '$input'")
         }
     }
 }
