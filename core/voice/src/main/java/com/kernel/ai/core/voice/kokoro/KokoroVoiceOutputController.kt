@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice.kokoro
 
 import android.content.Context
+import com.kernel.ai.core.inference.InferenceEngine
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -45,6 +46,7 @@ import kotlinx.coroutines.withContext
 class KokoroVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val inferenceEngine: InferenceEngine,
 ) : VoiceOutputController {
     private val eventsFlow = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     override val events: Flow<VoiceOutputEvent> = eventsFlow.asSharedFlow()
@@ -78,6 +80,9 @@ class KokoroVoiceOutputController @Inject constructor(
 
     /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
     suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
+        if (!inferenceEngine.isReady.value) {
+            return@withContext KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
+        }
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         synthesisLock.withLock {
             val preparation = prepare(voice)
@@ -86,13 +91,20 @@ class KokoroVoiceOutputController @Inject constructor(
                     (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
                 )
             try {
-                measureKokoroSpeed(
-                    text = KOKORO_SPEED_TEST_TEXT,
-                    splitText = { text -> loaded.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)) },
-                    synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
-                    sampleRate = KokoroTts.SAMPLE_RATE_HZ,
-                    peakMemoryMb = ::readPeakMemoryMb,
-                )
+                val runs = ArrayList<KokoroSpeedResult.Measured.Run>(KOKORO_SPEED_TEST_RUNS)
+                repeat(KOKORO_SPEED_TEST_RUNS) {
+                    when (val result = measureKokoroSpeed(
+                        text = KOKORO_SPEED_TEST_TEXT,
+                        splitText = { text -> loaded.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)) },
+                        synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
+                        sampleRate = KokoroTts.SAMPLE_RATE_HZ,
+                        peakMemoryMb = ::readPeakMemoryMb,
+                    )) {
+                        is KokoroSpeedResult.Measured -> runs += result.runs.single()
+                        is KokoroSpeedResult.Unavailable -> return@withLock result
+                    }
+                }
+                aggregateKokoroSpeedRuns(runs, readPeakMemoryMb())
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

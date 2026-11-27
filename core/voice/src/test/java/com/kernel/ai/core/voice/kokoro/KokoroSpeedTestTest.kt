@@ -30,30 +30,38 @@ class KokoroSpeedTestTest {
         assertEquals(0.5, result.realTimeFactor, 1e-9)
         assertEquals(0.5, result.firstChunkSeconds, 1e-9)
         assertEquals(1_300L, result.peakMemoryMb)
-        assertFalse(result.stutters)
+        assertTrue(result.allowsKokoro)
     }
 
     @Test
-    fun phone_at_exactly_real_time_is_refused_because_it_would_stutter() {
-        val atRealTime = KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 4.0,
-            firstChunkSeconds = 1.0,
+    fun median_rtf_uses_the_middle_run_for_an_odd_count() {
+        val result = aggregateKokoroSpeedRuns(
+            listOf(run(0.5), run(0.9), run(1.2)),
             peakMemoryMb = null,
-        )
-        assertTrue(atRealTime.stutters)
+        ) as KokoroSpeedResult.Measured
+        assertEquals(0.9, result.medianFirstChunkSeconds, 1e-9)
     }
 
     @Test
-    fun phone_just_under_real_time_is_allowed() {
-        val justUnder = KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 3.99,
-            firstChunkSeconds = 1.0,
+    fun median_rtf_averages_the_middle_runs_for_an_even_count() {
+        val result = aggregateKokoroSpeedRuns(
+            listOf(run(0.4), run(0.6), run(1.0), run(1.2)),
             peakMemoryMb = null,
-        )
-        assertFalse(justUnder.stutters)
+        ) as KokoroSpeedResult.Measured
+        assertEquals(0.8, result.medianRealTimeFactor, 1e-9)
     }
+
+    @Test
+    fun phone_at_the_selection_limit_is_allowed_but_above_it_is_blocked() {
+        assertTrue((aggregateKokoroSpeedRuns(listOf(run(0.9)), null) as KokoroSpeedResult.Measured).allowsKokoro)
+        assertFalse((aggregateKokoroSpeedRuns(listOf(run(0.91)), null) as KokoroSpeedResult.Measured).allowsKokoro)
+    }
+
+    private fun run(rtf: Double) = KokoroSpeedResult.Measured.Run(
+        audioSeconds = 1.0,
+        synthesisSeconds = rtf,
+        firstChunkSeconds = rtf,
+    )
 
     @Test
     fun a_run_that_makes_no_audio_is_unavailable_not_a_zero_speed() {

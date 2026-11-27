@@ -766,7 +766,7 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             val result = kokoroVoiceOutputController.measureSpeed()
             val lines = result.summaryLines()
-            if (result is KokoroSpeedResult.Measured && !result.stutters) {
+            if (result is KokoroSpeedResult.Measured && result.allowsKokoro) {
                 _uiState.update {
                     it.copy(
                         selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
@@ -776,7 +776,12 @@ class VoiceViewModel @Inject constructor(
                 voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
                 piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
             } else {
-                val reason = if (result is KokoroSpeedResult.Measured) "speech would stutter on this phone" else "Kokoro is not ready"
+                val reason = if (result is KokoroSpeedResult.Measured) {
+                    "speech would stutter on this phone (median RTF %.2f; threshold %.2f)"
+                        .format(Locale.US, result.medianRealTimeFactor, com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF)
+                } else {
+                    "Kokoro is not ready"
+                }
                 _uiState.update {
                     it.copy(
                         kokoroSpeed = KokoroSpeedUiState.Done(
@@ -979,10 +984,13 @@ sealed interface KokoroSpeedUiState {
 /** Human-readable result for the speed panel. Kept here, next to the state that holds it. */
 internal fun KokoroSpeedResult.summaryLines(): List<String> = when (this) {
     is KokoroSpeedResult.Measured -> listOf(
-        "Speed: %.2f× real time (%.1f s of audio made in %.1f s).".format(Locale.US, realTimeFactor, audioSeconds, synthesisSeconds),
-        "First chunk ready in %.1f s.".format(Locale.US, firstChunkSeconds),
+        "Median RTF: %.2f (Honor target: <= 0.5; selection limit: <= 0.90)."
+            .format(Locale.US, medianRealTimeFactor),
+        "Median first sound: %.1f s (Honor target: <= 1.5 s).".format(Locale.US, medianFirstChunkSeconds),
+        "No crashes in 20 replies (owner Honor run; manual target).",
+        "Per-run RTF: ${runs.joinToString { "%.2f".format(Locale.US, it.realTimeFactor) }}.",
         peakMemoryMb?.let { "Peak memory: $it MB." } ?: "Peak memory: not reported.",
-        if (stutters) "Verdict: slower than playback, so speech would stutter." else "Verdict: keeps up with playback.",
+        if (allowsKokoro) "Verdict: keeps up with playback." else "Verdict: speech would stutter on this phone.",
     )
     is KokoroSpeedResult.Unavailable -> listOf(message)
 }

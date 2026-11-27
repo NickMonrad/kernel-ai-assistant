@@ -15,17 +15,48 @@ sealed interface KokoroSpeedResult {
         val synthesisSeconds: Double,
         val firstChunkSeconds: Double,
         val peakMemoryMb: Long?,
+        val runs: List<Run> = emptyList(),
+        val medianRealTimeFactor: Double = synthesisSeconds / audioSeconds,
+        val medianFirstChunkSeconds: Double = firstChunkSeconds,
     ) : KokoroSpeedResult {
-        val realTimeFactor: Double get() = synthesisSeconds / audioSeconds
+        data class Run(
+            val audioSeconds: Double,
+            val synthesisSeconds: Double,
+            val firstChunkSeconds: Double,
+        ) {
+            val realTimeFactor: Double get() = synthesisSeconds / audioSeconds
+        }
 
-        /** At or above real time the phone cannot keep up with playback, so speech would stutter. */
-        val stutters: Boolean get() = realTimeFactor >= STUTTER_REAL_TIME_FACTOR
+        val realTimeFactor: Double get() = medianRealTimeFactor
+        val allowsKokoro: Boolean get() = medianRealTimeFactor <= KOKORO_SELECT_MAX_MEDIAN_RTF
     }
-
-    data class Unavailable(val message: String) : KokoroSpeedResult
 }
 
-internal const val STUTTER_REAL_TIME_FACTOR = 1.0
+internal const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.90
+internal const val KOKORO_SPEED_TEST_RUNS = 3
+
+internal fun aggregateKokoroSpeedRuns(
+    runs: List<KokoroSpeedResult.Measured.Run>,
+    peakMemoryMb: Long?,
+): KokoroSpeedResult {
+    if (runs.isEmpty()) return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
+    fun median(values: List<Double>): Double {
+        val sorted = values.sorted()
+        val middle = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[middle] else (sorted[middle - 1] + sorted[middle]) / 2
+    }
+    val medianRtf = median(runs.map { it.realTimeFactor })
+    val medianFirstChunk = median(runs.map { it.firstChunkSeconds })
+    return KokoroSpeedResult.Measured(
+        audioSeconds = runs.map { it.audioSeconds }.average(),
+        synthesisSeconds = runs.map { it.synthesisSeconds }.average(),
+        firstChunkSeconds = medianFirstChunk,
+        peakMemoryMb = peakMemoryMb,
+        runs = runs,
+        medianRealTimeFactor = medianRtf,
+        medianFirstChunkSeconds = medianFirstChunk,
+    )
+}
 
 /** Fixed passage with two sentences so the run covers the sentence chunking a normal reply uses. */
 internal const val KOKORO_SPEED_TEST_TEXT =
@@ -54,11 +85,15 @@ internal fun measureKokoroSpeed(
     }
     val elapsedNanos = nanoTime() - start
     if (samples == 0L) return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
+    val audioSeconds = samples.toDouble() / sampleRate
+    val synthesisSeconds = elapsedNanos / NANOS_PER_SECOND
+    val firstChunkSeconds = firstChunkNanos / NANOS_PER_SECOND
     return KokoroSpeedResult.Measured(
-        audioSeconds = samples.toDouble() / sampleRate,
-        synthesisSeconds = elapsedNanos / NANOS_PER_SECOND,
-        firstChunkSeconds = firstChunkNanos / NANOS_PER_SECOND,
+        audioSeconds = audioSeconds,
+        synthesisSeconds = synthesisSeconds,
+        firstChunkSeconds = firstChunkSeconds,
         peakMemoryMb = peakMemoryMb(),
+        runs = listOf(KokoroSpeedResult.Measured.Run(audioSeconds, synthesisSeconds, firstChunkSeconds)),
     )
 }
 
