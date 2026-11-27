@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Drives [InflectReplyStream] through fake PCM and hook seams. Each waveform carries its synthesis index in every
+ * Drives [VoiceReplyStream] through fake PCM and hook seams. Each waveform carries its synthesis index in every
  * sample, so a track's writes show exactly which chunks reached the speaker and in what order.
  */
-class InflectReplyStreamTest {
+class VoiceReplyStreamTest {
     private val longReply = (1..12).joinToString(" ") { "This is sentence number $it of the reply." }
     /** Three sentences of about 70 characters each, so each becomes its own speech chunk (limit 120). */
     private val threeChunks = listOf("Alpha", "Broken", "Gamma").joinToString(" ") {
@@ -30,7 +30,7 @@ class InflectReplyStreamTest {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private class FakeTrack(private val onWrite: (Int) -> Unit) : InflectPcmTrack {
+    private class FakeTrack(private val onWrite: (Int) -> Unit) : VoicePcmTrack {
         val writes = mutableListOf<Float>()
         var drained = false
         var discarded = false
@@ -55,7 +55,7 @@ class InflectReplyStreamTest {
         }
     }
 
-    private class FakeSink(var openError: Throwable? = null) : InflectPcmSink {
+    private class FakeSink(var openError: Throwable? = null) : VoicePcmSink {
         val tracks = mutableListOf<FakeTrack>()
         val firstWriteEntered = CountDownLatch(1)
         /** When set, the first write blocks until the test releases it. */
@@ -63,7 +63,7 @@ class InflectReplyStreamTest {
         /** When set, the write with this 1-based index throws, as a device failure would. */
         var failWriteAt: Int? = null
 
-        override fun open(pitch: Float): InflectPcmTrack {
+        override fun open(sampleRate: Int, pitch: Float): VoicePcmTrack {
             openError?.let { throw it }
             return FakeTrack { count ->
                 if (count == 1) {
@@ -77,7 +77,7 @@ class InflectReplyStreamTest {
         override fun silenceActive() = Unit
     }
 
-    private class FakeHooks : InflectReplyHooks {
+    private class FakeHooks : VoiceReplyHooks {
         val starts = mutableListOf<Long>()
         val ends = mutableListOf<Long>()
 
@@ -101,18 +101,22 @@ class InflectReplyStreamTest {
         var synthesizer: suspend (String) -> Float = { synthCalls.get().toFloat() }
         var phonemizer: (String) -> String = { it }
         val myGeneration = generation.incrementAndGet()
-        val stream = InflectReplyStream(
+        val stream = VoiceReplyStream<InflectMicroTextFrontend.PhonemizedChunk>(
+            engine = "Inflect",
             spokenText = "reply",
             generation = myGeneration,
             isCurrent = { generation.get() == myGeneration },
             unavailable = unavailable,
-            synthesize = { phonemes ->
+            chunker = { text, onSkip ->
+                InflectMicroTextFrontend.speechPieces(text, onSkip) { phonemizer(it) }
+            },
+            synthesize = { piece ->
                 synthCalls.incrementAndGet()
-                val index = synthesizer(phonemes)
+                val index = synthesizer(piece.phonemes)
                 FloatArray(1000) { index }
             },
-            phonemizeChunk = { phonemizer(it) },
             sink = sink,
+            sampleRate = 24_000,
             hooks = hooks,
             gain = 1f,
             pitch = 1f,
