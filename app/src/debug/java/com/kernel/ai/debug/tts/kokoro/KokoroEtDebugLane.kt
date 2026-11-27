@@ -31,6 +31,7 @@ class KokoroEtDebugLane(
     private val modelDirectory: File,
     private val voiceName: String,
     private val phonemizer: KokoroPhonemizer,
+    private val precision: String = PRECISION_FP32,
     private val threads: Int = DEFAULT_THREADS,
 ) : DebugTtsLane {
     private var durationModel: ExecuTorchModel? = null
@@ -40,10 +41,10 @@ class KokoroEtDebugLane(
     @Volatile
     private var cancelRequested = false
 
-    override val laneId: String = DebugTtsLanes.KOKORO_ET
+    override val laneId: String = if (precision == PRECISION_FP32) DebugTtsLanes.KOKORO_ET else DebugTtsLanes.KOKORO_ET_INT8
 
     override val backend: String
-        get() = "executorch ${EXECUTORCH_VERSION} XNNPACK CPU, fp32, $threads threads"
+        get() = "executorch ${EXECUTORCH_VERSION} XNNPACK CPU, $precision, $threads threads"
 
     override fun initialize(): Long {
         check(durationModel == null && synthesizerModel == null) { "Kokoro ExecuTorch lane already initialized" }
@@ -51,8 +52,8 @@ class KokoroEtDebugLane(
         val voiceFile = File(modelDirectory, "voices/$voiceName.bin")
         check(voiceFile.isFile) { "missing voice ${voiceFile.path}" }
         voice = KokoroTts.parseVoice(voiceFile.readBytes())
-        durationModel = ExecuTorchModel.load(File(modelDirectory, DURATION_FILE), threads)
-        synthesizerModel = ExecuTorchModel.load(File(modelDirectory, SYNTH_FILE), threads)
+        durationModel = ExecuTorchModel.load(File(modelDirectory, durationFile(precision)), threads)
+        synthesizerModel = ExecuTorchModel.load(File(modelDirectory, synthFile(precision)), threads)
         return elapsedMs(startedAt)
     }
 
@@ -230,14 +231,14 @@ class KokoroEtDebugLane(
 
     override fun metadata(): JSONObject {
         val models = JSONObject()
-            .put("duration_predictor", File(modelDirectory, DURATION_FILE).absolutePath)
-            .put("duration_predictor_sha256", sha256Of(File(modelDirectory, DURATION_FILE)))
-            .put("synthesizer", File(modelDirectory, SYNTH_FILE).absolutePath)
-            .put("synthesizer_sha256", sha256Of(File(modelDirectory, SYNTH_FILE)))
+            .put("duration_predictor", File(modelDirectory, durationFile(precision)).absolutePath)
+            .put("duration_predictor_sha256", sha256Of(File(modelDirectory, durationFile(precision))))
+            .put("synthesizer", File(modelDirectory, synthFile(precision)).absolutePath)
+            .put("synthesizer_sha256", sha256Of(File(modelDirectory, synthFile(precision))))
         return JSONObject()
             .put("executorch_version", EXECUTORCH_VERSION)
             .put("delegate", "XNNPACK")
-            .put("precision", "fp32")
+            .put("precision", precision)
             .put("threads", threads)
             .put("available_processors", Runtime.getRuntime().availableProcessors())
             .put("voice", voiceName)
@@ -261,9 +262,12 @@ class KokoroEtDebugLane(
     companion object {
         const val EXECUTORCH_VERSION = "1.5.1"
         const val DEFAULT_THREADS = 4
-        const val DURATION_FILE = "duration_predictor_std_xnnpack_fp32.pte"
-        const val SYNTH_FILE = "synthesizer_std_xnnpack_fp32.pte"
+        const val PRECISION_FP32 = "fp32"
+        const val PRECISION_INT8 = "int8"
         const val SPEED = 1.0f
+
+        fun durationFile(precision: String) = "duration_predictor_std_xnnpack_$precision.pte"
+        fun synthFile(precision: String) = "synthesizer_std_xnnpack_$precision.pte"
 
         // Shipped software-mansion programs (ExecuTorch 1.4.x export, loads on 1.5.1). Dynamic token length up to
         // 128; the text mask is a BOOL tensor, all true at the real length.

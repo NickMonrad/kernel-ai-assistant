@@ -102,9 +102,10 @@ class DebugTtsBaselineService : Service() {
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
             InflectMicroDebugLane(models, voice.name, espeak)
         }
-        DebugTtsLanes.KOKORO_ET -> {
+        DebugTtsLanes.KOKORO_ET, DebugTtsLanes.KOKORO_ET_INT8 -> {
             val models = File(filesDir, "kokoro-et")
-            KokoroEtDebugLane(models, KOKORO_ET_VOICE, NativeKokoroPhonemizer(filesDir, "en-us"))
+            val precision = if (laneId == DebugTtsLanes.KOKORO_ET) "fp32" else "int8"
+            KokoroEtDebugLane(models, KOKORO_ET_VOICE, NativeKokoroPhonemizer(filesDir, "en-us"), precision)
         }
         else -> error("no lane factory for $laneId")
     }
