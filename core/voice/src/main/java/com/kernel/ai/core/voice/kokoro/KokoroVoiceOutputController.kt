@@ -1,0 +1,241 @@
+package com.kernel.ai.core.voice.kokoro
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.util.Log
+import com.kernel.ai.core.voice.AudioTrackVoicePcmSink
+import com.kernel.ai.core.voice.SpeakingStopGate
+import com.kernel.ai.core.voice.VoiceOutputController
+import com.kernel.ai.core.voice.VoiceOutputEvent
+import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceOutputStreamingSession
+import com.kernel.ai.core.voice.VoiceOutputTrace
+import com.kernel.ai.core.voice.VoiceReplyHooks
+import com.kernel.ai.core.voice.VoiceReplyStream
+import com.kernel.ai.core.voice.VoiceSpeakRequest
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+/**
+ * Kokoro-82M (ExecuTorch) text -> phonemes -> waveform -> AudioTrack controller (#2117). Same reply and Stop
+ * sequence as [com.kernel.ai.core.voice.InflectMicroVoiceOutputController] (#2106).
+ *
+ * A native chunk cannot be interrupted, so a stop silences queued audio at once but a new reply waits for the chunk
+ * already synthesizing (up to ~4 s on the S23U).
+ */
+@Singleton
+class KokoroVoiceOutputController @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val voiceOutputPreferences: VoiceOutputPreferences,
+) : VoiceOutputController {
+    private val eventsFlow = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
+    override val events: Flow<VoiceOutputEvent> = eventsFlow.asSharedFlow()
+
+    private val audioManager by lazy { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    private val playbackGeneration = AtomicLong(0L)
+    /** Guards engine load, unload and chunk synthesis: a voice switch never closes an engine mid-chunk. */
+    private val synthesisLock = Mutex()
+    /** Serialises reply opens so stop-capture-publish happens as one step; the newest open always wins. */
+    private val openLock = Mutex()
+
+    @Volatile private var stopped = false
+    @Volatile private var engine: KokoroEngine? = null
+    @Volatile private var engineVoice: KokoroVoice? = null
+    @Volatile private var audioFocusRequest: AudioFocusRequest? = null
+    private val speakingStopGate = SpeakingStopGate()
+    private val activeReply = AtomicReference<VoiceReplyStream<String>?>(null)
+    private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sink = AudioTrackVoicePcmSink()
+    private val hooks = ControllerHooks()
+
+    override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
+        val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+        synthesisLock.withLock { prepare(voice) }
+    }
+
+    override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
+        openReply(request)
+
+    override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult = withContext(Dispatchers.IO) {
+        if (request.text.isBlank()) return@withContext VoiceOutputResult.Spoken
+        val reply = openReply(request)
+        try {
+            val appended = reply.append(request.text, isFinal = true)
+            reply.awaitPlayback()
+            if (appended is VoiceOutputResult.Unavailable) appended else reply.playbackResult()
+        } catch (error: CancellationException) {
+            // Caller cancellation finishes queued audio; only stop() silences a reply.
+            reply.cancel()
+            throw error
+        }
+    }
+
+    /** Stops any reply still playing, then prepares a new one. Only the newest reply may emit audio. */
+    private suspend fun openReply(request: VoiceSpeakRequest): VoiceReplyStream<String> = withContext(Dispatchers.IO) {
+        openLock.withLock {
+            stop()
+            stopped = false
+            val generation = playbackGeneration.get()
+            val gain = voiceOutputPreferences.voiceGain.first()
+            val pitch = voiceOutputPreferences.voicePitch.first()
+            val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+            val preparation = synthesisLock.withLock { prepare(voice) }
+            val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
+            val unavailable = preparation as? VoiceOutputResult.Unavailable
+                ?: if (loaded == null) VoiceOutputResult.Unavailable("Kokoro engine is not initialized.") else null
+            val reply = VoiceReplyStream(
+                engine = "Kokoro",
+                spokenText = request.text,
+                generation = generation,
+                isCurrent = { isCurrent(generation) },
+                unavailable = unavailable,
+                chunker = { text, onSkip ->
+                    // Phonemizing failures reach onSkip; the final append reports them so the fallback speaks once.
+                    val chunks = try {
+                        loaded?.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)).orEmpty()
+                    } catch (error: Exception) {
+                        onSkip(error)
+                        emptyList()
+                    }
+                    chunks.asSequence()
+                },
+                synthesize = { chunk -> loaded?.let { synthesizeChunk(it, chunk, generation) } },
+                sink = sink,
+                sampleRate = KokoroTts.SAMPLE_RATE_HZ,
+                hooks = hooks,
+                gain = gain,
+                pitch = pitch,
+                scope = playbackScope,
+            )
+            activeReply.getAndSet(reply)?.abort()
+            reply
+        }
+    }
+
+    override fun stop() {
+        stopped = true
+        playbackGeneration.incrementAndGet()
+        activeReply.getAndSet(null)?.abort()
+        sink.silenceActive()
+        releaseAudioFocus()
+    }
+
+    private fun isCurrent(generation: Long): Boolean = !stopped && playbackGeneration.get() == generation
+
+    /** Returns null when the reply was superseded before or during synthesis. */
+    private suspend fun synthesizeChunk(loaded: KokoroEngine, chunk: String, generation: Long): FloatArray? =
+        synthesisLock.withLock {
+            // stop() bumps the generation before anything else, so a stop racing this check is caught by the next one.
+            if (!isCurrent(generation)) null else loaded.synthesizeChunk(chunk).takeIf { isCurrent(generation) }
+        }
+
+    /** Loads the engine for [voice] unless it is already loaded. Caller holds [synthesisLock]. */
+    private fun prepare(voice: KokoroVoice): VoiceOutputResult {
+        KokoroModelFiles.firstMissing(context, voice)?.let { missing ->
+            return VoiceOutputResult.Unavailable(
+                "Download ${missing.displayName} in Settings → Voice before selecting Kokoro.",
+            )
+        }
+        if (engine != null && engineVoice == voice) return VoiceOutputResult.Spoken
+        engine?.close()
+        engine = null
+        engineVoice = null
+        val phonemizer = try {
+            NativeKokoroPhonemizer(
+                locale = voice.locale,
+                lexiconFile = KokoroModelFiles.lexiconFile(context, voice),
+                taggerFile = KokoroModelFiles.tagsFile(context),
+            )
+        } catch (error: Exception) {
+            return loadFailure("Kokoro phonemizer failed to start", error)
+        } catch (error: LinkageError) {
+            return loadFailure("Kokoro native library is unavailable", error)
+        }
+        val candidate = KokoroEngine(
+            durationFile = KokoroModelFiles.durationFile(context),
+            synthesizerFile = KokoroModelFiles.synthesizerFile(context),
+            voiceFile = KokoroModelFiles.voiceFile(context, voice),
+            phonemizer = phonemizer,
+        )
+        try {
+            candidate.initialize()
+        } catch (error: Exception) {
+            candidate.close()
+            return loadFailure("Kokoro model initialization failed", error)
+        } catch (error: LinkageError) {
+            candidate.close()
+            return loadFailure("Kokoro runtime is unavailable", error)
+        } catch (error: OutOfMemoryError) {
+            // Loading two ExecuTorch programs is the memory-heavy step (#1449); fall back instead of crashing.
+            candidate.close()
+            return loadFailure("Kokoro needs more memory than is free", error)
+        }
+        engine = candidate
+        engineVoice = voice
+        return VoiceOutputResult.Spoken
+    }
+
+    private fun loadFailure(message: String, error: Throwable): VoiceOutputResult.Unavailable {
+        Log.e(TAG, "$message", error)
+        return VoiceOutputResult.Unavailable("$message: ${error.message}")
+    }
+
+    private fun requestAudioFocus() {
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build(),
+            )
+            .setAcceptsDelayedFocusGain(false)
+            .setWillPauseWhenDucked(false)
+            .setOnAudioFocusChangeListener { }
+            .build()
+        audioFocusRequest = request
+        audioManager.requestAudioFocus(request)
+    }
+
+    private fun releaseAudioFocus() {
+        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        audioFocusRequest = null
+    }
+
+    private inner class ControllerHooks : VoiceReplyHooks {
+        override fun onPlaybackStarting(generation: Long, text: String) {
+            requestAudioFocus()
+            VoiceOutputTrace.speakingStarted("kokoro", text)
+            VoiceOutputTrace.logSpeakingStarted("kokoro", text.length)
+            speakingStopGate.markStarted(generation)
+            eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStarted(text))
+        }
+
+        override fun onPlaybackEnded(generation: Long) {
+            // Once per reply, on every exit path including stop(). The gate pairs the stop with this reply's
+            // SpeakingStarted, so a stale unwind cannot end a newer reply's speech.
+            if (playbackGeneration.get() == generation) releaseAudioFocus()
+            if (speakingStopGate.claimStopped(generation)) eventsFlow.tryEmit(VoiceOutputEvent.SpeakingStopped)
+        }
+    }
+
+    private companion object {
+        const val TAG = "KernelAI"
+    }
+}

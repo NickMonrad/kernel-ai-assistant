@@ -33,9 +33,11 @@ class ReleaseAssetAttributionCatalogTest {
         assertTrue("model:MINI_LM" in modelIds)
         val covered = KernelModel.entries.filter {
             !it.name.startsWith("SHERPA_") && !it.name.startsWith("ASR4ALL_") &&
-                !it.name.startsWith("ARCTIC_EMBED") && !it.name.startsWith("INFLECT_")
+                !it.name.startsWith("ARCTIC_EMBED") && !it.name.startsWith("INFLECT_") &&
+                !it.name.startsWith("KOKORO_")
         }.map { "model:${it.name}" }.toSet()
         assertTrue(covered.all { it in modelIds })
+        assertEquals(1, full.count { it.id == "kokoro:pack" })
     }
 
     @Test
@@ -44,7 +46,8 @@ class ReleaseAssetAttributionCatalogTest {
         assertTrue(full.any { it.isDebugOnly })
         assertTrue(full.size > release.size)
         assertTrue(full.any { it.id.startsWith("kokoro:") || it.id == "tts:KokoroExperimental" })
-        assertTrue(release.none { it.id.startsWith("kokoro:") || it.id == "tts:KokoroExperimental" })
+        assertTrue(release.any { it.id == "kokoro:pack" })
+        assertTrue(release.any { it.id == "tts:KokoroExperimental" })
         assertTrue(full.any { it.id == "piper:${SherpaPiperVoice.entries.first().name}" })
     }
 
@@ -103,8 +106,8 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
-    fun releaseShowsCoriAndSherpaEnginesButNoKokoroOrNonCoriPiper() {
-        assertTrue(release.none { it.id.startsWith("kokoro:") })
+    fun releaseShowsCoriSherpaAndKokoroEnginesButNoNonCoriPiper() {
+        assertTrue(release.any { it.id == "kokoro:pack" })
         assertTrue(release.none { it.id.startsWith("piper:") && it.id != "piper:CoriHigh" })
         assertTrue(release.any { it.id == "piper:CoriHigh" })
         assertTrue(release.any { it.id == "tts:SherpaExperimental" })

@@ -83,9 +83,9 @@ class VoiceOutputPreferencesTest {
     }
 
     @Test
-    fun `resolveForBuild demotes persisted Kokoro in release`() {
+    fun `resolveForBuild keeps persisted Kokoro in release`() {
         assertEquals(
-            VoiceOutputEngine.AndroidTts,
+            VoiceOutputEngine.KokoroExperimental,
             VoiceOutputEngine.resolveForBuild(
                 value = VoiceOutputEngine.KokoroExperimental.name,
                 isRelease = true,

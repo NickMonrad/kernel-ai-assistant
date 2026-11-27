@@ -83,6 +83,12 @@
       "source_component": "Jandal custom Sherpa-ONNX v1.13.0 Inflect AAR jni/<abi>/libsherpa-onnx-jni.so (arm64-v8a, armeabi-v7a, x86, x86_64); eSpeak-ng GPL-3.0-or-later statically linked; c-api and cxx-api libraries are excluded from the bundle",
       "license_expression": "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND GPL-3.0-or-later AND MIT AND MPL-2.0 AND Unicode-DFS-2016 AND Unlicense",
       "license_status": "reviewed"
+    },
+    {
+      "name": "libkokoro_phonemis.so",
+      "source_component": "Jandal core/voice CMake build of the Kokoro phonemiser JNI: Software Mansion Phonemis 5ec260e33127de044bda7147f52cea27a7e2e491 and Verbalis b14f1b3f96e759326935de12f81b35b87ec57f6a, fetched from GitHub at build time; vendored xsimd (BSD-3-Clause) and nlohmann-json (MIT) headers; Unicode-3.0 table",
+      "license_expression": "MIT AND BSD-3-Clause AND Unicode-3.0",
+      "license_status": "reviewed"
     }
   ],
   "native_notice_assets": {

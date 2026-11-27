@@ -9,7 +9,8 @@ import com.kernel.ai.core.voice.isLocaleReadyForWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
-import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.InflectMicroSetup
@@ -80,10 +81,6 @@ data class SherpaVoiceRowUiState(
     val downloadState: VoicePackDownloadState = VoicePackDownloadState.NotDownloaded,
 )
 
-data class KokoroVoiceRowUiState(
-    val voice: SherpaKokoroVoice,
-    val downloadState: VoicePackDownloadState = VoicePackDownloadState.NotDownloaded,
-)
 
 data class VoiceUiState(
     val spokenResponsesEnabled: Boolean = true,
@@ -123,12 +120,8 @@ data class VoiceUiState(
     /** Active speaker ID for multi-speaker voices (VCTK). Stored as sid 0–108. */
     val activeSpeakerId: Int = 0,
     // ── Kokoro ────────────────────────────────────────────────────────────────
-    val kokoroVoices: List<KokoroVoiceRowUiState> = SherpaKokoroVoice.entries.map { voice ->
-        KokoroVoiceRowUiState(voice = voice)
-    },
-    val selectedKokoroVoice: SherpaKokoroVoice = SherpaKokoroVoice.KokoroMultiLangInt8,
-    val kokoroActiveSpeakerId: Int = 0,
-    val isSelectedKokoroVoiceDownloaded: Boolean = false,
+    val kokoroStates: Map<KernelModel, DownloadState> = emptyMap(),
+    val selectedKokoroVoice: KokoroVoice = KokoroVoice.DEFAULT,
     // ── Hey Jandal / Default Assistant ───────────────────────────────────────
     /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
     val isDefaultAssistant: Boolean = false,
@@ -152,8 +145,6 @@ data class VoiceUiState(
     // ── Model availability states (for ModelCardCompact) ────────────────────
     /** Per-voice availability state for Sherpa Piper voices. */
     val sherpaVoiceAvailability: Map<SherpaPiperVoice, ModelAvailabilityState> = emptyMap(),
-    /** Per-voice availability state for Kokoro voices. */
-    val kokoroVoiceAvailability: Map<SherpaKokoroVoice, ModelAvailabilityState> = emptyMap(),
 )
 internal fun resolveAndroidNativeAvailabilityMessage(
     availability: AndroidNativeRecognitionAvailability,
@@ -500,39 +491,7 @@ class VoiceViewModel @Inject constructor(
         }
         viewModelScope.launch {
             voiceOutputPreferences.selectedKokoroVoice.collect { voice ->
-                _uiState.update { state ->
-                    state.copy(
-                        selectedKokoroVoice = voice,
-                        isSelectedKokoroVoiceDownloaded =
-                            state.kokoroVoices.firstOrNull { it.voice == voice }
-                                ?.downloadState is VoicePackDownloadState.Downloaded,
-                    )
-                }
-            }
-        }
-        viewModelScope.launch {
-            voiceOutputPreferences.kokoroActiveSpeakerId.collect { sid ->
-                _uiState.update { it.copy(kokoroActiveSpeakerId = sid) }
-            }
-        }
-        viewModelScope.launch {
-            sherpaVoicePackDownloadManager.kokoroDownloadStates.collect { states ->
-                _uiState.update { state ->
-                    val rows = SherpaKokoroVoice.entries.map { voice ->
-                        KokoroVoiceRowUiState(
-                            voice = voice,
-                            downloadState = states[voice] ?: VoicePackDownloadState.NotDownloaded,
-                        )
-                    }
-                    state.copy(
-                        kokoroVoices = rows,
-                        isSelectedKokoroVoiceDownloaded =
-                            states[state.selectedKokoroVoice] is VoicePackDownloadState.Downloaded,
-                        kokoroVoiceAvailability = SherpaKokoroVoice.entries.associateWith { voice ->
-                            (states[voice] ?: VoicePackDownloadState.NotDownloaded).toModelAvailability()
-                        },
-                    )
-                }
+                _uiState.update { it.copy(selectedKokoroVoice = voice) }
             }
         }
         viewModelScope.launch {
@@ -595,9 +554,8 @@ class VoiceViewModel @Inject constructor(
                         waiting,
                     )
                 }) + (VoiceInputEngine.Asr4all to sherpaSttDownloadState(Asr4AllInstall.models(pendingSize ?: asr4allSize), states, waiting))
-                val inflectStates = inflectModels.associateWith { model ->
-                    states[model] ?: DownloadState.NotDownloaded
-                }
+                val inflectStates = inflectModels.associateWith { model -> states[model] ?: DownloadState.NotDownloaded }
+                val kokoroStates = KokoroSetup.kernelModels().associateWith { model -> states[model] ?: DownloadState.NotDownloaded }
                 _uiState.update {
                     val selectedVoiceState =
                         sherpaVoicePackDownloadManager.downloadStates.value[it.selectedSherpaVoice]
@@ -614,6 +572,7 @@ class VoiceViewModel @Inject constructor(
                         inflectMicroStates = inflectStates,
                         inflectMicroAvailability = inflectAvailability,
                         isInflectMicroReady = inflectAvailability is ModelAvailabilityState.Ready,
+                        kokoroStates = kokoroStates,
                         asr4allPendingSize = pendingSize,
                         asr4allSwitchFailure = switchState.failure?.message.takeUnless { m ->
                             m == TERMS_NOT_ACCEPTED_MESSAGE && termsAccepted
@@ -888,34 +847,21 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    // ── Kokoro actions ────────────────────────────────────────────────────────
-
-    fun setKokoroVoice(voice: SherpaKokoroVoice) {
-        val row = _uiState.value.kokoroVoices.firstOrNull { it.voice == voice }
-        if (row?.downloadState !is VoicePackDownloadState.Downloaded) return
+    fun setKokoroVoice(voice: KokoroVoice) {
         _uiState.update { it.copy(selectedKokoroVoice = voice) }
-        viewModelScope.launch {
-            voiceOutputPreferences.setSelectedKokoroVoice(voice)
-        }
+        viewModelScope.launch { voiceOutputPreferences.setSelectedKokoroVoice(voice) }
     }
 
-    fun downloadKokoroVoice(voice: SherpaKokoroVoice) {
-        if (isReleaseBuild) return
-        sherpaVoicePackDownloadManager.startKokoroDownload(voice)
+    fun downloadKokoroPack() = KokoroSetup.queue(modelDownloadManager)
+
+    fun cancelKokoroPackDownload() {
+        val states = modelDownloadManager.downloadStates.value
+        KokoroSetup.kernelModels().filter { states[it] is DownloadState.Downloading }
+            .forEach(modelDownloadManager::cancelDownload)
     }
 
-    fun cancelKokoroVoiceDownload(voice: SherpaKokoroVoice) {
-        sherpaVoicePackDownloadManager.cancelKokoroDownload(voice)
-    }
-
-    fun deleteKokoroVoice(voice: SherpaKokoroVoice) {
-        sherpaVoicePackDownloadManager.deleteKokoroVoice(voice)
-    }
-    fun setKokoroActiveSpeakerId(sid: Int) {
-        _uiState.update { it.copy(kokoroActiveSpeakerId = sid) }
-        viewModelScope.launch {
-            voiceOutputPreferences.setKokoroActiveSpeakerId(sid)
-        }
+    fun deleteKokoroPack() = viewModelScope.launch(Dispatchers.IO) {
+        deleteModelFiles(KokoroSetup.kernelModels())
     }
     // ── Hey Jandal ────────────────────────────────────────────────────────────
 

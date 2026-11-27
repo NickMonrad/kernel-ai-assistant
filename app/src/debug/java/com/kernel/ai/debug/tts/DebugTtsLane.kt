@@ -6,9 +6,8 @@ import org.json.JSONObject
 /** Lane ids. Each id is a `lane` broadcast extra, names the evidence output directory, and maps to one lane. */
 object DebugTtsLanes {
     const val INFLECT_MICRO_V2 = "inflect-micro-v2"
-    const val KOKORO_ET = "kokoro_et"
 
-    val ids: Set<String> = setOf(INFLECT_MICRO_V2, KOKORO_ET)
+    val ids: Set<String> = setOf(INFLECT_MICRO_V2)
 }
 
 /**

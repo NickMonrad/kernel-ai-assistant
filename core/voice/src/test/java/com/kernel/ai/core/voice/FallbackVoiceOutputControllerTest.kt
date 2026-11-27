@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -26,6 +27,7 @@ class FallbackVoiceOutputControllerTest {
 
     private val voiceOutputPreferences: VoiceOutputPreferences = mockk()
     private val sherpa: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
+    private val kokoro: KokoroVoiceOutputController = mockk(relaxed = true)
     private val inflect: InflectMicroVoiceOutputController = mockk(relaxed = true)
     private val androidTts: AndroidTextToSpeechController = mockk(relaxed = true)
     private val selectedEngine = MutableStateFlow(VoiceOutputEngine.AndroidTts)
@@ -33,12 +35,14 @@ class FallbackVoiceOutputControllerTest {
     private val sherpaEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     private val inflectEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     private val androidEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
+    private val kokoroEvents = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     @BeforeEach
     fun setup() {
         every { voiceOutputPreferences.selectedEngine } returns selectedEngine
         every { sherpa.events } returns sherpaEvents
         every { inflect.events } returns inflectEvents
         every { androidTts.events } returns androidEvents
+        every { kokoro.events } returns kokoroEvents
     }
 
     @Test
@@ -129,18 +133,19 @@ class FallbackVoiceOutputControllerTest {
         }
 
     @Test
-    fun `speak routes to Sherpa when Kokoro engine is selected`() = runTest(dispatcher) {
+    fun `speak routes to Kokoro when Kokoro engine is selected`() = runTest(dispatcher) {
         selectedEngine.value = VoiceOutputEngine.KokoroExperimental
         val request = VoiceSpeakRequest("Kokoro regression")
-        coEvery { sherpa.warmUp() } returns VoiceOutputResult.Spoken
-        coEvery { sherpa.speak(request) } returns VoiceOutputResult.Spoken
+        coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
+        coEvery { kokoro.speak(request) } returns VoiceOutputResult.Spoken
 
         val controller = buildController()
         val result = controller.speak(request)
 
         assertEquals(VoiceOutputResult.Spoken, result)
-        coVerify(exactly = 1) { sherpa.warmUp() }
-        coVerify(exactly = 1) { sherpa.speak(request) }
+        coVerify(exactly = 1) { kokoro.warmUp() }
+        coVerify(exactly = 1) { kokoro.speak(request) }
+        coVerify(exactly = 0) { sherpa.speak(any()) }
         coVerify(exactly = 0) { inflect.speak(any()) }
         coVerify(exactly = 0) { androidTts.speak(any()) }
     }
@@ -653,6 +658,7 @@ class FallbackVoiceOutputControllerTest {
         voiceOutputPreferences = voiceOutputPreferences,
         sherpa = sherpa,
         inflect = inflect,
+        kokoro = kokoro,
         androidTts = androidTts,
     )
 }

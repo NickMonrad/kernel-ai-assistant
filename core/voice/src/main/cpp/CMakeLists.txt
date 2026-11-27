@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(kokoro_phonemis LANGUAGES CXX)
 
-# Debug-only spike lane (#1557). Configured only when Gradle gets -Pkokoro.phonemis=true (app/build.gradle.kts).
+# Kokoro phonemis JNI for the Kokoro voice lane (#2117, from #1557). Built by core/voice's externalNativeBuild.
 # Both sources are pinned by commit; nothing is read from a home directory.
 set(PHONEMIS_GIT_COMMIT 5ec260e33127de044bda7147f52cea27a7e2e491)
 set(VERBALIS_GIT_COMMIT b14f1b3f96e759326935de12f81b35b87ec57f6a) # tag v0.1.1

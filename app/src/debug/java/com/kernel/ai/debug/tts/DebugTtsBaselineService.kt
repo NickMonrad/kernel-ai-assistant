@@ -22,8 +22,6 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import com.kernel.ai.debug.tts.kokoro.KokoroEtDebugLane
-import com.kernel.ai.debug.tts.kokoro.NativeKokoroPhonemizer
 import org.json.JSONObject
 
 /**
@@ -102,10 +100,6 @@ class DebugTtsBaselineService : Service() {
             check(missing == null) { "missing ${missing?.fileName} in ${models.path}" }
             InflectMicroDebugLane(models, voice.name, espeak)
         }
-        DebugTtsLanes.KOKORO_ET -> {
-            val models = File(filesDir, "kokoro-et")
-            KokoroEtDebugLane(models, KOKORO_ET_VOICE, NativeKokoroPhonemizer(filesDir, "en-us"))
-        }
         else -> error("no lane factory for $laneId")
     }
 
@@ -153,8 +147,6 @@ class DebugTtsBaselineService : Service() {
         .build()
 
     companion object {
-        private const val KOKORO_ET_VOICE = "af_heart"
-
         /** True while a run owns the service. The receiver refuses overlapping runs using this. */
         private val running = AtomicBoolean(false)
 

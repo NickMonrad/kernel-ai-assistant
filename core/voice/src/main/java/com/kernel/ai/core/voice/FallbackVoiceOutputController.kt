@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.TtsFailure
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -26,6 +27,7 @@ private const val TAG = "KernelAI"
  * - [VoiceOutputEngine.AndroidTts] routes directly to [AndroidTextToSpeechController].
  * - [VoiceOutputEngine.SherpaExperimental] tries [SherpaOnnxVoiceOutputController] first, but
  *   still falls back to Android TTS if Sherpa assets/runtime are missing or if synthesis fails.
+ * - [VoiceOutputEngine.KokoroExperimental] tries [KokoroVoiceOutputController] first, then Inflect Micro, then Android TTS.
  * - [VoiceOutputEngine.InflectMicroExperimental] tries the Inflect controller first, but
  *   still falls back to Android TTS if the model/frontend/runtime is unavailable.
  * Events are forwarded from whichever backend is active via [flatMapLatest].
@@ -37,6 +39,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private val sherpa: SherpaOnnxVoiceOutputController,
     private val inflect: InflectMicroVoiceOutputController,
     private val androidTts: AndroidTextToSpeechController,
+    private val kokoro: KokoroVoiceOutputController,
 ) : VoiceOutputController, StopReasonAwareVoiceOutput {
     private val activeController = MutableStateFlow<VoiceOutputController>(androidTts)
     @Volatile private var liveStream: RecordedStreamingSession? = null
@@ -46,8 +49,8 @@ class FallbackVoiceOutputController @Inject constructor(
 
     override suspend fun warmUp(): VoiceOutputResult = when (voiceOutputPreferences.selectedEngine.first()) {
         VoiceOutputEngine.AndroidTts -> warmUpAndroidTts()
-        VoiceOutputEngine.SherpaExperimental,
-        VoiceOutputEngine.KokoroExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.SherpaExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.KokoroExperimental -> warmUpKokoroOrFallback()
         VoiceOutputEngine.InflectMicroExperimental -> warmUpInflectOrFallback()
     }
 
@@ -62,8 +65,8 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.speak(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> recordedSpeak(engine, request) { speakWithSherpaFallback(request) }
+            VoiceOutputEngine.SherpaExperimental -> recordedSpeak(engine, request) { speakWithSherpaFallback(request) }
+            VoiceOutputEngine.KokoroExperimental -> recordedSpeak(engine, request) { speakWithKokoroFallback(request) }
             VoiceOutputEngine.InflectMicroExperimental -> recordedSpeak(engine, request) { speakWithInflectFallback(request) }
         }
     }
@@ -95,16 +98,16 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.openStreamingSession(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request, engine)
+            VoiceOutputEngine.SherpaExperimental -> openSherpaStreamingSessionOrFallback(request, engine)
+            VoiceOutputEngine.KokoroExperimental -> openKokoroStreamingSessionOrFallback(request, engine)
             VoiceOutputEngine.InflectMicroExperimental -> openInflectStreamingSessionOrFallback(request, engine)
         }
     }
 
-    /** Sherpa (Piper, Kokoro) only, for #1923: other engines return null and speak on confirmation as before. */
+    /** #1923: Sherpa pre-synthesis only; Kokoro and other engines confirm on the normal path. */
     override suspend fun openPreSynthesisedSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession? {
         val engine = voiceOutputPreferences.selectedEngine.first()
-        if (engine != VoiceOutputEngine.SherpaExperimental && engine != VoiceOutputEngine.KokoroExperimental) return null
+        if (engine != VoiceOutputEngine.SherpaExperimental) return null
         if (sherpa.warmUp() is VoiceOutputResult.Unavailable) return null
         activate(sherpa)
         return recordedStreamSession(engine, sherpa, sherpa.openPreSynthesisedSession(request))
@@ -117,6 +120,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private fun stopWith(reason: SpeakEndReason) {
         endLiveStream(reason)
         sherpa.stop()
+        kokoro.stop()
         inflect.stop()
         androidTts.stop()
     }
@@ -141,6 +145,52 @@ class FallbackVoiceOutputController @Inject constructor(
             activate(androidTts)
             androidTts.warmUp()
         }
+    }
+
+    private suspend fun warmUpKokoroOrFallback(): VoiceOutputResult {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            return result
+        }
+        val inflectResult = inflect.warmUp()
+        if (inflectResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            return inflectResult
+        }
+        activate(androidTts)
+        return androidTts.warmUp()
+    }
+
+    private suspend fun speakWithKokoroFallback(request: VoiceSpeakRequest): VoiceOutputResult {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            val spoken = kokoro.speak(request)
+            if (spoken !is VoiceOutputResult.Unavailable) return spoken
+        }
+        val inflectResult = inflect.warmUp()
+        if (inflectResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            val spoken = inflect.speak(request)
+            if (spoken !is VoiceOutputResult.Unavailable) return spoken
+        }
+        recordFallback(VoiceOutputEngine.KokoroExperimental)
+        activate(androidTts)
+        val androidResult = androidTts.warmUp()
+        return if (androidResult is VoiceOutputResult.Unavailable) androidResult else androidTts.speak(request)
+    }
+
+    private suspend fun openKokoroStreamingSessionOrFallback(
+        request: VoiceSpeakRequest,
+        engine: VoiceOutputEngine,
+    ): VoiceOutputStreamingSession {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            return recordedStreamSession(engine, kokoro, kokoro.openStreamingSession(request))
+        }
+        return openInflectStreamingSessionOrFallback(request, VoiceOutputEngine.InflectMicroExperimental)
     }
 
     private suspend fun speakWithSherpaFallback(request: VoiceSpeakRequest): VoiceOutputResult {
@@ -332,7 +382,7 @@ class FallbackVoiceOutputController @Inject constructor(
     }
 
     private fun activate(controller: VoiceOutputController) {
-        if (controller !== sherpa) endLiveStream(SpeakEndReason.REPLACED)
+        if (controller !== sherpa && controller !== kokoro) endLiveStream(SpeakEndReason.REPLACED)
         activeController.value = controller
         stopInactiveControllers(controller)
     }
@@ -440,6 +490,7 @@ class FallbackVoiceOutputController @Inject constructor(
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
         if (active !== sherpa) sherpa.stop()
+        if (active !== kokoro) kokoro.stop()
         if (active !== inflect) inflect.stop()
         if (active !== androidTts) androidTts.stop()
     }

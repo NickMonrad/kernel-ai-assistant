@@ -18,18 +18,23 @@ class VoiceOutputEngineTest {
     fun `release resolves an unavailable default to Android TTS while a stored Android choice is kept`() {
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
+            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.InflectMicroExperimental),
         )
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
+            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.InflectMicroExperimental),
         )
     }
 
     @Test
-    fun `release catalogue offers Piper, Inflect on eligible devices, and Android TTS`() {
+    fun `release catalogue offers Piper, Kokoro, Inflect on eligible devices, and Android TTS`() {
         assertEquals(
-            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            listOf(
+                VoiceOutputEngine.AndroidTts,
+                VoiceOutputEngine.SherpaExperimental,
+                VoiceOutputEngine.KokoroExperimental,
+                VoiceOutputEngine.InflectMicroExperimental,
+            ),
             VoiceOutputEngine.entriesForBuild(
                 isRelease = true,
                 inflectEligible = true,
@@ -52,13 +57,13 @@ class VoiceOutputEngineTest {
     }
 
     @Test
-    fun `release catalogue excludes Kokoro and other debug engines`() {
+    fun `release catalogue includes Kokoro`() {
         val engines = VoiceOutputEngine.entriesForBuild(
             isRelease = true,
             inflectEligible = true,
         )
 
-        assertFalse(engines.contains(VoiceOutputEngine.KokoroExperimental))
+        assertTrue(engines.contains(VoiceOutputEngine.KokoroExperimental))
     }
 
     @Test
