@@ -159,12 +159,15 @@ internal class JsSkillCall(private val skillName: String) {
             "JsSkillRunner: renderer gone skill=$skillName didCrash=$didCrash " +
                 "rendererPriorityAtExit=$rendererPriority alreadyCompleted=${deferred.isCompleted}",
         )
-        fail(JsSkillRendererGoneException(skillName))
+        fail(JsSkillRendererGoneException())
         destroyWebView(destroy)
         return true
     }
 
-    /** Destroys the WebView at most once; called from both the renderer-gone path and `finally`. */
+    /**
+     * Destroys the WebView at most once; called from both the renderer-gone path and `finally`.
+     * Must be called on the main thread: `WebView.destroy()` is main-thread only.
+     */
     fun destroyWebView(destroy: () -> Unit) {
         if (webViewDestroyed) return
         webViewDestroyed = true
@@ -173,5 +176,5 @@ internal class JsSkillCall(private val skillName: String) {
 }
 
 /** Surfaced to the model/user as a failed skill result; the caller may retry. */
-internal class JsSkillRendererGoneException(skillName: String) :
-    Exception("The JS skill '$skillName' was interrupted; please try again.")
+internal class JsSkillRendererGoneException :
+    Exception("The JS renderer was interrupted; please try again.")

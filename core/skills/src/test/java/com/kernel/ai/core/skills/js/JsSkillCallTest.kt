@@ -22,7 +22,7 @@ class JsSkillCallTest {
         val error = pending.await().exceptionOrNull()
         assertTrue(error is JsSkillRendererGoneException)
         assertEquals(
-            "The JS skill 'query-wikipedia' was interrupted; please try again.",
+            "The JS renderer was interrupted; please try again.",
             error?.message,
         )
     }
