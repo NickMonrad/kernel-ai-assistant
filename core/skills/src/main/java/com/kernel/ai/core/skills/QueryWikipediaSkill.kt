@@ -1,10 +1,14 @@
 package com.kernel.ai.core.skills
 
+import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.skills.js.JsSkillRunner
+import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val TAG = "KernelAI"
 
 private val WIKIPEDIA_NO_RESULT_PREFIXES = listOf(
     "No Wikipedia results found for:",
@@ -319,6 +323,21 @@ class QueryWikipediaSkill @Inject constructor(
         val query = call.arguments["query"]?.trim()
             ?: return SkillResult.Failure(name, "Missing required parameter: query.")
         val question = call.arguments[QUESTION_ARGUMENT]?.let(::stripExplicitWikipediaWrapper)?.takeIf { isFactualWikipediaQuestion(it) }
+        return try {
+            lookup(query, question)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Runner failures (timeout, load error, JS error, renderer gone) must not escape: the explicit
+            // chat path calls this skill directly and would crash the app (#2134).
+            // Release logs carry no user content: query text is logged only under the debug verbose gate.
+            val queryLog = if (DebugVerboseLog.active()) " query=$query" else ""
+            Log.e(TAG, "QueryWikipediaSkill: lookup failed reason=${e::class.simpleName} queryLength=${query.length}$queryLog", e)
+            SkillResult.Failure(name, "Wikipedia lookup failed for '$query': ${e.message}")
+        }
+    }
+
+    private suspend fun lookup(query: String, question: String?): SkillResult {
         if (question == null) {
             val result = runner.execute("query-wikipedia", mapOf("query" to query))
             return SkillResult.DirectReply(filterWikipediaResult(query, result))
