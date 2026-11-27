@@ -105,6 +105,28 @@ class ReminderTimeFollowupsTest {
     }
 
     @Test
+    fun `no to the quarter to 1 question is 12 45 today`() {
+        val asked = parseReminderSlotReply("tonight at quarter to 1", "time", now = now("14:00")).schedule
+        clocks.forEach { clock ->
+            val answer = parseReminderSlotReply("no", TIME_OF_DAY_SLOT, asked, now(clock))
+            assertEquals("12:45", answer.schedule["time"], "at $clock")
+            assertEquals("today", answer.schedule["day"], "at $clock")
+        }
+    }
+
+    @Test
+    fun `quarter to 1 on another day asks morning or evening and evening is 12 45`() {
+        val asked = parseReminderSlotReply("quarter to 1 tomorrow", "time", now = now("14:00")).schedule
+        assertEquals("Morning or evening?", pendingTimeOfDaySlot(asked)?.promptTemplate)
+        val evening = parseReminderSlotReply("evening", TIME_OF_DAY_SLOT, asked, now("14:00")).schedule
+        assertEquals("12:45", evening["time"])
+        assertEquals("tomorrow", evening["day"])
+        val morning = parseReminderSlotReply("morning", TIME_OF_DAY_SLOT, asked, now("14:00")).schedule
+        assertEquals("00:45", morning["time"])
+        assertEquals("tomorrow", morning["day"])
+    }
+
+    @Test
     fun `tonight at ten to eight is 19 50 tonight`() {
         assertScheduleAtClocks("tonight at ten to eight", "time", "time", List(4) { "19:50" })
     }
