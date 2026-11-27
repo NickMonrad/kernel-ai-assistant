@@ -1782,7 +1782,7 @@ class ActionsViewModel @Inject constructor(
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
         val reminderReply = if (pending.request.intentName == "add_reminder") {
-            parseReminderSlotReply(text, pending.request.missingSlot.name)
+            parseReminderSlotReply(text, pending.request.missingSlot.name, pending.request.existingParams["day"])
         } else {
             null
         }
@@ -1846,7 +1846,7 @@ class ActionsViewModel @Inject constructor(
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
-                    params = mergedParams,
+                    params = if (mergedParams["day"] == "tonight") mergedParams + ("day" to "today") else mergedParams,
                     inputMode = pending.inputMode,
                     route = IntentRoute.SLOT_FILL,
                 )

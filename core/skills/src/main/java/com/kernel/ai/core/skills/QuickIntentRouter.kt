@@ -30,7 +30,7 @@ private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
 )
 
 /** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
-private fun writtenQuantity(phrase: String): Int? {
+internal fun writtenQuantity(phrase: String): Int? {
     val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
     if (words.isEmpty()) return null
     var total = 0
@@ -53,7 +53,35 @@ class QuickIntentRouter(
     private val classifier: IntentClassifier? = null,
     private val similarityThreshold: Float = 0.85f,
     private val intentContractRegistry: com.kernel.ai.core.skills.intent.IntentContractRegistry? = null,
+    private val clock: () -> LocalDateTime = { LocalDateTime.now() },
 ) {
+
+    /**
+     * Day and time params for a reminder whose time phrase may be a bare hour 1 to 11 (#2132).
+     * [dayToken] is the day word in the utterance, if any; [input] is the whole utterance.
+     * "tonight" or "this evening" makes a bare hour PM today. With no day and no cue, a bare hour
+     * is its next occurrence. An explicit non-tonight day with a bare hour gives no time, so the
+     * time is asked for rather than guessed.
+     */
+    private fun reminderTimeParams(timePhrase: String, dayToken: String?, input: String): Map<String, String> {
+        val evening = if (dayToken == null) hasEveningCue(input) else dayToken.equals("tonight", ignoreCase = true)
+        val explicitDay = dayToken != null && !evening
+        val bare = bareHourIn(timePhrase)
+        return if (bare == null) {
+            buildMap {
+                putAll(parseAlarmTime(timePhrase))
+                if (evening) put("day", "today")
+            }
+        } else if (explicitDay) {
+            emptyMap()
+        } else {
+            val time = resolveBareHour(bare, evening, clock())
+            buildMap {
+                put("time", "%02d:%02d".format(time.hour, time.minute))
+                if (evening) put("day", "today")
+            }
+        }
+    }
 
     // ── Result types ──────────────────────────────────────────────────────────
 
@@ -661,14 +689,12 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                val item = normalizeReminderItem(match.groupValues[1])
-                val day = normalizeDayName(match.groupValues[2].trim().lowercase())
-                val timeParsed = parseAlarmTime(match.groupValues[3].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
                 buildMap {
-                    put("item", item)
-                    put("day", day)
-                    putAll(timeParsed)
+                    put("item", normalizeReminderItem(match.groupValues[1]))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[3].trim(), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -680,8 +706,8 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(?!(?:get|wake)\s+up\b)(.+?)\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("item" to match.groupValues[1].trim()) + parseAlarmTime(match.groupValues[2].trim())
+            paramExtractor = { match, input ->
+                mapOf("item" to match.groupValues[1].trim()) + reminderTimeParams(match.groupValues[2].trim(), null, input)
             },
             requiredSlots = emptyMap(),
         ),
@@ -695,11 +721,13 @@ class QuickIntentRouter(
                 """remind\s+me\s+(?:at|by)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to match.groupValues[3].trim(),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
+                buildMap {
+                    put("item", match.groupValues[3].trim())
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[1].trim(), dayToken, input))
+                }
             },
             requiredSlots = slotContract("add_reminder"),
         ),
@@ -710,8 +738,8 @@ class QuickIntentRouter(
                 """remind\s+me\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                mapOf("item" to match.groupValues[2].trim()) + reminderTimeParams(match.groupValues[1].trim(), null, input)
             },
             requiredSlots = emptyMap(),
         ),
@@ -722,13 +750,15 @@ class QuickIntentRouter(
                 """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
-                    "day" to normalizeDayName(match.groupValues[1].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[2].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[1].trim().lowercase()
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[2].trim(), dayToken, input))
+                }
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
         ),
         // "set a reminder for <time> <day> to <task>" — task-bearing reminder
         IntentPattern(
@@ -737,13 +767,15 @@ class QuickIntentRouter(
                 """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:for|at)\s+(.+?)\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[1].trim(), dayToken, input))
+                }
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
         ),
         // "remind me to/about <task> on <day>" — needs time slot-fill
         IntentPattern(
@@ -792,7 +824,13 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            paramExtractor = { match, input ->
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[1]))
+                    // "tonight" stays as the cue, so the time answer means PM today (#2132).
+                    if (hasEveningCue(input)) put("day", "tonight")
+                }
+            },
             requiredSlots = slotContract("add_reminder"),
         ),
         IntentPattern(

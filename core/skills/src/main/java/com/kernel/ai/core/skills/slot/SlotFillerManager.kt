@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.slot
 
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,10 +71,11 @@ class SlotFillerManager @Inject constructor(
         conversationId: String,
         message: String,
         validationRegistry: SlotValidationRegistry = this.slotValidationRegistry,
+        now: LocalDateTime = LocalDateTime.now(),
     ): SlotFillResult {
         val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
         val reminderReply = if (pending.intentName == "add_reminder") {
-            parseReminderSlotReply(message, pending.missingSlot.name)
+            parseReminderSlotReply(message, pending.missingSlot.name, pending.existingParams["day"], now)
         } else {
             null
         }
@@ -154,7 +156,8 @@ class SlotFillerManager @Inject constructor(
             pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                params = mergedParams,
+                // "tonight" is the cue for a bare-hour time answer; the reminder itself is for today (#2132).
+                params = if (mergedParams["day"] == "tonight") mergedParams + ("day" to "today") else mergedParams,
             )
         }
     }

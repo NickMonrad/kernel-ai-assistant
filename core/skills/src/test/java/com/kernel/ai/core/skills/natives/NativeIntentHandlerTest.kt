@@ -4760,6 +4760,67 @@ class NativeIntentHandlerTest {
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }
+
+        private fun handlerAt(now: LocalDateTime): NativeIntentHandler = NativeIntentHandler(
+            context = context,
+            clockRepository = clockRepository,
+            clockAlertController = clockAlertController,
+            listItemDao = listItemDao,
+            listNameDao = listNameDao,
+            contactAliasRepository = contactAliasRepository,
+            importantDateRepository = importantDateRepository,
+            calendarBirthdayLookup = calendarBirthdayLookup,
+            calendarEventStore = calendarEventStore,
+            memoryRepository = mockk<MemoryRepository>(relaxed = true),
+            embeddingEngine = mockk<EmbeddingEngine>(relaxed = true),
+            cookingConversionService = cookingConversionService,
+            currencyConversionService = currencyConversionService,
+            userProfileRepository = mockk<UserProfileRepository>(relaxed = true),
+            noteDao = noteDao,
+            noteSmartTitleUseCase = noteSmartTitleUseCase,
+            listNotificationScheduler = listNotificationScheduler,
+            nowProvider = { now },
+        )
+
+        @Test
+        fun `add_reminder tonight at a passed time fails visibly instead of rolling to tomorrow`() {
+            val now = LocalDateTime.of(2026, 11, 27, 20, 0)
+            val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "19:00"))
+            assertEquals(
+                SkillResult.Failure("add_reminder", "That time is in the past. Please specify a future date and time."),
+                result,
+            )
+        }
+
+        @Test
+        fun `add_reminder evening time today confirms today at 7 PM`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val now = LocalDateTime.of(2026, 11, 27, 14, 0)
+            val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "19:00"))
+            assertEquals(
+                "Reminder set: \"bins\" today at 7:00 PM.",
+                assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
+            )
+        }
+
+        @Test
+        fun `add_reminder defaulted morning time after 7 pm confirms tomorrow at 6 AM`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val now = LocalDateTime.of(2026, 11, 27, 19, 0)
+            val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "time" to "06:00"))
+            assertEquals(
+                "Reminder set: \"bins\" tomorrow at 6:00 AM.",
+                assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
+            )
+        }
     }
     private fun emailCursor(vararg rows: EmailRow): Cursor {
         val cursor = mockk<Cursor>()
