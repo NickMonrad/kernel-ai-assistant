@@ -99,12 +99,21 @@ class EnglishSpeechTextNormaliserTest {
 
     @Test
     fun glued_units_and_mixed_tokens_read_naturally() {
-        assertEquals("It's five kilometres to gate five ay for flight en zee one two three, and the five gee signal is fine.",
+        assertEquals("It's five kilometres to gate five eh for flight en zed one two three, and the five gee signal is fine.",
             kokoroText("It's 5km to gate 5A for flight NZ123, and the 5G signal is fine."))
         assertEquals("Qwen three runs on ten eighty p.", kokoroText("Qwen3 runs on 1080p."))
         assertEquals("Watch in seven twenty p.", kokoroText("Watch in 720p."))
         assertEquals("em pee three files, four kay and three dee", kokoroText("mp3 files, 4K and 3D"))
         assertEquals("aitch two oh and bee twelve and four bee", kokoroText("H2O and B12 and 4B"))
+    }
+
+    @Test
+    fun spelled_letters_use_names_both_engines_read_as_the_letter() {
+        assertEquals("five eh", kokoroText("5A"))
+        assertEquals("five e", kokoroText("5E"))
+        assertEquals("five F", kokoroText("5F"))
+        assertEquals("five are", kokoroText("5R"))
+        assertEquals("five zed", kokoroText("5Z"))
     }
 
     @Test

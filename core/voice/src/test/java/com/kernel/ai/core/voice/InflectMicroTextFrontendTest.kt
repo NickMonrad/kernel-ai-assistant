@@ -89,8 +89,8 @@ class InflectMicroTextFrontendTest {
             Triple("NZ\$20", "NZtwenty dollars", "twenty New Zealand dollars"),
             Triple(
                 "It's 5km to gate 5A for flight NZ123, and the 5G signal is fine.",
-                "It's 5km to gate five ay for flight NZ123, and the 5G signal is fine.",
-                "It's five kilometres to gate five ay for flight en zee one two three, and the five gee signal is fine.",
+                "It's 5km to gate five eh for flight NZ123, and the 5G signal is fine.",
+                "It's five kilometres to gate five eh for flight en zed one two three, and the five gee signal is fine.",
             ),
             Triple(
                 "Booked for 2026-11-26, about 3-5 days away.",
@@ -282,6 +282,54 @@ class InflectMicroTextFrontendTest {
             listOf("One two", "three.", "Four five", "six seven"),
             chunks.map { it.text },
         )
+    }
+
+    @Test
+    fun phonemizeChunks_splits_long_and_joined_sentence_at_clause_join() {
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(
+            normalizedText = "The stadium holds fifteen thousand people and cost one million two hundred thousand dollars and fifty cents.",
+            phonemize = { it },
+        )
+        assertEquals(
+            listOf(
+                "The stadium holds fifteen thousand people.",
+                "and cost one million two hundred thousand dollars and fifty cents.",
+            ),
+            chunks.map { it.text },
+        )
+    }
+
+    @Test
+    fun phonemizeChunks_keeps_number_join_inside_clause() {
+        val text = "The hall seats two thousand and five people in rows of twenty, and the aisles are wide enough for everyone."
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = text, phonemize = { it })
+        assertTrue(chunks.any { it.text.contains("two thousand and five") })
+        assertEquals(
+            listOf(
+                "The hall seats two thousand and five people in rows of twenty.",
+                "and the aisles are wide enough for everyone.",
+            ),
+            chunks.map { it.text },
+        )
+    }
+
+    @Test
+    fun phonemizeChunks_keeps_long_text_without_and_joins_as_one_chunk() {
+        val text = "Tomorrow the wind is light from the north, with showers easing by midday, clearing late in the evening, then cooler air settles over the coast overnight."
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = text, phonemize = { it })
+        assertEquals(listOf(text), chunks.map { it.text })
+    }
+
+    @Test
+    fun phonemizeChunks_splits_repeated_and_joins_in_order_under_soft_length() {
+        val text = "alpha and bravo and charlie and delta and echo and foxtrot and golf"
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(
+            normalizedText = text,
+            clauseSplitPhonemeLength = 20,
+            phonemize = { it },
+        )
+        assertTrue(chunks.all { it.phonemes.length <= 20 })
+        assertEquals(text.split(" "), chunks.flatMap { it.text.split(" ") }.map { it.trimEnd(',', '.') })
     }
 
     @Test

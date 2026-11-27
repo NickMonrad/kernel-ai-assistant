@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import java.text.Normalizer
+import kotlin.math.abs
 
 /**
  * Kotlin port of the pinned Inflect v2 reference frontend's deterministic text preparation.
@@ -11,6 +12,13 @@ import java.text.Normalizer
  */
 object InflectMicroTextFrontend {
     private val whitespace = Regex("\\s+")
+    /** Sentences longer than this many phonemes, joined by " and ", are split at the join (see [phonemizeChunks]). */
+    private const val CLAUSE_SPLIT_PHONEME_LENGTH = 100
+    private val numberWordAfterAnd = Regex(
+        "^and (?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|" +
+            "seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|" +
+            "billion|trillion)\\b",
+    )
 
     private val abbreviations = listOf(
         "Dr." to "doctor", "Mr." to "mister", "Mrs." to "missus", "Ms." to "miss",
@@ -84,10 +92,16 @@ object InflectMicroTextFrontend {
     /**
      * Keeps normalized text as one chunk when it fits, then splits at punctuation boundaries and
      * at words only when one punctuation-delimited segment still exceeds the ONNX frontend bound.
+     *
+     * A text longer than [clauseSplitPhonemeLength] is first split at " and " joins between clauses, nearest the
+     * middle first. Inflect garbled "fifteen thousand" in "The stadium holds fifteen thousand people and cost one
+     * million …" (#2115) while the same phrase alone rendered correctly. Joins before a number word ("two thousand and
+     * five") are kept.
      */
     fun phonemizeChunks(
         normalizedText: String,
         maxPhonemeLength: Int = InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH,
+        clauseSplitPhonemeLength: Int = CLAUSE_SPLIT_PHONEME_LENGTH,
         phonemize: (String) -> String,
     ): List<PhonemizedChunk> {
         require(maxPhonemeLength > 0) { "maxPhonemeLength must be positive" }
@@ -98,12 +112,46 @@ object InflectMicroTextFrontend {
             phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
 
         val completePhonemes = phonemizeChecked(text)
-        if (completePhonemes.length <= maxPhonemeLength) {
+        val clauses = if (completePhonemes.length > clauseSplitPhonemeLength) {
+            splitAtAndClauses(text, clauseSplitPhonemeLength, ::phonemizeChecked)
+        } else {
+            listOf(text)
+        }
+        if (clauses.size == 1 && completePhonemes.length <= maxPhonemeLength) {
             return listOf(PhonemizedChunk(text, completePhonemes))
         }
+        return clauses.flatMap { clause ->
+            chunkClause(
+                text = clause,
+                maxPhonemeLength = maxPhonemeLength,
+                phonemize = ::phonemizeChecked,
+                knownPhonemes = completePhonemes.takeIf { clauses.size == 1 },
+            )
+        }
+    }
 
+    /** Splits at " and " joins that begin a clause, nearest the middle first, until each part fits or no join is left. */
+    private fun splitAtAndClauses(text: String, softLength: Int, phonemize: (String) -> String): List<String> {
+        if (phonemize(text).length <= softLength) return listOf(text)
+        val middle = text.length / 2
+        val join = Regex(" and ").findAll(text)
+            .map { it.range.first }
+            .filterNot { numberWordAfterAnd.containsMatchIn(text.substring(it + 1)) }
+            .minByOrNull { abs(it - middle) }
+            ?: return listOf(text)
+        val before = text.substring(0, join).trimEnd(',').let { if (it.last() in ".!?;:") it else "$it." }
+        val after = text.substring(join + 1)
+        return splitAtAndClauses(before, softLength, phonemize) + splitAtAndClauses(after, softLength, phonemize)
+    }
+
+    private fun chunkClause(
+        text: String,
+        maxPhonemeLength: Int,
+        phonemize: (String) -> String,
+        knownPhonemes: String?,
+    ): List<PhonemizedChunk> {
         val segments = text.split(Regex("(?<=[.!?;,:])\\s+"))
-        val initialSegmentPhonemes = completePhonemes.takeIf { segments.size == 1 }
+        val initialSegmentPhonemes = knownPhonemes.takeIf { segments.size == 1 }
         return segments
             .asSequence()
             .map(String::trim)
@@ -112,7 +160,7 @@ object InflectMicroTextFrontend {
                 phonemizeSegment(
                     text = segment,
                     maxPhonemeLength = maxPhonemeLength,
-                    phonemize = ::phonemizeChecked,
+                    phonemize = phonemize,
                     initialPhonemes = initialSegmentPhonemes,
                 ).asSequence()
             }

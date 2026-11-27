@@ -30,7 +30,7 @@ import java.util.Locale
  *   November, twenty twenty six".
  * - Times: "7:05 p.m." → "seven oh five p m", "15:00" → "three p m", "00:00" → "midnight", "8:00" → "eight o clock".
  * - Glued units and mixed tokens: "5km" → "five kilometres", "1.5km" → "one point five kilometres", "2.4GHz" → "two point
- *   four gigahertz", "0.75x" → "zero point seven five times", "4B" → "four bee", "5G" → "five gee", "NZ123" → "en zee one
+ *   four gigahertz", "0.75x" → "zero point seven five times", "4B" → "four bee", "5G" → "five gee", "NZ123" → "en zed one
  *   two three", "1080p" → "ten eighty p", "Qwen2.5" → "Qwen two point five", "Llama3.1" → "Llama three point one".
  * - Decades: "the 90s" and "'90s" → "the nineties", "the 1990s" → "the nineteen nineties".
  * - Phone numbers: NZ groups are read digit by digit with "oh" for every zero, in groups: "021-123-4567" → "oh two one,
@@ -60,13 +60,19 @@ object EnglishSpeechTextNormaliser {
     private val ordinalTens = arrayOf("", "", "twentieth", "thirtieth", "fortieth", "fiftieth", "sixtieth", "seventieth", "eightieth", "ninetieth")
     private val scales = arrayOf("", "thousand", "million", "billion", "trillion", "quadrillion")
     private val scaleOrdinals = arrayOf("", "thousandth", "millionth", "billionth", "trillionth", "quadrillionth")
+    /**
+     * Spelled-letter names that both voices say as that letter. Checked in the frame "gate five X for flight" on eSpeak
+     * (Inflect, en_GB) and the Kokoro phonemis lexicons (en-us, en-gb): eSpeak reads "ay" as "eye" and "eff" as
+     * "ee-eff", and phonemis returns no phonemes for "ay", "ee", "ef" or "ar" mid-sentence (the word is dropped).
+     * "F" is the letter itself, which both engines read as "ef". "zed" is the NZ name for Z.
+     */
     private val letterNames = mapOf(
-        'A' to "ay", 'B' to "bee", 'C' to "see", 'D' to "dee", 'E' to "ee",
-        'F' to "eff", 'G' to "gee", 'H' to "aitch", 'I' to "eye", 'J' to "jay",
+        'A' to "eh", 'B' to "bee", 'C' to "see", 'D' to "dee", 'E' to "e",
+        'F' to "F", 'G' to "gee", 'H' to "aitch", 'I' to "eye", 'J' to "jay",
         'K' to "kay", 'L' to "ell", 'M' to "em", 'N' to "en", 'O' to "oh",
-        'P' to "pee", 'Q' to "cue", 'R' to "ar", 'S' to "ess", 'T' to "tee",
+        'P' to "pee", 'Q' to "cue", 'R' to "are", 'S' to "ess", 'T' to "tee",
         'U' to "you", 'V' to "vee", 'W' to "double you", 'X' to "ex", 'Y' to "why",
-        'Z' to "zee",
+        'Z' to "zed",
     )
     private val currencyWords = mapOf("NZ" to "New Zealand", "US" to "US", "AU" to "Australian", "A" to "Australian")
     private val scaleAbbreviations = mapOf("k" to "thousand", "m" to "million", "b" to "billion", "bn" to "billion")

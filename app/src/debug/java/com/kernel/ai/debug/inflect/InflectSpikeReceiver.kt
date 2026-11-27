@@ -140,100 +140,62 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         val summaryFile = File(context.filesDir, "$RUNTIME_EVIDENCE_DIRECTORY/$label.json")
         wavFile.parentFile?.mkdirs()
 
-        val memoryBefore = Debug.MemoryInfo().also(Debug::getMemoryInfo)
         val startedAt = System.nanoTime()
         val normalizeStarted = System.nanoTime()
         val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
         val normalizeMs = elapsedMs(normalizeStarted)
         val phonemizeStarted = System.nanoTime()
-        val phonemes = InflectMicroTextFrontend.applyPhonemeOverrides(
-            InflectPhonemizer.phonemize(normalized, dataDirectory),
-        )
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
+            InflectMicroTextFrontend.applyPhonemeOverrides(
+                InflectPhonemizer.phonemize(chunkText, dataDirectory),
+            )
+        }
         val phonemizeMs = elapsedMs(phonemizeStarted)
         val initStarted = System.nanoTime()
         val runner = InflectMicroOnnxRunner(modelDirectory)
         val initMs = elapsedMs(initStarted)
         try {
             InflectSpikeRuntime.install(runner)
-            val synthesis = runner.synthesize(
-                phonemeText = phonemes,
-                speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f),
-                variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
-                seed = intent.getLongExtra(EXTRA_SEED, 7L),
+            // Same chunk sequence as InflectMicroVoiceOutputController: each chunk is synthesised separately, in order.
+            val pieces = chunks.map { chunk ->
+                runner.synthesize(
+                    phonemeText = chunk.phonemes,
+                    speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f),
+                    variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
+                    seed = intent.getLongExtra(EXTRA_SEED, 7L),
+                ).waveform
+            }
+            val waveform = FloatArray(pieces.sumOf { it.size })
+            var offset = 0
+            for (piece in pieces) {
+                piece.copyInto(waveform, offset)
+                offset += piece.size
+            }
+            writeFloatWav(wavFile, waveform)
+            summaryFile.writeText(
+                """
+                {
+                  "input_text": ${json(text)},
+                  "normalized_text": ${json(normalized)},
+                  "chunk_count": ${chunks.size},
+                  "chunk_phonemes": ${json(chunks.map { it.phonemes })},
+                  "normalize_ms": $normalizeMs,
+                  "phonemize_ms": $phonemizeMs,
+                  "initialization_ms": $initMs,
+                  "total_ms": ${elapsedMs(startedAt)},
+                  "waveform_samples": ${waveform.size},
+                  "sample_rate_hz": ${InflectMicroOnnxRunner.SAMPLE_RATE_HZ},
+                  "wav_file": ${json(wavFile.path)},
+                  "playback": "not_attempted_runtime_probe"
+                }
+                """.trimIndent(),
             )
-            writeFloatWav(wavFile, synthesis.waveform)
-            val memoryAfter = Debug.MemoryInfo().also(Debug::getMemoryInfo)
-            val summary = buildRuntimeSummary(
-                inputText = text,
-                normalizedText = normalized,
-                frontendPhonemes = phonemes,
-                normalizeMs = normalizeMs,
-                phonemizeMs = phonemizeMs,
-                totalMs = elapsedMs(startedAt),
-                memoryBefore = memoryBefore,
-                memoryAfter = memoryAfter,
-                runner = runner,
-                synthesis = synthesis,
-                initMs = initMs,
-                wavFile = wavFile,
-                modelDirectory = modelDirectory,
-            )
-            summaryFile.writeText(summary)
-            Log.i(TAG, summary)
+            Log.i(TAG, summaryFile.readText())
             finish(pendingResult, RESULT_OK, summaryFile.path)
         } finally {
             InflectSpikeRuntime.clear(runner)
             runner.close()
         }
-    }
-
-    private fun buildRuntimeSummary(
-        inputText: String,
-        normalizedText: String,
-        frontendPhonemes: String,
-        normalizeMs: Long,
-        phonemizeMs: Long,
-        totalMs: Long,
-        memoryBefore: Debug.MemoryInfo,
-        memoryAfter: Debug.MemoryInfo,
-        runner: InflectMicroOnnxRunner,
-        synthesis: InflectOnnxSynthesis,
-        initMs: Long,
-        wavFile: File,
-        modelDirectory: File,
-    ): String {
-        val audioSeconds = synthesis.audioDurationMs / 1_000.0
-        val rtf = if (audioSeconds > 0.0) synthesis.synthesisMs / 1_000.0 / audioSeconds else null
-        return """
-            {
-              "input_text": ${json(inputText)},
-              "normalized_text": ${json(normalizedText)},
-              "frontend_phonemes": ${json(frontendPhonemes)},
-              "model_directory": ${json(modelDirectory.path)},
-              "duration_inputs": ${json(runner.durationInputInfo)},
-              "duration_outputs": ${json(runner.durationOutputInfo)},
-              "decode_inputs": ${json(runner.decodeInputInfo)},
-              "decode_outputs": ${json(runner.decodeOutputInfo)},
-              "token_count": ${synthesis.tokenCount},
-              "waveform_shape": ${json(synthesis.waveformShape.toList())},
-              "sample_rate_hz": ${InflectMicroOnnxRunner.SAMPLE_RATE_HZ},
-              "waveform_samples": ${synthesis.waveform.size},
-              "audio_duration_ms": ${synthesis.audioDurationMs},
-              "normalize_ms": $normalizeMs,
-              "phonemize_ms": $phonemizeMs,
-              "initialization_ms": $initMs,
-              "synthesis_ms": ${synthesis.synthesisMs},
-              "total_ms": $totalMs,
-              "real_time_factor": ${rtf ?: "null"},
-              "peak_abs": ${synthesis.peakAbs},
-              "finite": ${synthesis.finite},
-              "memory_before_pss_kb": ${memoryBefore.totalPss},
-              "memory_after_pss_kb": ${memoryAfter.totalPss},
-              "memory_after_native_heap_kb": ${memoryAfter.nativePrivateDirty},
-              "wav_file": ${json(wavFile.path)},
-              "playback": "not_attempted_runtime_probe"
-            }
-        """.trimIndent()
     }
 
     private fun elapsedMs(startedAt: Long): Long =
