@@ -4716,89 +4716,80 @@ class QuickIntentRouterTest {
             assertRegexMatch(result, "add_reminder", "please remind me to water plants tomorrow at 12pm")
         }
         @Test
-        fun `remind me to call dentist tomorrow routes to add_reminder directly`() {
-            val result = hybridRouter.route("remind me to call dentist tomorrow")
-            assertRegexMatch(result, "add_reminder", "remind me to call dentist tomorrow")
-        }
-        @Test
-        fun `remind me to take out trash monday routes to add_reminder directly`() {
-            val result = hybridRouter.route("remind me to take out trash monday")
-            assertRegexMatch(result, "add_reminder", "remind me to take out trash monday")
+        fun `remind me to call dentist tomorrow asks for the time and keeps the day`() {
+            assertNeedsReminderTime(
+                regexOnlyRouter.route("remind me to call dentist tomorrow"),
+                item = "call dentist",
+                day = "tomorrow",
+            )
         }
 
         @Test
-        fun `remind me to buy milk saturday routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk Saturday")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
-                result,
+        fun `remind me to take out trash monday asks for the time and keeps the day`() {
+            assertNeedsReminderTime(
+                regexOnlyRouter.route("remind me to take out trash monday"),
+                item = "take out trash",
+                day = "monday",
             )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("saturday", match.intent.params["day"])
         }
 
         @Test
-        fun `remind me to buy milk sunday routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk Sunday")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
-                result,
-            )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("sunday", match.intent.params["day"])
+        fun `remind me to buy milk with a weekday asks for the time and keeps the day`() {
+            mapOf(
+                "Remind me to buy milk Saturday" to "saturday",
+                "Remind me to buy milk Sunday" to "sunday",
+                "Remind me to buy milk Fri" to "friday",
+                "Remind me to buy milk sat" to "saturday",
+                "Remind me to buy milk Sun" to "sunday",
+                "Remind me to buy milk next Saturday" to "next saturday",
+            ).forEach { (request, day) ->
+                assertNeedsReminderTime(regexOnlyRouter.route(request), item = "buy milk", day = day, request = request)
+            }
         }
 
         @Test
-        fun `remind me to buy milk fri routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk Fri")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
-                result,
-            )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("friday", match.intent.params["day"])
+        fun `bare reminder requests ask for the item first`() {
+            listOf(
+                "Set a reminder",
+                "Set a reminder.",
+                "set reminder",
+                "Add a reminder",
+                "Make a reminder",
+                "Set a remainder",
+                "Remind me",
+                "Remind me.",
+                "Please remind me",
+                "Can you remind me?",
+            ).forEach { request ->
+                val needsSlot = assertInstanceOf(
+                    QuickIntentRouter.RouteResult.NeedsSlot::class.java,
+                    regexOnlyRouter.route(request),
+                    "Expected item slot for '$request'",
+                )
+                assertEquals("add_reminder", needsSlot.intent.intentName)
+                assertEquals("item", needsSlot.missingSlot.name)
+                assertEquals(emptyMap<String, String>(), needsSlot.intent.params)
+            }
         }
 
-        @Test
-        fun `remind me to buy milk sat routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk Sat")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
+        private fun assertNeedsReminderTime(
+            result: QuickIntentRouter.RouteResult,
+            item: String,
+            day: String,
+            request: String = "",
+        ) {
+            val needsSlot = assertInstanceOf(
+                QuickIntentRouter.RouteResult.NeedsSlot::class.java,
                 result,
+                "Expected time slot for '$request', got $result",
             )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("saturday", match.intent.params["day"])
-        }
-
-        @Test
-        fun `remind me to buy milk sun routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk Sun")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
-                result,
-            )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("sunday", match.intent.params["day"])
-        }
-
-        @Test
-        fun `remind me to buy milk next saturday routes to add_reminder with day`() {
-            val result = regexOnlyRouter.route("Remind me to buy milk next Saturday")
-            val match = assertInstanceOf(
-                QuickIntentRouter.RouteResult.RegexMatch::class.java,
-                result,
-            )
-            assertEquals("add_reminder", match.intent.intentName)
-            assertEquals("buy milk", match.intent.params["item"])
-            assertEquals("next saturday", match.intent.params["day"])
+            assertEquals("add_reminder", needsSlot.intent.intentName)
+            assertEquals(item, needsSlot.intent.params["item"])
+            assertEquals(day, needsSlot.intent.params["day"])
+            assertEquals("time", needsSlot.missingSlot.name)
         }
         @Test
-        fun `incomplete imperative reminder forms retain item and ask for day`() {
+        fun `incomplete imperative reminder forms retain item and ask for time`() {
             val requests = listOf(
                 "Remind me to buy milk",
                 "Please remind me to buy milk",
@@ -4817,7 +4808,7 @@ class QuickIntentRouterTest {
                 )
                 assertEquals("add_reminder", needsSlot.intent.intentName)
                 assertEquals("buy milk", needsSlot.intent.params["item"])
-                assertEquals("day", needsSlot.missingSlot.name)
+                assertEquals("time", needsSlot.missingSlot.name)
             }
         }
 
@@ -4890,11 +4881,12 @@ class QuickIntentRouterTest {
         }
 
         @Test
-        fun `remind me to call dentist mon normalizes day param directly`() {
-            val result = hybridRouter.route("remind me to call dentist mon")
-            assertRegexMatch(result, "add_reminder", "remind me to call dentist mon")
-            val match = result as QuickIntentRouter.RouteResult.RegexMatch
-            assertEquals("monday", match.intent.params["day"])
+        fun `remind me to call dentist mon asks for the time and keeps the day`() {
+            assertNeedsReminderTime(
+                hybridRouter.route("remind me to call dentist mon"),
+                item = "call dentist",
+                day = "monday",
+            )
         }
 
         @Test
