@@ -48,9 +48,9 @@ class WakeDetectorRearmReceiver : BroadcastReceiver() {
                         finishWith(pendingResult, WakeDetectorRearmContract.RESULT_ERROR, "explicit_component_required")
                         return@post
                     }
-                    // pause() releases the detector's AudioRecord and joins the
-                    // detection loop; resume() re-arms it through the standard
-                    // callbacks, allocating a fresh detector generation.
+                    // pause() and resume() queue on the service's mic lock in call order. The release
+                    // runs first and the re-arm then starts a fresh detector generation. Both calls
+                    // return before that work finishes; the runner verifies the new generation in the journal.
                     WakeWordService.pause(appContext)
                     WakeWordService.resume(appContext)
                     Log.i(LOG_TAG, "wake detector re-arm dispatched")

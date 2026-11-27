@@ -2,6 +2,7 @@ package com.kernel.ai.core.voice
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
 import java.io.Closeable
 import java.nio.FloatBuffer
@@ -25,6 +26,9 @@ class InflectMicroOnnxRunner(
     private val durationSession: OrtSession
     private val decodeSession: OrtSession
     private val cancelled = AtomicBoolean(false)
+    // Guards [activeRun] so cancel() never terminates a RunOptions that has already been closed.
+    private val runLock = Any()
+    private var activeRun: OrtSession.RunOptions? = null
 
     val durationInputNames: List<String>
     val durationOutputNames: List<String>
@@ -94,7 +98,7 @@ class InflectMicroOnnxRunner(
                     longArrayOf(1L),
                 )
                 try {
-                    val result = durationSession.run(
+                    val result = durationSession.runCancellable(
                         mapOf(
                             "tokens" to tokenTensor,
                             "lengths" to lengthsTensor,
@@ -144,7 +148,7 @@ class InflectMicroOnnxRunner(
                             longArrayOf(1L),
                         )
                         try {
-                            val result = decodeSession.run(
+                            val result = decodeSession.runCancellable(
                                 mapOf(
                                     "m_p_exp" to meanTensor,
                                     "logs_p_exp" to logScaleTensor,
@@ -191,6 +195,7 @@ class InflectMicroOnnxRunner(
 
     fun cancel() {
         cancelled.set(true)
+        synchronized(runLock) { activeRun?.setTerminate(true) }
     }
 
     /** Clears a prior stop request before the runner is reused for a new utterance. */
@@ -209,6 +214,32 @@ class InflectMicroOnnxRunner(
             environment.createSession(model.readBytes(), options)
         } finally {
             options.close()
+        }
+    }
+
+    /**
+     * Runs this session with a per-call [OrtSession.RunOptions] that [cancel] can terminate mid-graph. Without it, a
+     * stop request waits for the whole duration or decode pass to return.
+     */
+    private fun OrtSession.runCancellable(
+        inputs: Map<String, OnnxTensor>,
+        outputs: Set<String>,
+    ): OrtSession.Result {
+        val options = OrtSession.RunOptions()
+        synchronized(runLock) {
+            activeRun = options
+            if (cancelled.get()) options.setTerminate(true)
+        }
+        try {
+            return run(inputs, outputs, options)
+        } catch (error: OrtException) {
+            if (cancelled.get()) throw CancellationException("Inflect synthesis cancelled")
+            throw error
+        } finally {
+            synchronized(runLock) {
+                activeRun = null
+                options.close()
+            }
         }
     }
 

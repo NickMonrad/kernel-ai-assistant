@@ -52,7 +52,7 @@ class ThinkingStreamStateMachineTest {
             ThinkingStreamStateMachine(),
             listOf(
                 "$THINKING_CHANNEL_HEADER\nReasoning pass 1" to "<ctrl tool_call>",
-                "$THINKING_CHANNEL_HEADER\nReasoning pass 1$THINKING_CLOSE_MARKER" to "<ctrl tool_result>",
+                THINKING_CLOSE_MARKER to "<ctrl tool_result>",
                 "$THINKING_CHANNEL_HEADER\nReasoning pass 2" to "",
                 null to "Kia ora. When would you like me to remind you to buy milk?",
             ),
@@ -64,13 +64,13 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-    fun `structured cumulative thought callbacks do not duplicate output`() {
+    fun `structured thought deltas assemble without duplication`() {
         val result = collect(
             ThinkingStreamStateMachine(),
             listOf(
                 "$THINKING_CHANNEL_HEADER\nPlan",
-                "$THINKING_CHANNEL_HEADER\nPlan carefully",
-                "$THINKING_CHANNEL_HEADER\nPlan carefully$THINKING_CLOSE_MARKER",
+                " carefully",
+                "$THINKING_CLOSE_MARKER",
             ).map { it to "" },
         )
 
@@ -79,13 +79,12 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-    fun `cumulative primary callbacks do not duplicate output`() {
+    fun `primary text deltas assemble without duplication`() {
         val result = collect(
             ThinkingStreamStateMachine(),
             listOf(
                 null to "Kia ora",
-                null to "Kia ora. Final answer",
-                null to "Kia ora. Final answer",
+                null to ". Final answer",
             ),
         )
 
@@ -259,11 +258,11 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-    fun `observed malformed think close marker in cumulative callbacks is withheld`() {
+    fun `malformed think close split one character per callback is withheld`() {
         val raw = "Kia ora. Hello! $MALFORMED_THINK_CLOSE_MARKER How can I help?"
         val result = collect(
             ThinkingStreamStateMachine(),
-            raw.indices.map { index -> null to raw.substring(0, index + 1) },
+            raw.indices.map { index -> null to raw[index].toString() },
         )
 
         assertEquals("", result.thinking)
@@ -319,32 +318,19 @@ class ThinkingStreamStateMachineTest {
     }
 
     @Test
-    fun `raw cumulative callbacks do not duplicate thought or response`() {
+    fun `raw thought and response deltas assemble without duplication`() {
         val result = collect(
             ThinkingStreamStateMachine(),
             listOf(
                 null to "<|think|>Reasoning",
-                null to "<|think|>Reasoning<|/think|>Final",
-                null to "<|think|>Reasoning<|/think|>Final answer",
+                null to "<|/think|>Final",
+                null to " answer",
             ),
         )
 
         assertEquals("Reasoning", result.thinking)
         assertEquals("Final answer", result.response)
         assertVisibleDeltasAreSafe(result.responseDeltas)
-    }
-
-    @Test
-    fun `structured thought and raw wrapper do not duplicate thought`() {
-        val result = collect(
-            ThinkingStreamStateMachine(),
-            listOf(
-                "$THINKING_CHANNEL_HEADER\nReasoning" to "<|channel>thought\nReasoning<channel|>Final",
-            ),
-        )
-
-        assertEquals("Reasoning", result.thinking)
-        assertEquals("Final", result.response)
     }
 
     @Test
@@ -579,6 +565,66 @@ class ThinkingStreamStateMachineTest {
         assertVisibleDeltasAreSafe(disabledResponseDeltas)
         assertEquals(finalVisible, disabledResponseDeltas.joinToString(""),
             "disabled thinking must produce same visible output")
+    }
+
+    @Test
+    fun `split digit deltas are not treated as replayed callbacks`() {
+        // Engine callbacks are per-token deltas (see physical_callback_fixture.json),
+        // not cumulative snapshots.
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(null to "1", null to "1998 was the year"),
+        )
+
+        assertEquals("11998 was the year", result.response)
+    }
+
+    @Test
+    fun `digit deltas overlapping the emitted tail keep every character`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(null to "In 2000", null to "000 people"),
+        )
+
+        assertEquals("In 2000000 people", result.response)
+    }
+
+    @Test
+    fun `word deltas overlapping the emitted tail keep every character`() {
+        val result = collect(
+            ThinkingStreamStateMachine(),
+            listOf(null to "Hiphop", null to "hopotamus"),
+        )
+
+        assertEquals("Hiphophopotamus", result.response)
+    }
+
+    @Test
+    fun `captured litertlm 0-19-1 S23U delta stream is emitted verbatim`() {
+        // Raw event_seq callbacks from an S23U run (Gemma-4 E-4B, GPU, MTP on, litertlm 0.19.1).
+        // Includes multi-token chunks such as seq 102-103 (" per" + " persona") that the
+        // replay stripper used to drop. Expected text is the verbatim concatenation of the deltas.
+        val resource = javaClass.classLoader!!.getResource("s23u_0_19_1_delta_fixture.json")
+            ?: throw IllegalStateException("Missing test resource: s23u_0_19_1_delta_fixture.json")
+        val json = org.json.JSONObject(resource.readText())
+        val events = json.getJSONArray("events")
+        val machine = ThinkingStreamStateMachine()
+        val thinking = mutableListOf<String>()
+        val response = mutableListOf<String>()
+        for (i in 0 until events.length()) {
+            val evt = events.getJSONObject(i)
+            val thought = evt.optString("thought", "").takeIf { it.isNotEmpty() }
+            val emission = machine.consume(thought, evt.getString("raw"))
+            thinking += emission.thinkingDeltas
+            response += emission.responseDeltas
+        }
+        val final = machine.finish()
+        thinking += final.thinkingDeltas
+        response += final.responseDeltas
+
+        assertEquals(json.getString("expected_thinking"), thinking.joinToString(""))
+        assertEquals(json.getString("expected_visible"), response.joinToString(""))
+        assertVisibleDeltasAreSafe(response)
     }
 
     private data class Collected(

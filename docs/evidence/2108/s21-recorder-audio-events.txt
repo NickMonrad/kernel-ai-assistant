@@ -1,0 +1,9 @@
+11-25 22:39:29:340 rec update riid:91946535 uid:10649 session:91948225 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 22:39:29:412 rec release riid:91946535 uid:10649 session:91948225 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 22:39:31:866 rec start riid:91946543 uid:10649 session:91948233 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug
+11-25 22:40:58:595 rec update riid:91946543 uid:10649 session:91948233 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 22:40:58:736 rec release riid:91946543 uid:10649 session:91948233 src:VOICE_RECOGNITION silenced pack:ai.jandal.assistant.debug
+11-25 22:41:01:353 rec update riid:91946551 uid:10279 session:91948241 src:MIC not silenced pack:com.sec.android.app.voicenote
+11-25 22:42:16:309 rec update riid:91946551 uid:10279 session:91948241 src:MIC silenced pack:com.sec.android.app.voicenote
+11-25 22:42:16:433 rec stop riid:91946551 uid:10279 session:91948241 src:MIC silenced pack:com.sec.android.app.voicenote
+11-25 22:42:29:200 rec start riid:91946567 uid:10649 session:91948257 src:VOICE_RECOGNITION not silenced pack:ai.jandal.assistant.debug

@@ -338,10 +338,53 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun phonemizeChunks_does_not_split_plain_and_join_without_number_word() {
+        val text = "Fish and chips is a classic dish served across the United States and Britain for many generations of families."
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(
+            normalizedText = text,
+            clauseSplitPhonemeLength = 40,
+            phonemize = { it },
+        )
+        assertEquals(listOf(text), chunks.map { it.text })
+    }
+
+    @Test
+    fun phonemizeChunks_does_not_split_and_join_leaving_fragment_under_minimum_length() {
+        val text = "Five thousand came and go in a single afternoon at the harbour and then leave."
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(
+            normalizedText = text,
+            clauseSplitPhonemeLength = 40,
+            phonemize = { it },
+        )
+        assertEquals(listOf(text), chunks.map { it.text })
+    }
+
+    @Test
+    fun normalize_respelled_teens_are_not_split_from_their_and_join_end_to_end() {
+        val normalized = InflectMicroTextFrontend.normalize(
+            "The club added 2,018 new members this spring, then 1,213 more after the fees were paid, and 115 others joined in autumn.",
+        )
+        assertTrue(normalized.length > 100)
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = normalized, phonemize = { it })
+        assertTrue(chunks.any { it.text.contains("two thousand and eigh teen") })
+        assertTrue(chunks.any { it.text.contains("two hundred and thir teen") })
+        assertTrue(chunks.any { it.text.contains("and fif teen") })
+        assertTrue(chunks.none { it.text.startsWith("and thir") || it.text.startsWith("and eigh") || it.text.startsWith("and fif") })
+    }
+
+    @Test
     fun normalize_splits_million_cents_clause_for_inflect() {
         assertEquals(
             "The stadium holds fif teen thousand people and cost one million, two hundred thousand dollars. And fifty cents.",
             InflectMicroTextFrontend.normalize("The stadium holds 15,000 people and cost \$1,200,000.50."),
+        )
+    }
+
+    @Test
+    fun normalize_does_not_split_money_clause_when_words_before_dollars_are_not_numbers() {
+        assertEquals(
+            "Five million people paid five dollars and ten cents each.",
+            InflectMicroTextFrontend.normalize("Five million people paid \$5 and 10 cents each."),
         )
     }
 
@@ -354,40 +397,70 @@ class InflectMicroTextFrontendTest {
 
     @Test
     fun phonemizeChunks_splits_repeated_and_joins_in_order_under_soft_length() {
-        val text = "alpha and bravo and charlie and delta and echo and foxtrot and golf"
+        val text = "alpha bravo charlie delta echo one and foxtrot golf hotel india juliet and kilo lima mike november oscar and papa quebec romeo sierra tango"
         val chunks = InflectMicroTextFrontend.phonemizeChunks(
             normalizedText = text,
-            clauseSplitPhonemeLength = 20,
+            clauseSplitPhonemeLength = 60,
             phonemize = { it },
         )
-        assertTrue(chunks.all { it.phonemes.length <= 20 })
+        assertTrue(chunks.size > 1)
+        assertTrue(chunks.all { it.phonemes.length <= 60 })
         assertEquals(text.split(" "), chunks.flatMap { it.text.split(" ") }.map { it.trimEnd(',', '.') })
     }
 
     @Test
-    fun runInflectChunks_does_not_synthesize_later_chunks_after_cancellation() {
-        val chunks = listOf(
-            InflectMicroTextFrontend.PhonemizedChunk("first", "first"),
-            InflectMicroTextFrontend.PhonemizedChunk("second", "second"),
-        )
-        val synthesized = mutableListOf<String>()
-        val played = mutableListOf<String>()
-        var shouldContinue = true
+    fun speechChunks_keeps_short_multi_sentence_reply_in_one_chunk() {
+        val text = "Sure. I've set the reminder for tomorrow morning."
 
-        runInflectChunks(
-            chunks = chunks,
-            shouldContinue = { shouldContinue },
-            synthesize = { phonemes ->
-                synthesized += phonemes
-                phonemes
-            },
-            play = {
-                played += it
-                shouldContinue = false
-            },
+        assertEquals(listOf(text), InflectMicroTextFrontend.speechChunks(text))
+    }
+
+    @Test
+    fun speechChunks_is_lossless_bounded_and_breaks_at_sentence_ends() {
+        val text = (1..40).joinToString(" ") { "Sentence number $it is here." }
+
+        val chunks = InflectMicroTextFrontend.speechChunks(text, maxChunkChars = 120)
+
+        assertTrue(chunks.size > 1)
+        assertTrue(chunks.all { it.length <= 120 })
+        assertTrue(chunks.all { it.endsWith('.') })
+        assertEquals(text, chunks.joinToString(" "))
+    }
+
+    @Test
+    fun speechChunks_splits_overlong_sentence_by_word_without_dropping_words() {
+        val text = (1..300).joinToString(" ") { "word$it" }
+
+        val chunks = InflectMicroTextFrontend.speechChunks(text, maxChunkChars = 50)
+
+        assertTrue(chunks.all { it.length <= 50 })
+        assertEquals(text, chunks.joinToString(" "))
+    }
+
+    @Test
+    fun speechChunks_prefers_clause_boundaries_before_word_boundaries() {
+        val chunks = InflectMicroTextFrontend.speechChunks(
+            normalizedText = "one two three four five, six seven eight nine ten, eleven twelve",
+            maxChunkChars = 25,
         )
 
-        assertEquals(listOf("first"), synthesized)
-        assertEquals(listOf("first"), played)
+        assertEquals(
+            listOf("one two three four five,", "six seven eight nine ten,", "eleven twelve"),
+            chunks,
+        )
+    }
+
+    @Test
+    fun phonemizeSpeechChunks_phonemizes_lazily_one_chunk_at_a_time() {
+        val text = (1..5).joinToString(" ") { "Sentence $it ${"x".repeat(90)}." }
+        var phonemizeCalls = 0
+
+        val first = InflectMicroTextFrontend.phonemizeSpeechChunks(text) { input ->
+            phonemizeCalls++
+            input
+        }.first()
+
+        assertEquals(1, phonemizeCalls)
+        assertTrue(first.text.startsWith("Sentence 1"))
     }
 }

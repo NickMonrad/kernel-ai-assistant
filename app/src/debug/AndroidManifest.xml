@@ -73,6 +73,12 @@
             android:name="com.kernel.ai.debug.tts.DebugTtsBaselineReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
+        <!-- #2096: renders reply text to a WAV through the production Inflect chunked reply pipeline. Explicit
+             component only; DUMP restricts senders to adb shell. No intent filter. -->
+        <receiver
+            android:name="com.kernel.ai.debug.inflect.InflectChunkWavReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
         <!-- #1942: limits calendar reads to one named test calendar for device evidence. Explicit component
              only; DUMP restricts senders to adb shell. -->
         <receiver

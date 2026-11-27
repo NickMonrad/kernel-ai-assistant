@@ -341,13 +341,8 @@ internal class ThinkingStreamStateMachine(
         val complete: Boolean,
     )
 
-    private val structuredObserved = StringBuilder()
     private val structuredPending = StringBuilder()
-    private val rawObserved = StringBuilder()
     private val rawPending = StringBuilder()
-    private val emittedThinking = StringBuilder()
-    private val emittedStructuredThinking = StringBuilder()
-    private val emittedResponse = StringBuilder()
     private val malformedThoughtCandidate = StringBuilder()
     private var malformedReopenEligible = false
     private var rawMode = RawMode.VISIBLE
@@ -356,24 +351,21 @@ internal class ThinkingStreamStateMachine(
         val thinking = mutableListOf<String>()
         val response = mutableListOf<String>()
 
+        // Callbacks are per-token deltas, not cumulative snapshots (physical fixture
+        // physical_callback_fixture.json has 0 replayed events). Append verbatim;
+        // overlap-based de-duplication dropped digits and letters that repeat a tail.
         channelDelta
             ?.takeIf { it.isNotEmpty() }
             ?.let { channel ->
-                val novel = appendNovelInput(structuredObserved, channel)
-                if (novel.isNotEmpty()) {
-                    structuredPending.append(novel)
-                    processStructuredThinking(thinking)
-                }
+                structuredPending.append(channel)
+                processStructuredThinking(thinking)
             }
 
         rawMessage
             .takeIf { it.isNotEmpty() }
             ?.let { raw ->
-                val novel = appendNovelInput(rawObserved, raw)
-                if (novel.isNotEmpty()) {
-                    rawPending.append(novel)
-                    processRaw(thinking, response)
-                }
+                rawPending.append(raw)
+                processRaw(thinking, response)
             }
 
         return ThinkingStreamEmission(
@@ -439,12 +431,12 @@ internal class ThinkingStreamStateMachine(
 
             val marker = findStructuredMarker(text)
             if (marker == null) {
-                emitThinking(text, thinking, structured = true)
+                emitThinking(text, thinking)
                 structuredPending.clear()
                 return
             }
             if (marker.start > 0) {
-                emitThinking(text.substring(0, marker.start), thinking, structured = true)
+                emitThinking(text.substring(0, marker.start), thinking)
                 deletePrefix(structuredPending, marker.start)
                 continue
             }
@@ -596,21 +588,10 @@ internal class ThinkingStreamStateMachine(
     private fun emitThinking(
         candidate: String,
         thinking: MutableList<String>,
-        structured: Boolean = false,
     ) {
         val clean = stripThinkingSyntax(candidate)
-        if (clean.isEmpty()) return
-        val delta = stripReplayedPrefix(
-            current = clean,
-            emitted = emittedThinking.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty()) return
-
-        emittedThinking.append(delta)
-        if (structured) emittedStructuredThinking.append(delta)
-        if (thinkingEnabled) thinking += delta
+        if (clean.isEmpty() || !thinkingEnabled) return
+        thinking += clean
     }
 
     private fun emitResponse(
@@ -623,35 +604,8 @@ internal class ThinkingStreamStateMachine(
             warnAmbiguous(candidate.length)
             return
         }
-        val delta = stripReplayedPrefix(
-            current = candidate,
-            emitted = emittedResponse.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty() || delta.startsWith("<ctrl")) return
-        if (containsProtocolSyntaxOrPrefix(delta)) {
-            warnAmbiguous(delta.length)
-            return
-        }
-        emittedResponse.append(delta)
-        response += delta
-    }
-
-
-    private fun appendNovelInput(
-        observed: StringBuilder,
-        candidate: String,
-    ): String {
-        val prior = observed.toString()
-        val novel = stripReplayedPrefix(
-            current = candidate,
-            emitted = prior,
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (novel.isNotEmpty()) observed.append(novel)
-        return novel
+        if (candidate.startsWith("<ctrl")) return
+        response += candidate
     }
 
     private fun findStructuredMarker(text: String): MarkerMatch? =
@@ -909,45 +863,6 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     "<|think",
 )
 
-internal fun stripReplayedPrefix(
-    current: String,
-    emitted: String,
-    trimBoundaryWhitespace: Boolean = false,
-    allowOverlap: Boolean = false,
-    minOverlapLength: Int = 1,
-): String {
-    if (emitted.isEmpty()) return current
-    if (current.startsWith(emitted)) return current.removePrefix(emitted)
-
-    val currentTrimmed = current.trimEnd()
-    val emittedTrimmed = emitted.trimEnd()
-    if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
-        val remainder = currentTrimmed.removePrefix(emittedTrimmed)
-        return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
-    }
-    if (allowOverlap) {
-        val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
-        if (exactOverlapRemainder != current) {
-            return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
-        }
-        val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
-        if (trimmedOverlapRemainder != currentTrimmed) {
-            return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
-        }
-    }
-    return current
-}
-
-private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
-    val maxOverlap = minOf(current.length, emitted.length)
-    for (overlapLength in maxOverlap downTo minOverlapLength) {
-        if (emitted.endsWith(current.take(overlapLength))) {
-            return current.drop(overlapLength)
-        }
-    }
-    return current
-}
-
 /**
  * LiteRT-LM implementation of [InferenceEngine].
  *
@@ -1005,6 +920,7 @@ class LiteRtInferenceEngine @Inject constructor(
         private val terminalLock = Any()
         private var terminal = false
         private val resetConversationAfterToolAbort = AtomicBoolean(false)
+        private val normalCompletion = AtomicBoolean(false)
 
         fun whileActive(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
@@ -1038,6 +954,9 @@ class LiteRtInferenceEngine @Inject constructor(
 
         fun requiresConversationReset(): Boolean = resetConversationAfterToolAbort.get()
 
+        /** True only when the reply finished normally: cancellation, tool abort and error leave it false. */
+        fun completedNormally(): Boolean = normalCompletion.get()
+
         fun finish(block: () -> Unit): Boolean = synchronized(terminalLock) {
             if (terminal) {
                 false
@@ -1046,6 +965,12 @@ class LiteRtInferenceEngine @Inject constructor(
                 block()
                 true
             }
+        }
+
+        /** Normal completion: [finish] that also marks the reply as completed normally. */
+        fun finishNormally(block: () -> Unit): Boolean = finish {
+            normalCompletion.set(true)
+            block()
         }
 
         fun cancelAndClose(): Boolean {
@@ -1521,12 +1446,15 @@ class LiteRtInferenceEngine @Inject constructor(
         val lockReleased = AtomicBoolean(false)
         var serviceStarted = false
 
-        fun releaseGenerationLock(stream: ActiveStreamGeneration?) {
+        fun releaseGenerationLock(stream: ActiveStreamGeneration?, lingerAfterCompletion: Boolean = false) {
             if (!lockReleased.compareAndSet(false, true)) return
             activeStreamGeneration.compareAndSet(stream, null)
             _isGenerating.value = false
             try {
-                if (serviceStarted) InferenceGenerationService.stop(context)
+                if (serviceStarted) {
+                    if (lingerAfterCompletion) InferenceGenerationService.stopAfterReply(context)
+                    else InferenceGenerationService.stop(context)
+                }
             } finally {
                 generationMutex.unlock()
             }
@@ -1737,7 +1665,7 @@ class LiteRtInferenceEngine @Inject constructor(
                                     return
                                 }
                                 if (continuationScheduled) return
-                                stream.finish {
+                                stream.finishNormally {
                                     try {
                                         emitEmission(thinkingStateMachine.finish())
                                         val durationMs = System.currentTimeMillis() - start
@@ -1892,7 +1820,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 Log.e(TAG, "Failed to reset conversation after tool-result abort", e)
                 throw e
             } finally {
-                releaseGenerationLock(stream)
+                releaseGenerationLock(stream, lingerAfterCompletion = stream.completedNormally())
             }
         }
     }.flowOn(LlmDispatcher)
@@ -2055,7 +1983,7 @@ class LiteRtInferenceEngine @Inject constructor(
 
                     currentCoroutineContext().ensureActive()
                     conversationDirty = true
-                    InferenceGenerationService.start(context)
+                    InferenceGenerationService.startInternal(context)
                     serviceStarted = true
                     sendMessage { callback ->
                         conv.sendMessageAsync(
@@ -2078,7 +2006,7 @@ class LiteRtInferenceEngine @Inject constructor(
                 } finally {
                     _isGenerating.value = false
                     try {
-                        if (serviceStarted) InferenceGenerationService.stop(context)
+                        if (serviceStarted) InferenceGenerationService.stopInternal(context)
                     } finally {
                         generationMutex.unlock()
                     }
@@ -2189,7 +2117,7 @@ class LiteRtInferenceEngine @Inject constructor(
                             val TEXT_FALLBACK_MAX_CHARS = 2000
                             val responseBuilder = StringBuilder()
                             currentCoroutineContext().ensureActive()
-                            InferenceGenerationService.start(context)
+                            InferenceGenerationService.startInternal(context)
                             serviceStarted = true
                             conv.sendMessageAsync(
                                 Contents.of(Content.Text(prompt)),
@@ -2313,7 +2241,7 @@ class LiteRtInferenceEngine @Inject constructor(
                     }
                 } finally {
                     try {
-                        if (serviceStarted) InferenceGenerationService.stop(context)
+                        if (serviceStarted) InferenceGenerationService.stopInternal(context)
                     } finally {
                         generationMutex.unlock()
                     }
@@ -2402,11 +2330,17 @@ class LiteRtInferenceEngine @Inject constructor(
             }
             try {
                 Log.d(TAG, "Trying backend: $backendType")
+                val hardwareProfile = hardwareProfileDetector.profile
+                val socManufacturer = hardwareProfile.socManufacturer
+                val activationDataType = backendType.activationDataType(socManufacturer, hardwareProfile.tier)
+                Log.i(TAG, "Backend $backendType activation: soc_manufacturer=$socManufacturer " +
+                    "activation=${activationDataType ?: "default"}")
                 val engineConfig = EngineConfig(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
+                    activationDataType = activationDataType,
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at

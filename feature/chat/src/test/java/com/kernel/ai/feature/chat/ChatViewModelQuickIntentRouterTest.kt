@@ -29,6 +29,8 @@ import com.kernel.ai.core.memory.usecase.VerboseLoggingPreferenceUseCase
 import com.kernel.ai.core.model.availability.GatedModelStatusRepository
 import com.kernel.ai.core.permissions.CapabilityKey
 import com.kernel.ai.core.skills.KernelAIToolSet
+import com.kernel.ai.core.skills.js.JsSkillRunner
+import com.kernel.ai.core.skills.QueryWikipediaSkill
 import com.kernel.ai.core.skills.QuickIntentRouter
 import com.kernel.ai.core.skills.Skill
 import com.kernel.ai.core.skills.SkillCall
@@ -871,6 +873,29 @@ class ChatViewModelQuickIntentRouterTest {
         viewModel.sendMessage()
         advanceUntilIdle()
         return viewModel
+    }
+
+    @Test
+    fun `explicit wikipedia lookup shows the failure instead of crashing when the JS runner throws`() = runTest(dispatcher) {
+        // A runner failure (timeout, renderer gone) on the direct chat path must surface as a message (#2134).
+        val jsRunner: JsSkillRunner = mockk()
+        coEvery { jsRunner.execute("query-wikipedia", mapOf("query" to "Flight of the Conchords")) } throws
+            Exception("The JS renderer was interrupted; please try again.")
+        every { skillRegistry.get("query_wikipedia") } returns QueryWikipediaSkill(jsRunner)
+        // E4B not ready: the failure is shown directly rather than handed to the model.
+        every { inferenceEngine.isReady } returns MutableStateFlow(false)
+
+        val viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.onInputChanged("look up Flight of the Conchords on Wikipedia")
+        viewModel.sendMessage()
+        advanceUntilIdle()
+
+        assertTrue(
+            viewModel.getConversationAsText().contains(
+                "Wikipedia lookup failed for 'Flight of the Conchords': The JS renderer was interrupted; please try again.",
+            ),
+        )
     }
 
     private fun createViewModel(router: QuickIntentRouter = realRouter): ChatViewModel = ChatViewModel(

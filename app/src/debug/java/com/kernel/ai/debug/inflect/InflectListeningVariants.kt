@@ -1,10 +1,10 @@
 package com.kernel.ai.debug.inflect
 
 /**
- * Debug-only switches for the PR #2118 (#2115) listening variants of Inflect number phrases.
+ * Debug-only helpers for the PR #2118 (#2115) listening probes of Inflect number phrases.
  *
  * The probe receiver ([InflectSpikeReceiver]) uses these helpers only when the explicit extras are present.
- * The shipped frontend and controller are unchanged. Not for release builds.
+ * Shipped code never references this object, so it does not ship in release builds.
  */
 internal object InflectListeningVariants {
     private val numberWord = Regex(
@@ -25,20 +25,4 @@ internal object InflectListeningVariants {
         }.orEmpty()
 
     fun containsNumberWord(text: String): Boolean = numberWord.containsMatchIn(text)
-
-    /** Teen treatments for 13..19. Each rewrites the raw eSpeak `…tiːn` token of the teen word, nothing else. */
-    enum class TeenTreatment { V5, TEEN_LONG, FIF_TEEN, COMMA, SCHWA }
-
-    private val teenToken = Regex("t[ˈˌ]?iːn\\b")
-    private val teenTokenWithOnsetStress = Regex("([^\\s]*?)t[ˈˌ]?iːn\\b")
-
-    fun rewriteTeen(treatment: TeenTreatment, phonemes: String): String = when (treatment) {
-        TeenTreatment.V5 -> phonemes.replace(teenToken, "tˈiːn")
-        TeenTreatment.TEEN_LONG -> phonemes.replace(teenTokenWithOnsetStress) { match ->
-            match.groupValues[1].replace("ˈ", "").replace("ˌ", "") + "tˈiːːn"
-        }
-        TeenTreatment.FIF_TEEN -> phonemes.replace(teenToken, " tˈiːn")
-        TeenTreatment.COMMA -> phonemes.replace(teenToken, "tˈiːn,")
-        TeenTreatment.SCHWA -> phonemes.replace(teenToken, "tˈiːnə")
-    }
 }

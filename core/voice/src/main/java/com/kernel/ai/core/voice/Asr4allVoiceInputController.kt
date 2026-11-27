@@ -611,10 +611,12 @@ class Asr4allVoiceInputController internal constructor(
             recorder.release()
             return null
         }
+        OwnMicCaptureSessions.add(recorder.audioSessionId)
         return recorder
     }
 
     private fun stopRecorder(recorder: AudioRecord) {
+        try { OwnMicCaptureSessions.remove(recorder.audioSessionId) } catch (_: Exception) {}
         try { if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) recorder.stop() } catch (_: Exception) {}
         try { recorder.release() } catch (_: Exception) {}
     }

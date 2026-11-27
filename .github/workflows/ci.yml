@@ -133,7 +133,7 @@ jobs:
       - name: Unit tests
         continue-on-error: true
         id: gradle-unit-tests
-        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :core:executorch:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
+        run: ./gradlew :core:memory:testDebugUnitTest :core:skills:testDebugUnitTest :core:voice:testDebugUnitTest :core:executorch:testDebugUnitTest :core:inference:testDebugUnitTest :feature:chat:testDebugUnitTest :app:testDebugUnitTest :feature:settings:testDebugUnitTest
 
       - name: Upload test results
         if: always() && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))

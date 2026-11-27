@@ -50,6 +50,7 @@ class LiteRtInferenceEngineRebuildTest {
         mockkObject(InferenceGenerationService.Companion)
         every { InferenceGenerationService.start(any()) } just runs
         every { InferenceGenerationService.stop(any()) } just runs
+        every { InferenceGenerationService.stopAfterReply(any()) } just runs
         mockkStatic(Settings.Global::class)
         every { Settings.Global.getInt(any<ContentResolver>(), "pr1756_gpu_restart", 0) } returns 0
         mockkStatic(Log::class)

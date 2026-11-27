@@ -1225,6 +1225,8 @@ Each spec includes: screen, pre-conditions, actions, assertions, and complexity.
 ### §13: System Permissions
 
 #### UI-AUTO-13-1: SCHEDULE_EXACT_ALARM flow
+> **Obsolete under `USE_EXACT_ALARM`.** The release manifest no longer declares `SCHEDULE_EXACT_ALARM`, so this runtime permission flow and its Settings redirect cannot be reached. The `PermissionFlowTest` exact-alarm cases (`feature/settings/src/androidTest/java/com/kernel/ai/feature/settings/PermissionFlowTest.kt:149-196`) are obsolete for the same reason. Exact-alarm coverage is now the Play `USE_EXACT_ALARM` declaration and reviewer recording in `docs/release-audit/play-permission-declarations.md`.
+
 
 | Field | Value |
 |-------|-------|

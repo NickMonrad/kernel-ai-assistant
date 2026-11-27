@@ -12,13 +12,18 @@ import kotlin.math.abs
  */
 object InflectMicroTextFrontend {
     private val whitespace = Regex("\\s+")
+    private val sentenceBoundary = Regex("(?<=[.!?])\\s+")
+    private val clauseBoundary = Regex("(?<=[,;:])\\s+")
     /** Sentences longer than this many phonemes, joined by " and ", are split at the join (see [phonemizeChunks]). */
     private const val CLAUSE_SPLIT_PHONEME_LENGTH = 100
-    private val numberWordAfterAnd = Regex(
-        "^and (?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|" +
-            "seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|" +
-            "billion|trillion)\\b",
-    )
+    /** Minimum characters on each side of an " and " clause split, so a split never leaves a fragment. */
+    private const val MIN_CLAUSE_SPLIT_CHARS = 20
+    /** Number words, plus the respelled teen stems (`thir`, `fif`, `eigh`) that [splitTeens] produces. */
+    private const val NUMBER_WORD_ALTERNATION = "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|" +
+        "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|" +
+        "ninety|hundred|thousand|million|billion|trillion|thir|fif|eigh"
+    private val numberWordAfterAnd = Regex("^and (?:$NUMBER_WORD_ALTERNATION)\\b")
+    private val numberWordInText = Regex("\\b(?:$NUMBER_WORD_ALTERNATION)\\b", RegexOption.IGNORE_CASE)
 
     private val teenSplitPatterns = listOf(
         "thirteen" to "thir teen", "fourteen" to "four teen", "fifteen" to "fif teen", "sixteen" to "six teen",
@@ -51,7 +56,7 @@ object InflectMicroTextFrontend {
      * amount came out as $1,232,050). A comma after the scale word and a sentence break before the cents read it
      * as 1,200,000.50 on the S23U (#2115). Kokoro reads the unchanged text correctly, so this stays out of the shared normaliser.
      */
-    private val millionCentsClause = Regex("""\b(million|billion) ((?:[a-z]+ )+?dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
+    private val millionCentsClause = Regex("""\b(million|billion) ((?:(?:$NUMBER_WORD_ALTERNATION) )+dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
 
     fun normalize(text: String): String {
         var value = text
@@ -100,6 +105,84 @@ object InflectMicroTextFrontend {
         return value.replace(whitespace, " ").trim()
     }
 
+    /** Upper bound on characters per speech chunk; keeps first-audio latency near one short sentence. */
+    const val MAX_SPEECH_CHUNK_CHARS = 120
+
+    /**
+     * Splits normalized text into speech chunks of at most [maxChunkChars] characters, greedily packing whole
+     * sentences and falling back to clause, then word, boundaries only for pieces that are still too long.
+     * Chunks are joined in order with single spaces, so no text is dropped or reordered.
+     */
+    fun speechChunks(normalizedText: String, maxChunkChars: Int = MAX_SPEECH_CHUNK_CHARS): List<String> {
+        require(maxChunkChars > 0) { "maxChunkChars must be positive" }
+        val text = normalizedText.trim()
+        if (text.isEmpty()) return emptyList()
+
+        val chunks = mutableListOf<String>()
+        var current = StringBuilder()
+        fun pack(piece: String) {
+            when {
+                current.isEmpty() -> current.append(piece)
+                current.length + 1 + piece.length <= maxChunkChars -> current.append(' ').append(piece)
+                else -> {
+                    chunks += current.toString()
+                    current = StringBuilder(piece)
+                }
+            }
+        }
+
+        for (sentence in text.split(sentenceBoundary)) {
+            val trimmed = sentence.trim()
+            if (trimmed.isEmpty()) continue
+            for (piece in boundedPieces(trimmed, maxChunkChars)) pack(piece)
+        }
+        if (current.isNotEmpty()) chunks += current.toString()
+        return chunks
+    }
+
+    /**
+     * Lazily phonemizes [speechChunks] one chunk at a time, so each chunk can be synthesized before the next is
+     * phonemized. Phoneme length stays under the runner's cap; the phonemizer runs only when the sequence is consumed.
+     */
+    fun phonemizeSpeechChunks(
+        normalizedText: String,
+        maxChunkChars: Int = MAX_SPEECH_CHUNK_CHARS,
+        maxPhonemeLength: Int = InflectMicroOnnxRunner.MAX_PHONEME_TEXT_LENGTH,
+        phonemize: (String) -> String,
+    ): Sequence<PhonemizedChunk> = speechChunks(normalizedText, maxChunkChars).asSequence().flatMap { chunk ->
+        phonemizeChunks(
+            normalizedText = chunk,
+            maxPhonemeLength = maxPhonemeLength,
+            phonemize = phonemize,
+        ).asSequence()
+    }
+
+    private fun boundedPieces(sentence: String, maxChunkChars: Int): List<String> {
+        if (sentence.length <= maxChunkChars) return listOf(sentence)
+        return sentence.split(clauseBoundary).flatMap { clause ->
+            val trimmed = clause.trim()
+            if (trimmed.length <= maxChunkChars) listOf(trimmed) else wordPieces(trimmed, maxChunkChars)
+        }
+    }
+
+    private fun wordPieces(text: String, maxChunkChars: Int): List<String> {
+        val pieces = mutableListOf<String>()
+        val current = StringBuilder()
+        for (word in text.split(whitespace).filter(String::isNotEmpty)) {
+            when {
+                current.isEmpty() -> current.append(word)
+                current.length + 1 + word.length <= maxChunkChars -> current.append(' ').append(word)
+                else -> {
+                    pieces += current.toString()
+                    current.setLength(0)
+                    current.append(word)
+                }
+            }
+        }
+        if (current.isNotEmpty()) pieces += current.toString()
+        return pieces
+    }
+
     fun applyPhonemeOverrides(phonemes: String): String {
         var value = Normalizer.normalize(phonemes, Normalizer.Form.NFD)
         value = value.replace("sˈæskɐtʃˌuːən", "sɐskˈætʃəwən")
@@ -118,10 +201,11 @@ object InflectMicroTextFrontend {
      * Keeps normalized text as one chunk when it fits, then splits at punctuation boundaries and
      * at words only when one punctuation-delimited segment still exceeds the ONNX frontend bound.
      *
-     * A text longer than [clauseSplitPhonemeLength] is first split at " and " joins between clauses, nearest the
-     * middle first. Inflect garbled "fifteen thousand" in "The stadium holds fifteen thousand people and cost one
-     * million …" (#2115) while the same phrase alone rendered correctly. Joins before a number word ("two thousand and
-     * five") are kept.
+     * A text longer than [clauseSplitPhonemeLength] that contains a number word is first split at " and " joins between
+     * clauses, nearest the middle first. Inflect garbled "fifteen thousand" in "The stadium holds fifteen thousand people
+     * and cost one million …" (#2115) while the same phrase alone rendered correctly. Joins before a number word ("two
+     * thousand and five", "two thousand and eighteen") are kept, as are joins that would leave a side under
+     * [MIN_CLAUSE_SPLIT_CHARS] characters.
      */
     fun phonemizeChunks(
         normalizedText: String,
@@ -137,7 +221,7 @@ object InflectMicroTextFrontend {
             phonemize(value).also { require(it.isNotBlank()) { "Phonemizer returned empty output." } }
 
         val completePhonemes = phonemizeChecked(text)
-        val clauses = if (completePhonemes.length > clauseSplitPhonemeLength) {
+        val clauses = if (completePhonemes.length > clauseSplitPhonemeLength && numberWordInText.containsMatchIn(text)) {
             splitAtAndClauses(text, clauseSplitPhonemeLength, ::phonemizeChecked)
         } else {
             listOf(text)
@@ -155,13 +239,17 @@ object InflectMicroTextFrontend {
         }
     }
 
-    /** Splits at " and " joins that begin a clause, nearest the middle first, until each part fits or no join is left. */
+    /**
+     * Splits at " and " joins that begin a clause, nearest the middle first, until each part fits or no join is left.
+     * Each side keeps at least [MIN_CLAUSE_SPLIT_CHARS] characters, so a split never leaves a fragment like "Fish."
+     */
     private fun splitAtAndClauses(text: String, softLength: Int, phonemize: (String) -> String): List<String> {
         if (phonemize(text).length <= softLength) return listOf(text)
         val middle = text.length / 2
         val join = Regex(" and ").findAll(text)
             .map { it.range.first }
             .filterNot { numberWordAfterAnd.containsMatchIn(text.substring(it + 1)) }
+            .filter { it >= MIN_CLAUSE_SPLIT_CHARS && text.length - it - 1 >= MIN_CLAUSE_SPLIT_CHARS }
             .minByOrNull { abs(it - middle) }
             ?: return listOf(text)
         val before = text.substring(0, join).trimEnd(',').let { if (it.last() in ".!?;:") it else "$it." }
