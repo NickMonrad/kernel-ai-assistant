@@ -70,7 +70,9 @@ class KokoroVoiceOutputController @Inject constructor(
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
-        synthesisLock.withLock { prepare(voice) }
+        synthesisLock.withLock {
+            prepare(voice).also { if (it == VoiceOutputResult.Spoken) primeInference(voice) }
+        }
     }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
@@ -227,6 +229,20 @@ class KokoroVoiceOutputController @Inject constructor(
         return VoiceOutputResult.Spoken
     }
 
+    /**
+     * One throwaway chunk after a load. The first inference on the S23U ran about 0.45 s slower than later ones
+     * (round 4), so this moves that cost out of the first reply. Caller holds [synthesisLock].
+     */
+    private fun primeInference(voice: KokoroVoice) {
+        val loaded = engine ?: return
+        try {
+            val chunks = loaded.splitText(KokoroTextFrontend.phonemizerInput(PRIME_TEXT, voice.locale))
+            loaded.synthesizeChunk(chunks.first())
+        } catch (error: Exception) {
+            Log.w(TAG, "Kokoro warm-up inference failed: ${error.message}")
+        }
+    }
+
     private fun loadFailure(message: String, error: Throwable): VoiceOutputResult.Unavailable {
         Log.e(TAG, "$message", error)
         return VoiceOutputResult.Unavailable("$message: ${error.message}")
@@ -273,5 +289,6 @@ class KokoroVoiceOutputController @Inject constructor(
 
     private companion object {
         const val TAG = "KernelAI"
+        const val PRIME_TEXT = "Hello."
     }
 }

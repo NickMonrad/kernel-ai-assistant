@@ -51,6 +51,7 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var wakeWordPreferences: com.kernel.ai.core.voice.WakeWordPreferences
     @Inject lateinit var speechStopSessionManager: com.kernel.ai.speech.SpeechStopSessionManager
     @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
+    @Inject lateinit var kokoroBackgroundWarmUp: com.kernel.ai.core.voice.kokoro.KokoroBackgroundWarmUp
 
     /**
      * Test-only application variants may retain Hilt/WorkManager setup while avoiding normal
@@ -135,6 +136,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
         }
         // Resumes an asr4all size switch that was pending when the process ended, and keeps inactive sizes swept.
         asr4allSizeSwitcher.get().start()
+        // Loads the Kokoro engine ahead of the first reply when Kokoro is the active voice (#2117).
+        kokoroBackgroundWarmUp.start(GlobalScope)
     }
 
     /**
