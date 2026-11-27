@@ -109,10 +109,10 @@ class IntentContractRegistryTest {
     }
 
     @Test
-    fun `addReminderContractHasAllSlots`() {
+    fun `addReminderContractRequiresItemAndTime`() {
         val contract = registry.get("add_reminder")
         assertNotNull(contract)
         assertEquals(IntentRiskLevel.MEDIUM, contract!!.riskLevel)
-        assertEquals(setOf("item", "day", "time"), contract.requiredSlots.keys)
+        assertEquals(setOf("item", "time"), contract.requiredSlots.keys)
     }
 }

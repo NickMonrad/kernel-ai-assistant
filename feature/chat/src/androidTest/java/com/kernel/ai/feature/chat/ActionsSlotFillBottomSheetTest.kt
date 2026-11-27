@@ -46,7 +46,6 @@ class ActionsSlotFillBottomSheetTest {
                         slot = slot,
                         uiState = ActionsViewModel.UiState.Idle,
                         voiceCaptureState = ActionsViewModel.VoiceCaptureState.Idle,
-                        autoVoiceReplyArmed = false,
                         onDismiss = { pendingSlot.value = null },
                         onSubmit = onSubmit@{ reply ->
                             val current = pendingSlot.value ?: return@onSubmit
@@ -57,8 +56,6 @@ class ActionsSlotFillBottomSheetTest {
                             }
                         },
                         onVoiceReply = {},
-                        onAutoVoiceReply = {},
-                        slotPromptPlaybackStarted = false,
                         onStopVoiceReply = {},
                     )
                 }

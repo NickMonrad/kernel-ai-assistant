@@ -131,13 +131,9 @@ class IntentContractRegistry {
                         name = "item",
                         promptTemplate = "What would you like me to remind you about?",
                     ),
-                    "day" to SlotSpec(
-                        name = "day",
-                        promptTemplate = "Which day should I set the reminder for?",
-                    ),
                     "time" to SlotSpec(
                         name = "time",
-                        promptTemplate = "What time on {day} should I remind you to {item}?",
+                        promptTemplate = "What time should I remind you to {item}?",
                     ),
                 ),
                 riskLevel = IntentRiskLevel.MEDIUM,
