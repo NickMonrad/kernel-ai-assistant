@@ -1,4 +1,5 @@
 package com.kernel.ai.core.memory.shortcut
+// CI skip-path probe (temporary, reverted in the next commit).
 
 import com.kernel.ai.core.memory.dao.RecentShortcutDao
 import com.kernel.ai.core.memory.entity.RecentShortcutEntity
