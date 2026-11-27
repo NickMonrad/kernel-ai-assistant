@@ -1,9 +1,11 @@
 package com.kernel.ai.assistant
 
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -65,7 +67,7 @@ class WakeMicActionQueueTest {
 
     @Test
     fun `the block does not run inline when the scope's dispatcher is the worker`() = runTest {
-        val worker: CoroutineDispatcher = coroutineContext[CoroutineDispatcher]!!
+        val worker = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher
         val lock = Mutex()
         var ran = false
 
@@ -79,7 +81,7 @@ class WakeMicActionQueueTest {
 
     @Test
     fun `call order holds when the scope's dispatcher is the worker`() = runTest {
-        val worker: CoroutineDispatcher = coroutineContext[CoroutineDispatcher]!!
+        val worker = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher
         val lock = Mutex()
         val order = mutableListOf<String>()
 
@@ -97,9 +99,12 @@ class WakeMicActionQueueTest {
         val callerThread = Thread.currentThread()
         var blockThread: Thread? = null
         val scope = CoroutineScope(Dispatchers.Default)
-
-        runBlocking {
-            scope.launchQueuedUnder(Mutex(), Dispatchers.Default) { blockThread = Thread.currentThread() }.join()
+        try {
+            runBlocking {
+                scope.launchQueuedUnder(Mutex(), Dispatchers.Default) { blockThread = Thread.currentThread() }.join()
+            }
+        } finally {
+            scope.cancel()
         }
 
         assertNotNull(blockThread, "the queued block must run")
