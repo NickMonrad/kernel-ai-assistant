@@ -211,7 +211,10 @@ class InflectReplyStreamTest {
         val h = harness(sink, FakeHooks(), generation)
 
         val producer = launch(Dispatchers.Default) { h.stream.append(longReply, isFinal = true) }
-        // Chunk 1 is blocked in write, chunk 2 sits in the one-slot channel, chunk 3 is blocked in send.
+        // Wait until the track is open and chunk 1 is blocked in write. Aborting before open is a valid silent path
+        // (see InflectReplyStream.playAudio), so this test must not race the consumer's open.
+        assertTrue(sink.firstWriteEntered.await(5, TimeUnit.SECONDS))
+        // Chunk 2 sits in the one-slot channel, chunk 3 is blocked in send.
         withTimeout(5_000) {
             while (h.synthCalls.get() < 3) delay(1)
         }
