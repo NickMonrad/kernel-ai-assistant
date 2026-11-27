@@ -776,6 +776,9 @@ class WakeWordService : Service() {
     /** Serialises voice events and recording-client updates, since both start and stop the detector (#2108). */
     private val micLock = Mutex()
 
+    /** Set first in [onDestroy]; a re-arm that started on the worker checks it again after its start (see [armUnlessDestroyed]). */
+    @Volatile private var serviceDestroyed = false
+
     /** Active microphone clients from [recordingCallback], consumed in order by [recordingClientsJob]. */
     private val recordingClients = Channel<List<MicRecordingClient>>(Channel.UNLIMITED)
     private var recordingClientsJob: Job? = null
@@ -963,6 +966,7 @@ class WakeWordService : Service() {
     }
 
     override fun onDestroy() {
+        serviceDestroyed = true
         instance = null
         JandalEvents.record("service", "wake_word", "outcome" to LifecycleOutcome.STOPPED)
         cameraMonitorJob = null
@@ -1355,28 +1359,35 @@ class WakeWordService : Service() {
             return
         }
         val generationId = AcousticJournalBridge.allocateGenerationId()
-        wakeWordDetector.start(
-            generationId = generationId,
-            onDetected = {
-                val sessionId = AcousticJournalBridge.allocateSessionId()
-                AcousticJournalBridge.record(
-                    type = AcousticEventType.WAKE_CALLBACK_INVOKED,
+        val started = armUnlessDestroyed(
+            isDestroyed = { serviceDestroyed },
+            start = {
+                wakeWordDetector.start(
                     generationId = generationId,
-                    sessionId = sessionId,
+                    onDetected = {
+                        val sessionId = AcousticJournalBridge.allocateSessionId()
+                        AcousticJournalBridge.record(
+                            type = AcousticEventType.WAKE_CALLBACK_INVOKED,
+                            generationId = generationId,
+                            sessionId = sessionId,
+                        )
+                        handleDetection(generationId, sessionId)
+                    },
+                    verifyWindow = { pcm ->
+                        try {
+                            kotlinx.coroutines.runBlocking {
+                                verifyWakeWindow(voiceInputController, pcm)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "WakeWordService: wake word verification failed", e)
+                            false
+                        }
+                    },
                 )
-                handleDetection(generationId, sessionId)
             },
-            verifyWindow = { pcm ->
-                try {
-                    kotlinx.coroutines.runBlocking {
-                        verifyWakeWindow(voiceInputController, pcm)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "WakeWordService: wake word verification failed", e)
-                    false
-                }
-            },
+            stop = { wakeWordDetector.stop() },
         )
+        if (!started) return
         AcousticJournalBridge.record(
             type = AcousticEventType.DETECTOR_REARMED,
             generationId = generationId,
