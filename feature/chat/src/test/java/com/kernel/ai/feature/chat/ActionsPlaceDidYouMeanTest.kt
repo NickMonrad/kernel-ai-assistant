@@ -10,6 +10,7 @@ import com.kernel.ai.core.skills.SkillRegistry
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
+import com.kernel.ai.core.skills.intent.PlaceSuggestion
 import com.kernel.ai.core.voice.SpeechStopCoordinator
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -117,7 +118,7 @@ class ActionsPlaceDidYouMeanTest {
 
         // Only "Porirwa" is a near miss; everything else is either exact or unrelated.
         every { suggester.suggest(any()) } returns null
-        every { suggester.suggest("Porirwa") } returns "Porirua"
+        every { suggester.suggest("Porirwa") } returns PlaceSuggestion("Porirua", 0..6)
 
         every { quickIntentRouter.route("navigate to Porirwa") } returns navigateIntent("Porirwa")
         every { quickIntentRouter.route("navigate to Porirua") } returns navigateIntent("Porirua")
@@ -257,6 +258,24 @@ class ActionsPlaceDidYouMeanTest {
         coVerify(exactly = 0) { voiceOutputController.speak(match<VoiceSpeakRequest> { it.text == prompt }) }
         coVerify(exactly = 1) {
             navigateSkill.execute(match<SkillCall> { it.arguments["destination"] == "Porirwa" })
+        }
+    }
+
+    @Test
+    fun `a new typed command ends the pending place question`() = runTest(dispatcher) {
+        viewModel.executeAction("navigate to Porirwa", InputMode.Voice)
+        settleRealTime()
+        finishSpeech(prompt)
+
+        viewModel.executeAction("navigate to Porirua", InputMode.Text)
+        advanceUntilIdle()
+        every { quickIntentRouter.route("Yes") } returns QuickIntentRouter.RouteResult.FallThrough(input = "Yes")
+        viewModel.onSlotReply("Yes")
+        advanceUntilIdle()
+
+        // Without the clear, "Yes" would replay the Porirwa question and run Porirua a second time.
+        coVerify(exactly = 1) {
+            navigateSkill.execute(match<SkillCall> { it.arguments["destination"] == "Porirua" })
         }
     }
 

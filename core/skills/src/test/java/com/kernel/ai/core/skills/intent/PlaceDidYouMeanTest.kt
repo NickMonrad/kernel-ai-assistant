@@ -1,9 +1,9 @@
 package com.kernel.ai.core.skills.intent
 
-import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import com.kernel.ai.core.skills.QuickIntentRouter
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -15,7 +15,7 @@ class PlaceDidYouMeanTest {
 
     @Test
     fun nearMissOfNzPlaceIsSuggested() {
-        assertEquals("Porirua", suggester.suggest("Porirwa"))
+        assertEquals("Porirua", suggester.suggest("Porirwa")?.place)
     }
 
     @Test
@@ -36,9 +36,34 @@ class PlaceDidYouMeanTest {
     }
 
     @Test
+    fun knownLocalityIsNeverAskedEvenWhenNearAnNzName() {
+        // "Orewa" is one edit from the NZ "Moerewa"; a known locality is a real place, so there is no question.
+        val withoutKnown = PlaceDidYouMeanSuggester { PlaceSlotMatcher(listOf("Moerewa")) }
+        assertEquals("Moerewa", withoutKnown.suggest("Orewa")?.place)
+        val withKnown = PlaceDidYouMeanSuggester { PlaceSlotMatcher(listOf("Moerewa"), emptyList(), listOf("Orewa")) }
+        assertNull(withKnown.suggest("Orewa"))
+    }
+
+    @Test
+    fun stopListWordIsNeverAskedEvenWhenNearAnNzName() {
+        val stop = PlaceDidYouMeanSuggester { PlaceSlotMatcher(listOf("Parakai")) }
+        assertNull(stop.suggest("park"))
+    }
+
+    @Test
+    fun possessiveNameIsNeverAsked() {
+        val possessive = PlaceDidYouMeanSuggester { PlaceSlotMatcher(listOf("Thames")) }
+        assertNull(possessive.suggest("Tom's place"))
+        assertNull(possessive.suggest("toms place"))
+    }
+
+    @Test
     fun yesNoAndOtherReplies() {
         assertEquals(PlaceDidYouMeanAnswer.Yes, PlaceDidYouMeanReply.interpret("Yes."))
         assertEquals(PlaceDidYouMeanAnswer.Yes, PlaceDidYouMeanReply.interpret("  yeah "))
+        assertEquals(PlaceDidYouMeanAnswer.Yes, PlaceDidYouMeanReply.interpret("ok"))
+        assertEquals(PlaceDidYouMeanAnswer.Yes, PlaceDidYouMeanReply.interpret("Okay!"))
+        assertEquals(PlaceDidYouMeanAnswer.Yes, PlaceDidYouMeanReply.interpret("yes please"))
         assertEquals(PlaceDidYouMeanAnswer.No, PlaceDidYouMeanReply.interpret("No"))
         assertEquals(PlaceDidYouMeanAnswer.No, PlaceDidYouMeanReply.interpret("nope!"))
         assertEquals(PlaceDidYouMeanAnswer.Other, PlaceDidYouMeanReply.interpret("Taupo"))
@@ -60,9 +85,16 @@ class PlaceDidYouMeanTest {
     fun suggestedUtteranceReplacesHeardPlaceOnly() {
         assertEquals(
             "weather in Porirua",
-            suggestedUtterance("weather in Porirwa", "Porirwa", "Porirua"),
+            suggestedUtterance("weather in Porirwa", "Porirwa", PlaceSuggestion("Porirua", 0..6)),
         )
-        assertNull(suggestedUtterance("weather", "Porirwa", "Porirua"))
+        assertNull(suggestedUtterance("weather", "Porirwa", PlaceSuggestion("Porirua", 0..6)))
+    }
+
+    @Test
+    fun addressDetailsSurviveTheYes() {
+        val question = placeDidYouMeanQuestion(suggester, navigateRoute("12 Porirwa Street"), "navigate to 12 Porirwa Street")
+        assertEquals("Did you mean Porirua?", question?.prompt)
+        assertEquals("navigate to 12 Porirua Street", question?.suggestedText)
     }
 
     private fun navigateRoute(place: String) = QuickIntentRouter.RouteResult.RegexMatch(

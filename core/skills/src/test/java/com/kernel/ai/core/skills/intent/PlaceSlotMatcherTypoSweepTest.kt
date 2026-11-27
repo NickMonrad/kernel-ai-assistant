@@ -31,7 +31,7 @@ class PlaceSlotMatcherTypoSweepTest {
             for (typo in typos(target)) {
                 val counts = tally.getOrPut(typo.kind) { IntArray(4) }
                 counts[0]++
-                when (suggester.suggest(typo.text)) {
+                when (suggester.suggest(typo.text)?.place) {
                     null -> counts[3]++
                     target -> counts[1]++
                     else -> counts[2]++

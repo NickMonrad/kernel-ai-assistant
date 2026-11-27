@@ -903,9 +903,13 @@ class ChatViewModel @Inject constructor(
                             pendingPlaceDidYouMean = null
                             _voiceMode.value = null
                             _voiceCaptureState.value = VoiceCaptureState.Idle
+                            val dropped = "Okay, I didn't act on that."
+                            if (spokenResponsesEnabled) {
+                                viewModelScope.launch { voiceOutputController.speak(VoiceSpeakRequest(dropped)) }
+                            }
                             conversationId?.let { id ->
                                 viewModelScope.launch {
-                                    appendAssistantMessage(id, "Okay, I didn't act on that.", shouldIndex = false)
+                                    appendAssistantMessage(id, dropped, shouldIndex = false, speak = false)
                                 }
                             }
                         } else {

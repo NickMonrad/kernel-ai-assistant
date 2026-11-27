@@ -1736,6 +1736,8 @@ class ActionsViewModel @Inject constructor(
             Log.w(TAG, "ActionsViewModel: executeAction called while slot-fill pending — ignoring \"$normalizedQuery\"")
             return
         }
+        // A new command supersedes a pending place question; a yes/no reply to that question never reaches here.
+        if (!replayOfPlaceQuestion) pendingPlaceQuestion = null
         _error.value = null
 
         viewModelScope.launch {

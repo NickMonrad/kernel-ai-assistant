@@ -35,20 +35,19 @@ internal object PlaceDidYouMeanConfig {
 
     const val NZ_ASSET = "place_dym/nz_places.txt"
     const val COMPETITOR_ASSET = "place_dym/competitor_places.txt"
+    const val LINZ_ASSET = "place_dym/linz_localities.txt"
 }
 
 /** The user's reply to a pending "Did you mean" question. */
 enum class PlaceDidYouMeanAnswer { Yes, No, Other }
 
 object PlaceDidYouMeanReply {
-    private val YES = setOf("yes", "yeah", "yep", "yup", "correct", "that's right", "thats right", "sure", "right")
-    private val NO = setOf("no", "nope", "nah", "wrong", "not that", "no that's wrong", "no thats wrong")
-
+    /** Yes and no use the shared affirmation and negation sets, so "ok", "okay" and "yes please" are yes. */
     fun interpret(reply: String): PlaceDidYouMeanAnswer {
         val norm = reply.trim().trimEnd('.', '!', '?').lowercase()
-        return when (norm) {
-            in YES -> PlaceDidYouMeanAnswer.Yes
-            in NO -> PlaceDidYouMeanAnswer.No
+        return when {
+            norm in QuickIntentRouter.AFFIRMATIONS -> PlaceDidYouMeanAnswer.Yes
+            norm in QuickIntentRouter.NEGATIONS -> PlaceDidYouMeanAnswer.No
             else -> PlaceDidYouMeanAnswer.Other
         }
     }
@@ -68,11 +67,33 @@ data class PendingPlaceDidYouMean(
     val prompt: String get() = "Did you mean $suggestedPlace?"
 }
 
-/** Builds the suggested utterance by replacing the heard place. Null if the place is not in the text. */
-fun suggestedUtterance(text: String, heardPlace: String, suggestedPlace: String): String? {
+/** An NZ place to offer, and the span of the heard place it replaces (indices into the heard place). */
+data class PlaceSuggestion(val place: String, val heardRange: IntRange)
+
+/**
+ * Builds the suggested utterance by replacing only the heard place token with [suggestion]'s place, so the
+ * rest of the phrase (for example a street number or street type) is kept. Null if the heard place is not in the text.
+ */
+fun suggestedUtterance(text: String, heardPlace: String, suggestion: PlaceSuggestion): String? {
     val start = text.indexOf(heardPlace, ignoreCase = true)
     if (heardPlace.isBlank() || start < 0) return null
-    return text.substring(0, start) + suggestedPlace + text.substring(start + heardPlace.length)
+    val place = heardPlace.replaceRange(suggestion.heardRange.first, suggestion.heardRange.last + 1, suggestion.place)
+    return text.substring(0, start) + place + text.substring(start + heardPlace.length)
+}
+
+/** The heard place of a navigate_to destination or get_weather location, or null for any other route. */
+private fun heardPlaceFor(route: QuickIntentRouter.RouteResult): String? {
+    val intent = when (route) {
+        is QuickIntentRouter.RouteResult.RegexMatch -> route.intent
+        is QuickIntentRouter.RouteResult.ClassifierMatch -> route.intent
+        else -> return null
+    }
+    val slot = when (intent.intentName) {
+        "navigate_to" -> "destination"
+        "get_weather" -> "location"
+        else -> return null
+    }
+    return intent.params[slot]?.takeIf { it.isNotBlank() }
 }
 
 /**
@@ -85,20 +106,10 @@ fun placeDidYouMeanQuestion(
     route: QuickIntentRouter.RouteResult,
     text: String,
 ): PendingPlaceDidYouMean? {
-    val intent = when (route) {
-        is QuickIntentRouter.RouteResult.RegexMatch -> route.intent
-        is QuickIntentRouter.RouteResult.ClassifierMatch -> route.intent
-        else -> return null
-    }
-    val slot = when (intent.intentName) {
-        "navigate_to" -> "destination"
-        "get_weather" -> "location"
-        else -> return null
-    }
-    val heard = intent.params[slot]?.takeIf { it.isNotBlank() } ?: return null
-    val suggested = suggester.suggest(heard) ?: return null
-    val suggestedText = suggestedUtterance(text, heard, suggested) ?: return null
-    return PendingPlaceDidYouMean(originalText = text, suggestedText = suggestedText, suggestedPlace = suggested)
+    val heard = heardPlaceFor(route) ?: return null
+    val suggestion = suggester.suggest(heard) ?: return null
+    val suggestedText = suggestedUtterance(text, heard, suggestion) ?: return null
+    return PendingPlaceDidYouMean(originalText = text, suggestedText = suggestedText, suggestedPlace = suggestion.place)
 }
 
 /**
@@ -117,19 +128,23 @@ suspend fun placeDidYouMeanQuestionWithin(
     route: QuickIntentRouter.RouteResult,
     text: String,
     timeoutMs: Long = PlaceDidYouMeanConfig.TIMEOUT_MS,
-): PendingPlaceDidYouMean? = withContext(Dispatchers.Default) {
-    // A failure is returned inside the Result: nothing is thrown into matcherScope.
-    val pending = matcherScope.async { runCatching { placeDidYouMeanQuestion(suggester, route, text) } }
-    try {
-        val result = withTimeoutOrNull(timeoutMs) { pending.await() }
-        if (result == null) {
-            Log.w(TAG, "Did-you-mean matcher gave no result within ${timeoutMs}ms; normal path")
-            null
-        } else {
-            result.onFailure { Log.w(TAG, "Did-you-mean matcher failed; normal path", it) }.getOrNull()
+): PendingPlaceDidYouMean? {
+    // Only a navigate or weather route with a place starts the matcher; any other route never waits on it.
+    heardPlaceFor(route) ?: return null
+    return withContext(Dispatchers.Default) {
+        // A failure is returned inside the Result: nothing is thrown into matcherScope.
+        val pending = matcherScope.async { runCatching { placeDidYouMeanQuestion(suggester, route, text) } }
+        try {
+            val result = withTimeoutOrNull(timeoutMs) { pending.await() }
+            if (result == null) {
+                Log.w(TAG, "Did-you-mean matcher gave no result within ${timeoutMs}ms; normal path")
+                null
+            } else {
+                result.onFailure { Log.w(TAG, "Did-you-mean matcher failed; normal path", it) }.getOrNull()
+            }
+        } finally {
+            pending.cancel()
         }
-    } finally {
-        pending.cancel()
     }
 }
 
@@ -144,19 +159,23 @@ class PlaceDidYouMeanSuggester internal constructor(private val matcherProvider:
 
     private val matcher: PlaceSlotMatcher by lazy(matcherProvider)
 
-    /** The NZ place to ask about for [heardPlace], or null. Never a rewrite. Blocking: call off the main thread. */
-    fun suggest(heardPlace: String): String? =
+    /**
+     * The NZ place to ask about for [heardPlace], with the span of [heardPlace] it replaces, or null. Never a
+     * rewrite. Blocking: call off the main thread.
+     */
+    fun suggest(heardPlace: String): PlaceSuggestion? =
         matcher.suggest(
             heard = heardPlace,
             maxDistance = PlaceDidYouMeanConfig.MAX_DISTANCE,
             margin = PlaceDidYouMeanConfig.MARGIN,
-        )?.name
+        )?.let { PlaceSuggestion(place = it.name, heardRange = it.heardRange) }
 
     private companion object {
         fun loadMatcher(context: Context): PlaceSlotMatcher {
             val nz = readLines(context, PlaceDidYouMeanConfig.NZ_ASSET)
             val competitors = readLines(context, PlaceDidYouMeanConfig.COMPETITOR_ASSET)
-            return PlaceSlotMatcher(nz, competitors)
+            val known = readLines(context, PlaceDidYouMeanConfig.LINZ_ASSET)
+            return PlaceSlotMatcher(nz, competitors, known)
         }
 
         fun readLines(context: Context, asset: String): List<String> =

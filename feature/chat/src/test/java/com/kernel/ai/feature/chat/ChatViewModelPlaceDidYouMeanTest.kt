@@ -35,6 +35,7 @@ import com.kernel.ai.core.skills.SkillSchema
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.intent.IntentRecoveryOrchestrator
 import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
+import com.kernel.ai.core.skills.intent.PlaceSuggestion
 import com.kernel.ai.core.skills.mealplan.MealPlannerCoordinator
 import com.kernel.ai.core.skills.slot.SlotFillerManager
 import com.kernel.ai.core.skills.slot.SlotValidationRegistry
@@ -49,6 +50,7 @@ import com.kernel.ai.core.voice.VoiceInputEvent
 import com.kernel.ai.core.voice.VoiceInputStartResult
 import com.kernel.ai.core.voice.VoiceOutputEvent
 import com.kernel.ai.core.voice.VoiceOutputResult
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -208,7 +210,7 @@ class ChatViewModelPlaceDidYouMeanTest {
 
         // Only "Porirwa" is a near miss; everything else gets no question.
         every { suggester.suggest(any()) } returns null
-        every { suggester.suggest("Porirwa") } returns "Porirua"
+        every { suggester.suggest("Porirwa") } returns PlaceSuggestion("Porirua", 0..6)
     }
 
     @AfterEach
@@ -308,6 +310,7 @@ class ChatViewModelPlaceDidYouMeanTest {
         send(vm, "navigate to Porirwa")
         awaitConversation(vm, "Did you mean Porirua?")
         send(vm, "what is the time")
+        advanceUntilIdle()
         // The question is gone: a later "yes" is not a confirmation of anything.
         send(vm, "yes")
 
@@ -336,7 +339,7 @@ class ChatViewModelPlaceDidYouMeanTest {
         every { suggester.suggest("Porirwa") } answers {
             release.await(15, java.util.concurrent.TimeUnit.SECONDS)
             returned.countDown()
-            "Porirua"
+            PlaceSuggestion("Porirua", 0..6)
         }
         try {
             val vm = createViewModel()
@@ -391,5 +394,46 @@ class ChatViewModelPlaceDidYouMeanTest {
         voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Command, "yes", captureSessionId = 1L))
         advanceUntilIdle()
         assertEquals(listOf<Any?>("Porirua"), destinations())
+    }
+
+    @Test
+    fun `chat silence past the budget drops the place question, speaks the drop and never navigates`() = runTest(dispatcher) {
+        // A pending place question makes the chat mic start a Command capture, as the slot silence test does.
+        every { slotFillerManager.pendingRequestFor(any()) } returns null
+        every { voiceOutputPreferences.autoSpeak } returns MutableStateFlow(true)
+        every { voiceOutputPreferences.spokenResponsesEnabled } returns MutableStateFlow(true)
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.startVoiceInput()
+        advanceUntilIdle()
+        voiceInputEvents.emit(VoiceInputEvent.Transcript(VoiceCaptureMode.Dictation, "navigate to Porirwa", captureSessionId = 1L))
+        awaitConversation(vm, "Did you mean Porirua?")
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStarted("Did you mean Porirua?"))
+        voiceOutputEvents.emit(VoiceOutputEvent.SpeakingStopped)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        val silence = VoiceInputEvent.Error(
+            mode = VoiceCaptureMode.Command,
+            message = "No speech heard. Try again.",
+            captureSessionId = 1L,
+        )
+        val reask = "Sorry, I didn't catch that. Did you mean Porirua?"
+        // Two silences re-ask the question, each reopening the mic (the place budget is 2).
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        coVerify(exactly = 2) { voiceOutputController.speak(match { it.text == reask }) }
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+
+        // Third silence: the budget is spent. The drop is spoken and written; the mic stays closed; nothing runs.
+        voiceInputEvents.emit(silence)
+        advanceUntilIdle()
+        coVerify(exactly = 1) { voiceOutputController.speak(VoiceSpeakRequest("Okay, I didn't act on that.")) }
+        coVerify(exactly = 3) { voiceInputController.startListening(VoiceCaptureMode.Command) }
+        assertTrue(vm.getConversationAsText().contains("Okay, I didn't act on that."))
+        assertEquals(emptyList<Any?>(), destinations())
     }
 }
