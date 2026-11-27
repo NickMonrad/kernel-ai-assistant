@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills
 
 import android.util.Log
+import com.kernel.ai.core.inference.diagnostics.DebugVerboseLog
 import com.kernel.ai.core.skills.js.JsSkillRunner
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
@@ -329,7 +330,9 @@ class QueryWikipediaSkill @Inject constructor(
         } catch (e: Exception) {
             // Runner failures (timeout, load error, JS error, renderer gone) must not escape: the explicit
             // chat path calls this skill directly and would crash the app (#2134).
-            Log.e(TAG, "QueryWikipediaSkill: lookup failed query=$query", e)
+            // Release logs carry no user content: query text is logged only under the debug verbose gate.
+            val queryLog = if (DebugVerboseLog.active()) " query=$query" else ""
+            Log.e(TAG, "QueryWikipediaSkill: lookup failed reason=${e::class.simpleName} queryLength=${query.length}$queryLog", e)
             SkillResult.Failure(name, "Wikipedia lookup failed for '$query': ${e.message}")
         }
     }
