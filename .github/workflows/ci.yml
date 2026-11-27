@@ -424,7 +424,7 @@ jobs:
             --prerelease
 
   release:
-    name: Release 16 KB, licence & SBOM
+    name: Release 16 KB checks
     needs: [changes]
     # Skipped (= success for the aggregator) on PRs that touch no release-affecting path.
     if: needs.changes.outputs.release == 'true'
@@ -513,6 +513,75 @@ jobs:
             --apk app/build/outputs/apk/release/app-release-unsigned.apk \
             --aab app/build/outputs/bundle/release/app-release.aab
 
+  licence-sbom:
+    name: Licence & SBOM
+    needs: [changes]
+    # Skipped (= success for the aggregator) on PRs that touch no release-affecting path.
+    if: needs.changes.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: platform-tools ndk;28.2.13676358
+
+      - name: Verify pinned NDK installation
+        env:
+          NDK_VERSION: 28.2.13676358
+        run: |
+          NDK_DIR="$ANDROID_HOME/ndk/$NDK_VERSION"
+          NDK_PROPERTIES="$NDK_DIR/source.properties"
+          if [ ! -f "$NDK_PROPERTIES" ]; then
+            echo "::error::Pinned NDK $NDK_VERSION is incomplete: $NDK_PROPERTIES is missing"
+            exit 1
+          fi
+          if ! grep -Eq "^Pkg\\.Revision[[:space:]]*=[[:space:]]*${NDK_VERSION}$" "$NDK_PROPERTIES"; then
+            echo "::error::Pinned NDK revision does not match $NDK_VERSION in $NDK_PROPERTIES"
+            exit 1
+          fi
+
+      - name: Cache Gradle packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Cache Sherpa-ONNX AAR
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: third_party/sherpa-onnx
+          key: sherpa-onnx-aar-1.13.0
+
+      - name: Download Sherpa-ONNX AAR
+        run: |
+          mkdir -p third_party/sherpa-onnx
+          AAR=third_party/sherpa-onnx/sherpa-onnx-1.13.0.aar
+          if [ ! -f "$AAR" ]; then
+            echo "Downloading Sherpa-ONNX AAR…"
+            curl -fL -o "$AAR" \
+              https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.0/sherpa-onnx-1.13.0.aar
+            echo "Downloaded $(du -sh "$AAR" | cut -f1) AAR"
+          else
+            echo "AAR already present (cached)"
+          fi
+
       - name: Verify release licence metadata and generate SBOM
         run: ./gradlew :app:verifyReleaseAttributionMetadata -PversionCode=${{ github.run_number }}
 
@@ -569,7 +638,7 @@ jobs:
   build-and-test:
     # Branch protection and merge queue require this exact check name.
     name: Build & Test
-    needs: [changes, unit-tests, lint, build, release, evidence]
+    needs: [changes, unit-tests, lint, build, release, licence-sbom, evidence]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
