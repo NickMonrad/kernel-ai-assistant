@@ -2,7 +2,6 @@ package com.kernel.ai.core.inference
 
 import android.app.ActivityManager
 import android.content.Context
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -2403,8 +2402,9 @@ class LiteRtInferenceEngine @Inject constructor(
             }
             try {
                 Log.d(TAG, "Trying backend: $backendType")
-                val socManufacturer = Build.SOC_MANUFACTURER
-                val activationDataType = backendType.activationDataType(socManufacturer)
+                val hardwareProfile = hardwareProfileDetector.profile
+                val socManufacturer = hardwareProfile.socManufacturer
+                val activationDataType = backendType.activationDataType(socManufacturer, hardwareProfile.tier)
                 Log.i(TAG, "Backend $backendType activation: soc_manufacturer=$socManufacturer " +
                     "activation=${activationDataType ?: "default"}")
                 val engineConfig = EngineConfig(

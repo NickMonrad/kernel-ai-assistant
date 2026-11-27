@@ -1,44 +1,61 @@
 package com.kernel.ai.core.inference
 
 import com.google.ai.edge.litertlm.ActivationDataType
+import com.kernel.ai.core.inference.hardware.HardwareTier
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 
 /**
- * #1765: GPU engines on Qualcomm SoCs request FLOAT32 activations. Other GPUs, unknown SoC
- * manufacturers, CPU and NPU keep the LiteRT default (null is passed through to EngineConfig).
+ * #1765: only GPU on a Qualcomm FLAGSHIP SoC requests FLOAT32 activations. Everything else
+ * (other GPUs, MID_RANGE Qualcomm, unknown manufacturer, CPU, NPU, AUTO) keeps the LiteRT default.
  */
 class BackendActivationDataTypeTest {
 
     @Test
-    fun `GPU on Qualcomm requests FLOAT32 activations`() {
-        assertEquals(ActivationDataType.FLOAT32, BackendType.GPU.activationDataType("Qualcomm"))
+    fun `GPU on Qualcomm FLAGSHIP requests FLOAT32 activations`() {
+        assertEquals(
+            ActivationDataType.FLOAT32,
+            BackendType.GPU.activationDataType("qualcomm", HardwareTier.FLAGSHIP),
+        )
     }
 
     @Test
-    fun `GPU on QTI manufacturer string requests FLOAT32 activations`() {
-        assertEquals(ActivationDataType.FLOAT32, BackendType.GPU.activationDataType("QTI"))
+    fun `GPU on QTI FLAGSHIP requests FLOAT32 activations`() {
+        assertEquals(
+            ActivationDataType.FLOAT32,
+            BackendType.GPU.activationDataType("QTI", HardwareTier.FLAGSHIP),
+        )
     }
 
     @Test
-    fun `GPU on Samsung Exynos keeps the LiteRT default`() {
-        assertNull(BackendType.GPU.activationDataType("Samsung"))
+    fun `GPU on Qualcomm MID_RANGE keeps the LiteRT default`() {
+        assertNull(BackendType.GPU.activationDataType("QTI", HardwareTier.MID_RANGE))
+    }
+
+    @Test
+    fun `GPU on Samsung Exynos FLAGSHIP keeps the LiteRT default`() {
+        assertNull(BackendType.GPU.activationDataType("Samsung", HardwareTier.FLAGSHIP))
     }
 
     @Test
     fun `GPU with unknown SoC manufacturer keeps the LiteRT default`() {
-        assertNull(BackendType.GPU.activationDataType(""))
-        assertNull(BackendType.GPU.activationDataType(null))
+        assertNull(BackendType.GPU.activationDataType("unknown", HardwareTier.FLAGSHIP))
+        assertNull(BackendType.GPU.activationDataType("", HardwareTier.FLAGSHIP))
     }
 
     @Test
-    fun `CPU keeps the LiteRT default even on Qualcomm`() {
-        assertNull(BackendType.CPU.activationDataType("Qualcomm"))
+    fun `CPU keeps the LiteRT default even on Qualcomm FLAGSHIP`() {
+        assertNull(BackendType.CPU.activationDataType("QTI", HardwareTier.FLAGSHIP))
     }
 
     @Test
-    fun `NPU keeps the LiteRT default even on Qualcomm`() {
-        assertNull(BackendType.NPU.activationDataType("Qualcomm"))
+    fun `NPU keeps the LiteRT default even on Qualcomm FLAGSHIP`() {
+        assertNull(BackendType.NPU.activationDataType("QTI", HardwareTier.FLAGSHIP))
+    }
+
+    @Test
+    fun `AUTO keeps the LiteRT default even on Qualcomm FLAGSHIP`() {
+        assertNull(BackendType.AUTO.activationDataType("QTI", HardwareTier.FLAGSHIP))
     }
 }
