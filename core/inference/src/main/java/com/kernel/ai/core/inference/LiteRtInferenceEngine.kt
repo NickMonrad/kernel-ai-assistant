@@ -2330,11 +2330,17 @@ class LiteRtInferenceEngine @Inject constructor(
             }
             try {
                 Log.d(TAG, "Trying backend: $backendType")
+                val hardwareProfile = hardwareProfileDetector.profile
+                val socManufacturer = hardwareProfile.socManufacturer
+                val activationDataType = backendType.activationDataType(socManufacturer, hardwareProfile.tier)
+                Log.i(TAG, "Backend $backendType activation: soc_manufacturer=$socManufacturer " +
+                    "activation=${activationDataType ?: "default"}")
                 val engineConfig = EngineConfig(
                     modelPath = config.modelPath,
                     backend = backendType.toBackend(context),
                     maxNumTokens = config.maxTokens,
                     cacheDir = context.cacheDir.absolutePath,
+                    activationDataType = activationDataType,
                 )
                 // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
                 // Gallery pattern: the flag is compiled into the engine at init time, not at
