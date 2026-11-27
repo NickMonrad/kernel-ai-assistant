@@ -93,4 +93,21 @@ class ReminderBareHourTest {
         assertFalse(hasEveningCue("remind me tonightly at 6"))
         assertFalse(hasEveningCue("remind me tomorrow at 7"))
     }
+
+    @Test
+    fun `half past, dot, quarter and N past times are bare hours with their minutes`() {
+        assertEquals(BareHour(7, 30), bareHourIn("half past 7"))
+        assertEquals(BareHour(7, 30), bareHourIn("7.30"))
+        assertEquals(BareHour(7, 45, 8, "quarter to 8"), bareHourIn("quarter to 8"))
+        assertEquals(BareHour(7, 15), bareHourIn("quarter past 7"))
+        assertEquals(BareHour(7, 5), bareHourIn("5 past 7"))
+    }
+
+    @Test
+    fun `a day part keeps its meaning - evening is pm, morning keeps the hour as written`() {
+        assertNull(bareHourIn("7 in the evening"))
+        assertNull(bareHourIn("6 in the morning"))
+        assertNull(bareHourIn("tonight at 6 in the morning"))
+        assertNull(bareHourIn("this evening at 7"))
+    }
 }
