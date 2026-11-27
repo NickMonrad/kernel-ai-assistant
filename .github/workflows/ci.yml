@@ -315,7 +315,7 @@ jobs:
 
   publish:
     name: Publish PR preview & debug release
-    needs: [unit-tests, lint, build, release, licence-sbom, evidence]
+    needs: [changes, unit-tests, lint, build, release, licence-sbom, evidence]
     # A skipped dependency (release, licence-sbom on PRs without release paths) makes
     # success() false, so the gate below is explicit. Only this job may write contents or PRs.
     if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
@@ -328,7 +328,7 @@ jobs:
       - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
 
       - name: Download debug APK built by the build job
-        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        if: (needs.changes.result == 'success' && needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: apk-${{ github.sha }}
@@ -357,7 +357,7 @@ jobs:
             -X PATCH --input /tmp/pr-comment.json
 
       - name: Publish PR preview APK
-        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
+        if: (needs.changes.result == 'success' && needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -404,7 +404,7 @@ jobs:
           fi
 
       - name: Publish debug release
-        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (needs.changes.result == 'success' && needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
