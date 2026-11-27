@@ -72,6 +72,12 @@ class ReminderTimeFollowupsTest {
     }
 
     @Test
+    fun `spoken minute words before past and to are read as clock minutes`() {
+        assertScheduleAtClocks("twenty five past seven", "time", "time", listOf("07:25", "07:25", "19:25", "07:25"))
+        assertScheduleAtClocks("twenty to eight", "time", "time", listOf("07:40", "07:40", "19:40", "07:40"))
+    }
+
+    @Test
     fun `quarter to 1 with no day is 00 45 or 12 45 by the next occurrence`() {
         assertScheduleAtClocks("quarter to 1", "time", "time", listOf("00:45", "12:45", "00:45", "00:45"))
     }
