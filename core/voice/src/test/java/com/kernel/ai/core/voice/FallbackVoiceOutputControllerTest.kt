@@ -497,6 +497,54 @@ class FallbackVoiceOutputControllerTest {
         }
 
     @Test
+    fun `streaming Kokoro final failure speaks the full buffered reply with Inflect Micro, not Android TTS`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.KokoroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val kokoroSession = mockk<VoiceOutputStreamingSession>()
+            val fullText = "The sky appears blue due to Rayleigh scattering."
+            coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { kokoro.openStreamingSession(request) } returns kokoroSession
+            coEvery { kokoroSession.append("The sky appears blue due to ", false) } returns VoiceOutputResult.Spoken
+            coEvery { kokoroSession.append("Rayleigh scattering.", true) } returns
+                VoiceOutputResult.Unavailable("Kokoro synthesis failed")
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { inflect.speak(request.copy(text = fullText)) } returns VoiceOutputResult.Spoken
+
+            val session = buildController().openStreamingSession(request)
+            session.append("The sky appears blue due to ", isFinal = false)
+            val result = session.append("Rayleigh scattering.", isFinal = true)
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            coVerify(exactly = 1) { inflect.speak(request.copy(text = fullText)) }
+            coVerify(exactly = 0) { androidTts.warmUp() }
+            coVerify(exactly = 0) { androidTts.speak(any()) }
+            assertEquals(VoiceOutputResult.Spoken, session.append("ignored", isFinal = true))
+            coVerify(exactly = 1) { inflect.speak(any()) }
+        }
+
+    @Test
+    fun `streaming Kokoro final failure uses Android TTS only when Inflect Micro is unavailable too`() =
+        runTest(dispatcher) {
+            selectedEngine.value = VoiceOutputEngine.KokoroExperimental
+            val request = VoiceSpeakRequest(text = "")
+            val kokoroSession = mockk<VoiceOutputStreamingSession>()
+            coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { kokoro.openStreamingSession(request) } returns kokoroSession
+            coEvery { kokoroSession.append("Kia ora.", true) } returns
+                VoiceOutputResult.Unavailable("Kokoro synthesis failed")
+            coEvery { inflect.warmUp() } returns VoiceOutputResult.Unavailable("Inflect model missing")
+            coEvery { androidTts.warmUp() } returns VoiceOutputResult.Spoken
+            coEvery { androidTts.speak(request.copy(text = "Kia ora.")) } returns VoiceOutputResult.Spoken
+
+            val result = buildController().openStreamingSession(request).append("Kia ora.", isFinal = true)
+
+            assertEquals(VoiceOutputResult.Spoken, result)
+            coVerify(exactly = 0) { inflect.speak(any()) }
+            coVerify(exactly = 1) { androidTts.speak(request.copy(text = "Kia ora.")) }
+        }
+
+    @Test
     fun `streaming Inflect preparation failure speaks the full buffered reply with Android TTS on the final append`() =
         runTest(dispatcher) {
             selectedEngine.value = VoiceOutputEngine.InflectMicroExperimental

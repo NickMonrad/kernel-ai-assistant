@@ -169,6 +169,11 @@ class FallbackVoiceOutputController @Inject constructor(
             val spoken = kokoro.speak(request)
             if (spoken !is VoiceOutputResult.Unavailable) return spoken
         }
+        return speakWithInflectOrAndroid(request)
+    }
+
+    /** Speaks with Inflect Micro, and with Android TTS only when Inflect Micro is unavailable too (#2117). */
+    private suspend fun speakWithInflectOrAndroid(request: VoiceSpeakRequest): VoiceOutputResult {
         val inflectResult = inflect.warmUp()
         if (inflectResult !is VoiceOutputResult.Unavailable) {
             activate(inflect)
@@ -188,9 +193,48 @@ class FallbackVoiceOutputController @Inject constructor(
         val result = kokoro.warmUp()
         if (result !is VoiceOutputResult.Unavailable) {
             activate(kokoro)
-            return recordedStreamSession(engine, kokoro, kokoro.openStreamingSession(request))
+            val kokoroSession = recordedStreamSession(engine, kokoro, kokoro.openStreamingSession(request))
+            return kokoroStreamWithInflectFallback(request, kokoroSession)
         }
         return openInflectStreamingSessionOrFallback(request, VoiceOutputEngine.InflectMicroExperimental)
+    }
+
+    /**
+     * Kokoro reports a failed reply only on the final append, and only when none of the reply's audio was queued
+     * (VoiceReplyStream). Its buffered text is therefore unplayed: Inflect Micro speaks it whole, and Android TTS is
+     * used only if Inflect Micro is unavailable too (#2117). A chunk the engine skips mid-reply is not a fallback trigger.
+     */
+    private fun kokoroStreamWithInflectFallback(
+        request: VoiceSpeakRequest,
+        kokoroSession: VoiceOutputStreamingSession,
+    ): VoiceOutputStreamingSession = object : VoiceOutputStreamingSession {
+        private val buffer = StreamedReplyBuffer()
+        private var isClosed = false
+
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+            if (isClosed) return VoiceOutputResult.Spoken
+            buffer.add(text)
+            if (!isFinal) return kokoroSession.append(text, isFinal = false)
+
+            isClosed = true
+            val kokoroResult = kokoroSession.append(text, isFinal = true)
+            if (kokoroResult !is VoiceOutputResult.Unavailable) return kokoroResult
+            val finalText = buffer.text()
+            if (finalText.isBlank()) return kokoroResult
+            Log.w(TAG, "Kokoro streaming synthesis failed (${kokoroResult.message}); routing to Inflect Micro fallback.")
+            return speakWithInflectOrAndroid(request.copy(text = finalText))
+        }
+
+        override suspend fun appendPause(durationMs: Long) {
+            if (!isClosed) kokoroSession.appendPause(durationMs)
+        }
+
+        override suspend fun cancel() {
+            if (isClosed) return
+            isClosed = true
+            // Cancellation must not start speaking the buffered text (same rule as the Inflect streaming session).
+            kokoroSession.cancel()
+        }
     }
 
     private suspend fun speakWithSherpaFallback(request: VoiceSpeakRequest): VoiceOutputResult {
@@ -270,7 +314,7 @@ class FallbackVoiceOutputController @Inject constructor(
             activate(inflect)
             val inflectSession = recordedStreamSession(engine, inflect, inflect.openStreamingSession(request))
             return object : VoiceOutputStreamingSession {
-                private val bufferedText = StringBuilder()
+                private val buffer = StreamedReplyBuffer()
                 private var isClosed = false
 
                 override suspend fun append(
@@ -278,21 +322,14 @@ class FallbackVoiceOutputController @Inject constructor(
                     isFinal: Boolean,
                 ): VoiceOutputResult {
                     if (isClosed) return VoiceOutputResult.Spoken
-                    if (text.isNotBlank()) {
-                        // Sentence chunks arrive without a separator; join them with one space so the
-                        // Android TTS fallback does not read "degrees.Today's" as one run.
-                        if (bufferedText.isNotEmpty() && !bufferedText.last().isWhitespace() && !text.first().isWhitespace()) {
-                            bufferedText.append(' ')
-                        }
-                        bufferedText.append(text)
-                    }
+                    buffer.add(text)
                     if (!isFinal) return inflectSession.append(text, isFinal = false)
 
                     isClosed = true
                     val inflectResult = inflectSession.append(text, isFinal = true)
                     if (inflectResult !is VoiceOutputResult.Unavailable) return inflectResult
 
-                    val finalText = bufferedText.toString().trim()
+                    val finalText = buffer.text()
                     if (finalText.isBlank()) return inflectResult
                     Log.w(
                         TAG,
@@ -363,6 +400,22 @@ class FallbackVoiceOutputController @Inject constructor(
         } else {
             androidTts.openStreamingSession(request)
         }
+    }
+
+    /** Joins streamed sentence chunks for a fallback speak. Chunks arrive without a separator. */
+    private class StreamedReplyBuffer {
+        private val buffered = StringBuilder()
+
+        fun add(chunk: String) {
+            if (chunk.isBlank()) return
+            // One space between sentences, so the fallback does not read "degrees.Today's" as one run.
+            if (buffered.isNotEmpty() && !buffered.last().isWhitespace() && !chunk.first().isWhitespace()) {
+                buffered.append(' ')
+            }
+            buffered.append(chunk)
+        }
+
+        fun text(): String = buffered.toString().trim()
     }
 
     /** Records streaming speak start, final append and cancel for a non-Android engine (#1870). */
