@@ -8,9 +8,16 @@ on:
   merge_group:
     types: [checks_requested]
 
+concurrency:
+  # Per PR: a new push cancels the superseded run. Push and merge_group runs
+  # get a unique group and are never cancelled.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 
 # Required check: "Build & Test" (the aggregator job below). Every other job is
-# an input to it. Jobs skipped by the release path filter count as success.
+# an input to it. Jobs skipped by the release path filter (release, licence-sbom)
+# and publish on merge_group count as success; the aggregator checks the rest.
 jobs:
   changes:
     name: Detect release-affecting changes
@@ -29,7 +36,8 @@ jobs:
       # On PRs, the release job runs only when a changed file matches a
       # release-affecting path: Gradle build/settings/properties/version catalogs,
       # the Gradle wrapper, native sources or prebuilt libs, the manifest, the
-      # release config (ProGuard/R8 rules, network security config), the 16 KB
+      # release config (ProGuard/R8 rules, network security config, res/raw/keep.xml),
+      # legal notices (assets/legal), the 16 KB
       # and attribution scripts, or this workflow file.
       - name: Decide whether the release job is needed
         id: filter
@@ -45,7 +53,7 @@ jobs:
             exit 0
           fi
 
-          RELEASE_PATHS='(^|/)[^/]*\.gradle(\.kts)?$|^gradle/|^gradlew(\.bat)?$|(^|/)gradle\.properties$|\.toml$|(^|/)AndroidManifest\.xml$|(^|/)jniLibs/|(^|/)src/main/cpp/|(^|/)CMakeLists\.txt$|\.cmake$|\.so$|^third_party/|\.pro$|^app/src/main/res/xml/|^app/release-attribution-metadata\.json$|^scripts/[^/]*(16kb|attribution)|^scripts/tests/test_check_android_16kb|^\.github/workflows/ci\.yml$|^\.github/actions/'
+          RELEASE_PATHS='(^|/)[^/]*\.gradle(\.kts)?$|^gradle/|^gradlew(\.bat)?$|(^|/)gradle\.properties$|\.toml$|(^|/)AndroidManifest\.xml$|(^|/)jniLibs/|(^|/)src/main/cpp/|(^|/)CMakeLists\.txt$|\.cmake$|\.so$|^third_party/|\.pro$|^app/src/main/res/xml|^app/src/main/res/raw/keep\.xml$|^app/src/main/assets/legal/|^app/release-attribution-metadata\.json$|^scripts/[^/]*(16kb|attribution)|^scripts/tests/test_check_android_16kb|^\.github/workflows/ci\.yml$|^\.github/actions/'
 
           git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt
           echo "Changed files:"
@@ -111,9 +119,10 @@ jobs:
             exit 1
           fi
 
-      # Same key and paths as play-release.yml's restore-only Gradle cache.
+      # Restore-only in every job except release, which saves this key (it runs on
+      # every main push, so it has the widest dependency set). Same key and paths as play-release.yml.
       - name: Cache Gradle packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             ~/.gradle/caches
@@ -190,7 +199,7 @@ jobs:
           fi
 
       - name: Cache Gradle packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             ~/.gradle/caches
@@ -227,8 +236,7 @@ jobs:
     name: Debug build & androidTest compile
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
 
     steps:
       - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
@@ -260,7 +268,7 @@ jobs:
           fi
 
       - name: Cache Gradle packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             ~/.gradle/caches
@@ -305,6 +313,27 @@ jobs:
           path: app/build/outputs/apk/debug/
           retention-days: 14
 
+  publish:
+    name: Publish PR preview & debug release
+    needs: [unit-tests, lint, build, release, licence-sbom, evidence]
+    # A skipped dependency (release, licence-sbom on PRs without release paths) makes
+    # success() false, so the gate below is explicit. Only this job may write contents or PRs.
+    if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0
+
+      - name: Download debug APK built by the build job
+        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'ci-validation-only'))
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: apk-${{ github.sha }}
+          path: app/build/outputs/apk/debug/
+
       - name: Retire PR preview comment for validation-only run
         if: always() && github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:
@@ -328,7 +357,7 @@ jobs:
             -X PATCH --input /tmp/pr-comment.json
 
       - name: Publish PR preview APK
-        if: success() && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
+        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'ci-validation-only')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -375,7 +404,7 @@ jobs:
           fi
 
       - name: Publish debug release
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (needs.unit-tests.result == 'success' && needs.lint.result == 'success' && needs.build.result == 'success' && needs.evidence.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') && (needs['licence-sbom'].result == 'success' || needs['licence-sbom'].result == 'skipped')) && github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -552,7 +581,7 @@ jobs:
           fi
 
       - name: Cache Gradle packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: |
             ~/.gradle/caches
@@ -638,23 +667,28 @@ jobs:
   build-and-test:
     # Branch protection and merge queue require this exact check name.
     name: Build & Test
-    needs: [changes, unit-tests, lint, build, release, licence-sbom, evidence]
+    needs: [changes, unit-tests, lint, build, release, licence-sbom, evidence, publish]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
 
     steps:
-      - name: Require every CI job to succeed (release may be skipped by path filter)
+      - name: Require every CI job to succeed (release, licence-sbom and publish may be skipped)
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
+          RELEASE_OUTPUT: ${{ needs.changes.outputs.release }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           echo "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          BAD=$(echo "$NEEDS_JSON" | jq -r '[to_entries[]
-            | select(.value.result != "success" and (.key != "release" or .value.result != "skipped"))
+          # Allowed skips: release and licence-sbom when the path filter said no,
+          # and publish on merge_group. Any other non-success result fails the check.
+          BAD=$(echo "$NEEDS_JSON" | jq -r --arg release "$RELEASE_OUTPUT" --arg event "$EVENT_NAME" '[to_entries[]
+            | select(.value.result != "success" and ((((.key == "release" or .key == "licence-sbom") and $release == "false")
+                or (.key == "publish" and $event == "merge_group")) and .value.result == "skipped" | not))
             | .key] | join(", ")')
           if [ -n "$BAD" ]; then
             echo "::error::CI jobs failed or were cancelled: $BAD"
             exit 1
           fi
-          echo "All CI jobs succeeded or were skipped by the release path filter."
+          echo "All CI jobs succeeded or were skipped as allowed by the path filter and event."
