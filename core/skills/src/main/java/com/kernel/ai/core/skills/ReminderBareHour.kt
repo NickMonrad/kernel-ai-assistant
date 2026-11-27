@@ -5,12 +5,13 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 
 /*
- * Bare-hour rule for reminder times (#2132).
+ * Bare-hour rule for reminder times (#2132, #2146).
  *
  * A clock hour 1 to 11 given with no am/pm and no day-part word ("7", "6:30", "7 o'clock", "six")
- * is ambiguous. Then: "tonight" / "this evening" makes it PM today (hours 5 to 11); hours 1 to 4
+ * is ambiguous. Then: "tonight" / "this evening" makes it PM on that day (hours 5 to 11); hours 1 to 4
  * with "tonight" ask which; a day other than today asks "Morning or evening?"; no day means the
  * next occurrence. Hour 0, hour 12, 24-hour times, and any am/pm or day-part word keep their meaning.
+ * "tonight" with an explicit morning time ("6 in the morning", "7am") is the next occurrence of that clock time.
  */
 
 /** Param holding an "HH:mm" hour the user typed that still needs am/pm. */
@@ -29,8 +30,10 @@ private val TRAILING_EVENING_CUE = Regex("""\b(?:tonight|this\s+evening)\s*[.!?]
 private val DAY_PART = Regex("""\b(?:morning|afternoon|evening|night)\b""", RegexOption.IGNORE_CASE)
 private val AM_PM = Regex("""(?<![a-z])(?:am|pm|a\.m\.?|p\.m\.?)(?![a-z])""", RegexOption.IGNORE_CASE)
 
-private val AM_ANSWER = Regex("""(?:in\s+the\s+)?morning|a\.?\s?m\.?""", RegexOption.IGNORE_CASE)
-private val PM_ANSWER = Regex("""(?:in\s+the\s+)?(?:afternoon|evening)|p\.?\s?m\.?""", RegexOption.IGNORE_CASE)
+/** Words of an answer to "Morning or evening?" once fillers are dropped. */
+private val AM_WORDS = setOf("morning", "am")
+private val PM_WORDS = setOf("evening", "afternoon", "night", "pm", "tonight")
+private val ANSWER_FILLERS = setOf("please", "pls", "thanks", "thank", "you", "mate")
 private val YES_ANSWER = setOf("yes", "yeah", "yep", "yup")
 private val NO_ANSWER = setOf("no", "nope")
 
@@ -55,7 +58,8 @@ internal fun eveningCueBeforeTime(utterance: String, timePhrase: String): Boolea
 internal fun bareHourIn(timePhrase: String): BareHour? {
     val cleaned = timePhrase.trim().lowercase()
     if (cleaned.isEmpty() || AM_PM.containsMatchIn(cleaned)) return null
-    if (DAY_PART.containsMatchIn(cleaned) && !hasEveningCue(cleaned)) return null
+    // "tonight" and "this evening" are the evening cue, not a day part: "this evening at 7" is a bare 7.
+    if (DAY_PART.containsMatchIn(EVENING_CUE.replace(cleaned, " "))) return null
 
     val parsed = QuickIntentRouter.parseAlarmTime(cleaned)
     val hours = parsed["hours"]
@@ -89,15 +93,20 @@ internal fun resolveBareHour(bare: BareHour, evening: Boolean, now: LocalDateTim
     return candidates.filter { today.atTime(it).isAfter(now) }.minOrNull() ?: candidates.min()
 }
 
+/** The next time [hour]:[minute] reads after [now], as today or tomorrow. A time equal to [now] counts as passed. */
+private fun nextOccurrence(hour: Int, minute: Int, now: LocalDateTime): Pair<LocalTime, String> {
+    val time = LocalTime.of(hour, minute)
+    return if (now.toLocalDate().atTime(time).isAfter(now)) time to "today" else time to "tomorrow"
+}
+
 internal fun clockText(hour: Int, minute: Int): String = "%02d:%02d".format(hour, minute)
 
 /**
- * Schedule params for a reminder time phrase (#2132).
+ * Schedule params for a reminder time phrase (#2132, #2146).
  *
  * [QuickIntentRouter.parseAlarmTime] runs first, so its day, label and compact times are kept.
- * Only a bare hour 1 to 11 changes the time. [dayWord] is the day the utterance or reply gave, normalised,
- * or null. [eveningCue] is a "tonight" or "this evening" cue that applies to this time. An explicit day
- * other than today or tonight overrides the cue.
+ * [dayWord] is the day the utterance or reply gave, normalised, or null. [eveningCue] is a "tonight" or
+ * "this evening" cue in the utterance. "tonight" as a day counts as the same cue.
  */
 internal fun reminderScheduleParams(
     timePhrase: String,
@@ -107,67 +116,118 @@ internal fun reminderScheduleParams(
 ): Map<String, String> {
     val parsed = QuickIntentRouter.parseAlarmTime(timePhrase)
     val day = dayWord ?: parsed["day"]
-    val evening = day == "tonight" || (eveningCue && (day == null || day == "today"))
+    val evening = eveningCue || day == "tonight"
+    val sameDay = day == null || day == "today" || day == "tonight"
     val bare = bareHourIn(timePhrase)
     if (bare == null) {
+        val hours = parsed["hours"]?.toInt()
+        // "tonight at 6 in the morning" / "tonight at 7am": the next time that clock reads, not tonight.
+        if (evening && hours != null && hours in 1..11) {
+            val (time, dayFor) = nextOccurrence(hours, parsed.getValue("minutes").toInt(), now)
+            return parsed.filterKeys { it != "time" && it != "hours" && it != "minutes" && it != "day" } +
+                mapOf("time" to clockText(time.hour, time.minute), "day" to dayFor)
+        }
         return buildMap {
             putAll(parsed)
             if (day != null) put("day", day)
-            if (evening) {
+            if (evening && sameDay) {
                 put("day", "today")
                 put(DAY_CUE_PARAM, "tonight")
             }
         }
     }
-    return parsed.filterKeys { it != "time" && it != "hours" && it != "minutes" } + bareHourParams(bare, day, evening, now)
+    return parsed.filterKeys { it != "time" && it != "hours" && it != "minutes" } +
+        bareHourParams(bare, day, evening, sameDay, now)
 }
 
-private fun bareHourParams(bare: BareHour, day: String?, evening: Boolean, now: LocalDateTime): Map<String, String> = when {
-    // "tonight at 1" could be 1 am tomorrow or 1 pm today: ask which.
-    evening && bare.hour <= 4 -> mapOf(BARE_TIME_PARAM to clockText(bare.hour, bare.minute), "day" to "tonight")
-    evening -> mapOf(
-        "time" to clockText(bare.hour + 12, bare.minute),
-        "day" to "today",
-        DAY_CUE_PARAM to "tonight",
-    )
-    // A day other than today: the hour could be morning or evening, so ask.
-    day != null && day != "today" -> mapOf(BARE_TIME_PARAM to clockText(bare.hour, bare.minute), "day" to day)
-    else -> {
-        val time = resolveBareHour(bare, evening = false, now = now)
-        buildMap {
-            put("time", clockText(time.hour, time.minute))
+private fun bareHourParams(
+    bare: BareHour,
+    day: String?,
+    evening: Boolean,
+    sameDay: Boolean,
+    now: LocalDateTime,
+): Map<String, String> {
+    val bareTime = clockText(bare.hour, bare.minute)
+    val pmTime = clockText(bare.hour + 12, bare.minute)
+    // A question about the hour, on the day it was given (or no day).
+    fun askOnDay(): Map<String, String> = buildMap {
+        put(BARE_TIME_PARAM, bareTime)
+        if (day != null) put("day", day)
+    }
+    return when {
+        // "tonight at 1" could be 1 am tomorrow or 1 pm today: ask which.
+        evening && bare.hour <= 4 && sameDay -> mapOf(BARE_TIME_PARAM to bareTime, "day" to "tonight")
+        // "this evening at 3" on another day: the hour could be morning or evening, so ask.
+        evening && bare.hour <= 4 -> askOnDay()
+        evening && sameDay -> mapOf("time" to pmTime, "day" to "today", DAY_CUE_PARAM to "tonight")
+        // "this evening at 7" on tomorrow: pm on that day, no question.
+        evening -> buildMap {
+            put("time", pmTime)
             if (day != null) put("day", day)
+        }
+        // A day other than today: the hour could be morning or evening, so ask.
+        !sameDay -> askOnDay()
+        else -> {
+            val time = resolveBareHour(bare, evening = false, now = now)
+            buildMap {
+                put("time", clockText(time.hour, time.minute))
+                if (day != null) put("day", day)
+            }
         }
     }
 }
 
 /**
- * The am/pm answer for a pending [BARE_TIME_PARAM], as the time and day it gives. Null when the reply is
+ * The answer to a pending [BARE_TIME_PARAM] question, as the time and day it gives. Null when the reply is
  * not an answer. With [day] "tonight" the question is "1 in the morning?" and yes/no answer it; otherwise
- * the reply is morning/evening or am/pm.
+ * the reply is morning/evening, am/pm, or a time that names its own day part ("6 pm", "7 in the evening").
  */
-internal fun timeOfDayParams(bareTime: String?, day: String?, reply: String): Map<String, String>? {
+internal fun timeOfDayParams(
+    bareTime: String?,
+    day: String?,
+    reply: String,
+    now: LocalDateTime,
+): Map<String, String>? {
     if (bareTime.isNullOrBlank()) return null
+    explicitTimeOfDay(reply, day, now)?.let { return it }
     val tonight = day.equals("tonight", ignoreCase = true)
     val pm = pmAnswer(reply, tonight) ?: return null
     val (hour, minute) = bareTime.split(":").map { it.toInt() }
     return when {
         tonight && pm -> mapOf("time" to clockText(hour + 12, minute), "day" to "today", DAY_CUE_PARAM to "tonight")
-        tonight -> mapOf("time" to clockText(hour, minute), "day" to "tomorrow")
-        pm -> mapOf("time" to clockText(hour + 12, minute))
-        else -> mapOf("time" to clockText(hour, minute))
+        tonight -> nextOccurrence(hour, minute, now).let { (time, dayWord) ->
+            mapOf("time" to clockText(time.hour, time.minute), "day" to dayWord)
+        }
+        else -> buildMap {
+            put("time", clockText(if (pm) hour + 12 else hour, minute))
+            if (day != null) put("day", day)
+        }
     }
 }
 
-/** true = PM, false = AM, null = not an answer. */
+/** A reply that names its own time and day part ("6 pm", "7 in the evening"), read as a time. Null otherwise. */
+private fun explicitTimeOfDay(reply: String, day: String?, now: LocalDateTime): Map<String, String>? {
+    val text = reply.trim()
+    if (!AM_PM.containsMatchIn(text) && !DAY_PART.containsMatchIn(text)) return null
+    val schedule = reminderScheduleParams(text, day, hasEveningCue(text), now)
+    if (!schedule.containsKey("time")) return null
+    return schedule.filterKeys { it == "time" || it == "day" || it == DAY_CUE_PARAM }
+}
+
+/**
+ * true = PM, false = AM, null = not an answer. Fillers such as "please" are ignored. With [tonight] the
+ * question is yes/no: yes is AM (the morning hour), no is PM.
+ */
 private fun pmAnswer(reply: String, tonight: Boolean): Boolean? {
-    val text = reply.trim().trimEnd('.', '!', '?').trim()
-    val lower = text.lowercase()
+    val words = reply.lowercase().replace(".", "").split(Regex("[^a-z]+"))
+        .filter { it.isNotEmpty() && it !in ANSWER_FILLERS }
+    if (tonight && words.size == 1 && words[0] in YES_ANSWER) return false
+    if (tonight && words.size == 1 && words[0] in NO_ANSWER) return true
+    val am = words.any { it in AM_WORDS }
+    val pm = words.any { it in PM_WORDS }
     return when {
-        AM_ANSWER.matches(text) -> false
-        PM_ANSWER.matches(text) -> true
-        tonight && lower in YES_ANSWER -> false
-        tonight && lower in NO_ANSWER -> true
+        am && !pm -> false
+        pm && !am -> true
         else -> null
     }
 }

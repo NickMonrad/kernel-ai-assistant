@@ -23,9 +23,9 @@ import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.completedSlotParams
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.skills.slot.parseReminderSlotReply
-import com.kernel.ai.core.skills.slot.resolveTonightCue
 import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
@@ -1787,6 +1787,18 @@ class ActionsViewModel @Inject constructor(
         } else {
             null
         }
+        // A reply to the am/pm question that is not an answer asks it again; nothing is stored.
+        if (reminderReply?.unanswered == true) {
+            primePendingSlot(
+                intentName = pending.request.intentName,
+                existingParams = pending.request.existingParams,
+                missingSlot = pending.request.missingSlot,
+                originalQuery = pending.originalQuery,
+                inputMode = pending.inputMode,
+                delayVoicePrompt = pending.inputMode == InputMode.Voice,
+            )
+            return
+        }
         val reminderSchedule = reminderReply?.schedule.orEmpty()
         if (reminderReply != null &&
             reminderReply.value == null &&
@@ -1854,7 +1866,7 @@ class ActionsViewModel @Inject constructor(
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
-                    params = resolveTonightCue(mergedParams),
+                    params = completedSlotParams(mergedParams),
                     inputMode = pending.inputMode,
                     route = IntentRoute.SLOT_FILL,
                 )

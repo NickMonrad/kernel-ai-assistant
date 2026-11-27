@@ -79,6 +79,8 @@ fun parseReminderScheduleReply(
 data class ReminderSlotReply(
     val value: String?,
     val schedule: Map<String, String>,
+    /** The am/pm question got a reply that is not an answer: ask it again, store nothing. */
+    val unanswered: Boolean = false,
 )
 
 private val REMINDER_SCHEDULE_SLOTS = setOf("day", "time")
@@ -132,8 +134,9 @@ fun parseReminderSlotReply(
     val trimmed = text.trim()
     val existingDay = existingParams["day"]
     if (missingSlot == TIME_OF_DAY_SLOT) {
-        val schedule = timeOfDayParams(existingParams[BARE_TIME_PARAM], existingDay, trimmed)
-        return ReminderSlotReply(value = if (schedule == null) trimmed else null, schedule = schedule.orEmpty())
+        val schedule = timeOfDayParams(existingParams[BARE_TIME_PARAM], existingDay, trimmed, now)
+            ?: return ReminderSlotReply(value = null, schedule = emptyMap(), unanswered = true)
+        return ReminderSlotReply(value = null, schedule = schedule)
     }
     if (missingSlot in REMINDER_SCHEDULE_SLOTS) {
         val schedule = parseReminderPhraseSchedule(trimmed, existingDay, now)
@@ -167,9 +170,14 @@ fun firstMissingSlot(requiredSlots: Map<String, SlotSpec>, params: Map<String, S
         ?: timeOfDay
 }
 
-/** "tonight" is today for the handler. [DAY_CUE_PARAM] keeps the word for the past-time message. */
-fun resolveTonightCue(params: Map<String, String>): Map<String, String> =
-    if (params["day"] == "tonight") params + mapOf("day" to "today", DAY_CUE_PARAM to "tonight") else params
+/**
+ * The params of a completed reminder. "tonight" is today for the handler, and [DAY_CUE_PARAM] keeps the word
+ * for the past-time message. The am/pm question's own keys are not part of the reminder.
+ */
+fun completedSlotParams(params: Map<String, String>): Map<String, String> {
+    val reminder = params - BARE_TIME_PARAM - TIME_OF_DAY_SLOT
+    return if (reminder["day"] == "tonight") reminder + mapOf("day" to "today", DAY_CUE_PARAM to "tonight") else reminder
+}
 
 
 private fun normalizeReminderDay(raw: String): String {

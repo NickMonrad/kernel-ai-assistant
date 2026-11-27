@@ -79,6 +79,8 @@ class SlotFillerManager @Inject constructor(
         } else {
             null
         }
+        // A reply to the am/pm question that is not an answer asks it again; nothing is stored.
+        if (reminderReply?.unanswered == true) return SlotFillResult.NeedsMore(pending)
         val reminderSchedule = reminderReply?.schedule.orEmpty()
         if (reminderReply != null &&
             reminderReply.value == null &&
@@ -101,7 +103,7 @@ class SlotFillerManager @Inject constructor(
             }
             // The schedule alone answered the asked slot (e.g. the am/pm question) and nothing else is missing.
             pendingRequests.remove(conversationId)
-            return SlotFillResult.Completed(pending.intentName, resolveTonightCue(mergedParams))
+            return SlotFillResult.Completed(pending.intentName, completedSlotParams(mergedParams))
         }
         val normalizedMessage = reminderSchedule[pending.missingSlot.name]
             ?: normalizeSlotReply(reminderReply?.value ?: message, pending.missingSlot.name)
@@ -159,7 +161,7 @@ class SlotFillerManager @Inject constructor(
             pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                params = resolveTonightCue(mergedParams),
+                params = completedSlotParams(mergedParams),
             )
         }
     }

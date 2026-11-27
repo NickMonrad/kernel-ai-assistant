@@ -136,4 +136,57 @@ class QuickIntentRouterReminderTimeTest {
     fun `day part word keeps the hour as written`() {
         assertEquals("7:00", route(routerAt(14), "remind me to ring mum at 7 in the morning").params["time"])
     }
+
+    @Test
+    fun `half past and dot times keep their minutes`() {
+        assertEquals("19:30", route(routerAt(14), "remind me to ring mum at half past 7").params["time"])
+        assertEquals("19:30", route(routerAt(14), "remind me to ring mum at 7.30").params["time"])
+        assertEquals("07:30", route(routerAt(6, 30), "remind me to ring mum at 7.30").params["time"])
+    }
+
+    @Test
+    fun `quarter to and N past H times keep their minutes`() {
+        assertEquals("19:45", route(routerAt(14), "remind me to ring mum at quarter to 8").params["time"])
+        assertEquals("07:45", route(routerAt(6, 30), "remind me to ring mum at quarter to 8").params["time"])
+        assertEquals("19:05", route(routerAt(14), "remind me to ring mum at 5 past 7").params["time"])
+        assertEquals("07:05", route(routerAt(0, 30), "remind me to ring mum at 5 past 7").params["time"])
+    }
+
+    @Test
+    fun `7 in the evening is pm with no day question`() {
+        val intent = route(routerAt(14), "remind me to ring mum at 7 in the evening")
+        assertEquals("19:00", intent.params["time"])
+        assertNull(intent.params["day"])
+        assertEquals("19:00", route(routerAt(0, 30), "remind me to ring mum at 7 in the evening").params["time"])
+    }
+
+    @Test
+    fun `tomorrow at 7 in the evening keeps the day and is pm`() {
+        val intent = route(routerAt(14), "remind me to ring mum tomorrow at 7 in the evening")
+        assertEquals("19:00", intent.params["time"])
+        assertEquals("tomorrow", intent.params["day"])
+    }
+
+    @Test
+    fun `tonight with a morning time is the next occurrence of that morning time`() {
+        val at0030 = route(routerAt(0, 30), "remind me tonight at 6 in the morning to ring mum")
+        assertEquals("06:00", at0030.params["time"])
+        assertEquals("today", at0030.params["day"])
+        val at1400 = route(routerAt(14), "remind me tonight at 6 in the morning to ring mum")
+        assertEquals("06:00", at1400.params["time"])
+        assertEquals("tomorrow", at1400.params["day"])
+        val at2350 = route(routerAt(23, 50), "remind me tonight at 6 in the morning to ring mum")
+        assertEquals("06:00", at2350.params["time"])
+        assertEquals("tomorrow", at2350.params["day"])
+        val at0630 = route(routerAt(6, 30), "remind me tonight at 7am to ring mum")
+        assertEquals("07:00", at0630.params["time"])
+        assertEquals("today", at0630.params["day"])
+    }
+
+    @Test
+    fun `tonight at 1 after midnight asks yes or no for 1 in the morning`() {
+        val slot = askedSlot(routerAt(0, 30), "remind me tonight at 1 to ring mum", "time_of_day")
+        assertEquals("01:00", slot.intent.params["bare_time"])
+        assertEquals("tonight", slot.intent.params["day"])
+    }
 }

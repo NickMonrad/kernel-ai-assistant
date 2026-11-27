@@ -5419,9 +5419,46 @@ class QuickIntentRouter(
             return params
         }
 
+        private val HALF_PAST_PHRASE = Regex("""\bhalf\s+past\s+(\d{1,2})\b""")
+        private val QUARTER_PAST_PHRASE = Regex("""\bquarter\s+past\s+(\d{1,2})\b""")
+        private val QUARTER_TO_PHRASE = Regex("""\bquarter\s+to\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?(?!\w)""")
+        private val N_PAST_PHRASE = Regex("""\b(\d{1,2})\s+past\s+(\d{1,2})\b""")
+        private val DOT_TIME_PHRASE = Regex("""(?<![\d.])(\d{1,2})\.(\d{2})(?!\d)""")
+        private val PM_DAY_PART_AFTER_HOUR = Regex("""^\s*(?:in\s+the\s+(?:evening|afternoon)|at\s+night)\b""")
+
+        /**
+         * Spoken and dotted clock phrases to "H:MM" (#2146): "half past 7", "quarter past 7", "quarter to 8",
+         * "5 past 7", "7.30". Invalid phrases are left as written for the parser to reject.
+         */
+        private fun normalizeClockPhrases(raw: String): String {
+            var text = HALF_PAST_PHRASE.replace(raw) { "${it.groupValues[1]}:30" }
+            text = QUARTER_PAST_PHRASE.replace(text) { "${it.groupValues[1]}:15" }
+            text = QUARTER_TO_PHRASE.replace(text) { quarterTo(it) }
+            text = N_PAST_PHRASE.replace(text) { m ->
+                val minute = m.groupValues[1].toInt()
+                if (minute in 1..59) "${m.groupValues[2]}:${minute.toString().padStart(2, '0')}" else m.value
+            }
+            return DOT_TIME_PHRASE.replace(text) { "${it.groupValues[1]}:${it.groupValues[2]}" }
+        }
+
+        /** "quarter to H" is (H-1):45. With am/pm, the hour 12 flips it: "quarter to 12 pm" is 11:45 am. */
+        private fun quarterTo(m: MatchResult): String {
+            val hour = m.groupValues[1].toInt()
+            val meridiem = m.groupValues[2].replace(".", "").lowercase()
+            if (if (meridiem.isBlank()) hour !in 1..23 else hour !in 1..12) return m.value
+            val previous = if (hour == 1) 12 else hour - 1
+            if (meridiem.isBlank()) return "$previous:45"
+            val flipped = when {
+                hour != 12 -> meridiem
+                meridiem == "am" -> "pm"
+                else -> "am"
+            }
+            return "$previous:45 $flipped"
+        }
+
         fun parseAlarmTime(raw: String): Map<String, String> {
             val params = mutableMapOf<String, String>()
-            val cleaned = normalizeCompactAlarmText(raw.lowercase().trim())
+            val cleaned = normalizeCompactAlarmText(normalizeClockPhrases(raw.lowercase().trim()))
                 .replace(Regex("""\s*(o'clock|oclock)"""), "")
                 .trim()
 
@@ -5441,6 +5478,12 @@ class QuickIntentRouter(
             // Convert to 24h
             if (meridiem == "pm" && hours < 12) hours += 12
             if (meridiem == "am" && hours == 12) hours = 0
+            // "7 in the evening" and "7 at night" are pm (#2146).
+            if (meridiem.isBlank() && hours in 1..11 &&
+                PM_DAY_PART_AFTER_HOUR.containsMatchIn(cleaned.substring(match.range.last + 1))
+            ) {
+                hours += 12
+            }
             if (hours !in 0..23) return params
 
             params["hours"] = hours.toString()
