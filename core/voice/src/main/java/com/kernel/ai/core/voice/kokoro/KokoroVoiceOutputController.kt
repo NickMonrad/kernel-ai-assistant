@@ -100,6 +100,8 @@ class KokoroVoiceOutputController @Inject constructor(
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
             val unavailable = preparation as? VoiceOutputResult.Unavailable
                 ?: if (loaded == null) VoiceOutputResult.Unavailable("Kokoro engine is not initialized.") else null
+            // Every Kokoro-unavailable reply falls back to Inflect; log the reason so a silent fallback is diagnosable.
+            unavailable?.let { Log.w(TAG, "Kokoro reply falls back: ${it.message}") }
             val reply = VoiceReplyStream(
                 engine = "Kokoro",
                 spokenText = request.text,
