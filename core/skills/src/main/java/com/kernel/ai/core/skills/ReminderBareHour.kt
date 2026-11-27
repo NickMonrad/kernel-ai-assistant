@@ -12,10 +12,14 @@ import java.time.LocalTime
  * with "tonight" ask which; a day other than today asks "Morning or evening?"; no day means the
  * next occurrence. Hour 0, hour 12, 24-hour times, and any am/pm or day-part word keep their meaning.
  * "tonight" with an explicit morning time ("6 in the morning", "7am") is the next occurrence of that clock time.
+ * "quarter to 1" and "ten to eight" are bare hours too: the spoken hour (1, 8) is the one asked about.
  */
 
-/** Param holding an "HH:mm" hour the user typed that still needs am/pm. */
+/** Param holding an "HH:mm" clock time that still needs am/pm. For "quarter to 1" it is 00:45. */
 internal const val BARE_TIME_PARAM = "bare_time"
+
+/** Param holding the spoken form of a [BARE_TIME_PARAM] question ("quarter to 1") when it is not a plain hour. */
+internal const val BARE_SPOKEN_PARAM = "bare_spoken"
 
 /** Slot name of the am/pm question for a pending [BARE_TIME_PARAM]. */
 internal const val TIME_OF_DAY_SLOT = "time_of_day"
@@ -23,12 +27,25 @@ internal const val TIME_OF_DAY_SLOT = "time_of_day"
 /** Param set to "tonight" when the reminder's day was said as tonight; the past-time message uses it. */
 internal const val DAY_CUE_PARAM = "day_cue"
 
-internal data class BareHour(val hour: Int, val minute: Int)
+/**
+ * A bare reading. [hour] and [minute] are the clock time before am/pm. [spokenHour] is the hour the user
+ * named, which differs from [hour] for "N to H" ("quarter to 1" is hour 0 and spoken hour 1). [spoken] is
+ * that phrase, kept for the question when it is not a plain hour.
+ */
+internal data class BareHour(
+    val hour: Int,
+    val minute: Int,
+    val spokenHour: Int = hour,
+    val spoken: String? = null,
+)
 
 private val EVENING_CUE = Regex("""\b(?:tonight|this\s+evening)\b(?!')""", RegexOption.IGNORE_CASE)
 private val TRAILING_EVENING_CUE = Regex("""\b(?:tonight|this\s+evening)\s*[.!?]*$""", RegexOption.IGNORE_CASE)
 private val DAY_PART = Regex("""\b(?:morning|afternoon|evening|night)\b""", RegexOption.IGNORE_CASE)
 private val AM_PM = Regex("""(?<![a-z])(?:am|pm|a\.m\.?|p\.m\.?)(?![a-z])""", RegexOption.IGNORE_CASE)
+
+/** "N to H" or "quarter to H" with the spoken hour H, after [normalizeSpokenClock]. */
+private val TO_HOUR_PHRASE = Regex("""\b(quarter|\d{1,2})\s+to\s+(\d{1,2})(?![\d:])""", RegexOption.IGNORE_CASE)
 
 /** Words of an answer to "Morning or evening?" once fillers are dropped. */
 private val AM_WORDS = setOf("morning", "am")
@@ -51,17 +68,24 @@ internal fun eveningCueBeforeTime(utterance: String, timePhrase: String): Boolea
 }
 
 /**
- * The bare hour in a time phrase, or null when the phrase has am/pm or a day-part word (other than
+ * The bare reading of a time phrase, or null when the phrase has am/pm or a day-part word (other than
  * the evening cue), or its hour is not 1 to 11. Digits go through [QuickIntentRouter.parseAlarmTime]
  * so compact times ("7 30") read as 7:30. Spoken hours ("six", "at six") are read when there are no digits.
  */
 internal fun bareHourIn(timePhrase: String): BareHour? {
-    val cleaned = timePhrase.trim().lowercase()
+    val cleaned = normalizeSpokenClock(timePhrase.trim().lowercase())
     if (cleaned.isEmpty() || AM_PM.containsMatchIn(cleaned)) return null
-    // "tonight" and "this evening" are the evening cue, not a day part: "this evening at 7" is a bare 7.
-    if (DAY_PART.containsMatchIn(EVENING_CUE.replace(cleaned, " "))) return null
-
     val parsed = QuickIntentRouter.parseAlarmTime(cleaned)
+    // "tonight" and "this evening" are the evening cue, not a day part: "this evening at 7" is a bare 7.
+    // "at night" is a day part, except that "tonight at 2 at night" is asked which, like "tonight at 2".
+    val dayParts = DAY_PART.findAll(EVENING_CUE.replace(cleaned, " ")).map { it.value }.toList()
+    if (dayParts.isNotEmpty()) {
+        val asked = dayParts.all { it == "night" } && hasEveningCue(cleaned) && parsed["hours"]?.toInt() in 1..4
+        if (!asked) return null
+    }
+
+    TO_HOUR_PHRASE.find(cleaned)?.let { return toHourBare(it, parsed) }
+
     val hours = parsed["hours"]
     if (hours != null) {
         val hour = hours.toInt()
@@ -76,6 +100,18 @@ internal fun bareHourIn(timePhrase: String): BareHour? {
     if (spoken.split(Regex("""[\s-]+""")).any { it == "a" || it == "an" }) return null
     val hour = writtenQuantity(spoken) ?: return null
     return if (hour in 1..11) BareHour(hour, 0) else null
+}
+
+/**
+ * "quarter to H" / "N to H" as a bare reading: the spoken hour H must be 1 to 11 and N a multiple of 5 from
+ * 5 to 55. "quarter to 12" is not bare; it keeps its 11:45 meaning.
+ */
+private fun toHourBare(match: MatchResult, parsed: Map<String, String>): BareHour? {
+    val before = match.groupValues[1].let { if (it == "quarter") 15 else it.toInt() }
+    val spokenHour = match.groupValues[2].toInt()
+    if (before !in 5..55 || before % 5 != 0 || spokenHour !in 1..11) return null
+    val hours = parsed["hours"]?.toInt() ?: return null
+    return BareHour(hours, parsed.getValue("minutes").toInt(), spokenHour, match.value)
 }
 
 /**
@@ -149,16 +185,23 @@ private fun bareHourParams(
 ): Map<String, String> {
     val bareTime = clockText(bare.hour, bare.minute)
     val pmTime = clockText(bare.hour + 12, bare.minute)
+    // The question names the hour the user said: "quarter to 1" asks about 1, not 00:45.
+    val spoken = bare.spoken?.let { mapOf(BARE_SPOKEN_PARAM to it) }.orEmpty()
     // A question about the hour, on the day it was given (or no day).
     fun askOnDay(): Map<String, String> = buildMap {
         put(BARE_TIME_PARAM, bareTime)
         if (day != null) put("day", day)
+        putAll(spoken)
     }
     return when {
         // "tonight at 1" could be 1 am tomorrow or 1 pm today: ask which.
-        evening && bare.hour <= 4 && sameDay -> mapOf(BARE_TIME_PARAM to bareTime, "day" to "tonight")
+        evening && bare.spokenHour <= 4 && sameDay -> buildMap {
+            put(BARE_TIME_PARAM, bareTime)
+            put("day", "tonight")
+            putAll(spoken)
+        }
         // "this evening at 3" on another day: the hour could be morning or evening, so ask.
-        evening && bare.hour <= 4 -> askOnDay()
+        evening && bare.spokenHour <= 4 -> askOnDay()
         evening && sameDay -> mapOf("time" to pmTime, "day" to "today", DAY_CUE_PARAM to "tonight")
         // "this evening at 7" on tomorrow: pm on that day, no question.
         evening -> buildMap {
@@ -205,7 +248,7 @@ internal fun timeOfDayParams(
     }
 }
 
-/** A reply that names its own time and day part ("6 pm", "7 in the evening"), read as a time. Null otherwise. */
+/** A reply that names its own time and day part ("6 pm", "7 in the evening", "evening at 7"), read as a time. Null otherwise. */
 private fun explicitTimeOfDay(reply: String, day: String?, now: LocalDateTime): Map<String, String>? {
     val text = reply.trim()
     if (!AM_PM.containsMatchIn(text) && !DAY_PART.containsMatchIn(text)) return null
@@ -240,9 +283,11 @@ internal fun pendingTimeOfDaySlot(params: Map<String, String>): SlotSpec? {
     val bareTime = params[BARE_TIME_PARAM]?.takeIf { it.isNotBlank() } ?: return null
     if (!params["time"].isNullOrBlank()) return null
     val prompt = if (params["day"].equals("tonight", ignoreCase = true)) {
-        val (hour, minute) = bareTime.split(":").map { it.toInt() }
-        val shown = if (minute == 0) "$hour" else "$hour:%02d".format(minute)
-        "Do you mean $shown in the morning? Yes or no."
+        val spoken = params[BARE_SPOKEN_PARAM]?.takeIf { it.isNotBlank() } ?: run {
+            val (hour, minute) = bareTime.split(":").map { it.toInt() }
+            if (minute == 0) "$hour" else "$hour:%02d".format(minute)
+        }
+        "Do you mean $spoken in the morning? Yes or no."
     } else {
         "Morning or evening?"
     }

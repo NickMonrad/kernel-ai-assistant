@@ -79,8 +79,12 @@ class SlotFillerManager @Inject constructor(
         } else {
             null
         }
-        // A reply to the am/pm question that is not an answer asks it again; nothing is stored.
-        if (reminderReply?.unanswered == true) return SlotFillResult.NeedsMore(pending)
+        // A reply to the am/pm question that is not an answer asks it again, with an apology; nothing is stored.
+        if (reminderReply?.unanswered == true) {
+            val reask = pending.copy(missingSlot = apologisedTimeOfDayQuestion(pending.missingSlot, pending.existingParams))
+            pendingRequests[conversationId] = reask
+            return SlotFillResult.NeedsMore(reask)
+        }
         val reminderSchedule = reminderReply?.schedule.orEmpty()
         if (reminderReply != null &&
             reminderReply.value == null &&

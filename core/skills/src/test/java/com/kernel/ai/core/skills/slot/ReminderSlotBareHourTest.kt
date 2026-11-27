@@ -198,7 +198,7 @@ class ReminderSlotBareHourTest {
         manager.onUserReply("u1", "6", now = at(14))
         val again = manager.onUserReply("u1", "yes please", now = at(14)) as SlotFillResult.NeedsMore
         assertEquals("time_of_day", again.request.missingSlot.name)
-        assertEquals("Morning or evening?", again.request.missingSlot.promptTemplate)
+        assertEquals("Sorry, I didn't catch that. Morning or evening?", again.request.missingSlot.promptTemplate)
     }
 
     @Test
