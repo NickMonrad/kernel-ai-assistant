@@ -30,7 +30,7 @@ private val WRITTEN_QUANTITY_VALUES: Map<String, Int> = mapOf(
 )
 
 /** Sums written-out words: "six" → 6, "sixty" → 60, "forty five" / "forty-five" → 45. Null if any word is unknown. */
-private fun writtenQuantity(phrase: String): Int? {
+internal fun writtenQuantity(phrase: String): Int? {
     val words = phrase.split(Regex("[\\s-]+")).filter(String::isNotEmpty)
     if (words.isEmpty()) return null
     var total = 0
@@ -53,7 +53,19 @@ class QuickIntentRouter(
     private val classifier: IntentClassifier? = null,
     private val similarityThreshold: Float = 0.85f,
     private val intentContractRegistry: com.kernel.ai.core.skills.intent.IntentContractRegistry? = null,
+    private val clock: () -> LocalDateTime = { LocalDateTime.now() },
 ) {
+
+    /**
+     * Day and time params for a reminder time phrase (#2132), resolved by [reminderScheduleParams].
+     * [dayToken] is the day word in the utterance, if any; [input] is the whole utterance, read only
+     * for "tonight at <time>" and "this evening by <time>" so "watch tonight's game at 7" is not a cue.
+     */
+    private fun reminderTimeParams(timePhrase: String, dayToken: String?, input: String): Map<String, String> {
+        val day = dayToken?.let(::normalizeDayName)
+        val eveningCue = day == "tonight" || hasEveningCue(timePhrase) || eveningCueBeforeTime(input, timePhrase)
+        return reminderScheduleParams(timePhrase, day, eveningCue, clock())
+    }
 
     // ── Result types ──────────────────────────────────────────────────────────
 
@@ -271,13 +283,9 @@ class QuickIntentRouter(
                 name = "item",
                 promptTemplate = "What would you like me to remind you about?",
             ),
-            "day" to com.kernel.ai.core.skills.slot.SlotSpec(
-                name = "day",
-                promptTemplate = "Which day should I set the reminder for?",
-            ),
             "time" to com.kernel.ai.core.skills.slot.SlotSpec(
                 name = "time",
-                promptTemplate = "What time on {day} should I remind you to {item}?",
+                promptTemplate = "What time should I remind you to {item}?",
             ),
         ),
         "create_note" to mapOf(
@@ -665,14 +673,12 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                val item = normalizeReminderItem(match.groupValues[1])
-                val day = normalizeDayName(match.groupValues[2].trim().lowercase())
-                val timeParsed = parseAlarmTime(match.groupValues[3].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
                 buildMap {
-                    put("item", item)
-                    put("day", day)
-                    putAll(timeParsed)
+                    put("item", normalizeReminderItem(match.groupValues[1]))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[3].trim(), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -684,8 +690,8 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+to\s+(?!(?:get|wake)\s+up\b)(.+?)\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("item" to match.groupValues[1].trim()) + parseAlarmTime(match.groupValues[2].trim())
+            paramExtractor = { match, input ->
+                mapOf("item" to match.groupValues[1].trim()) + reminderTimeParams(match.groupValues[2].trim(), null, input)
             },
             requiredSlots = emptyMap(),
         ),
@@ -699,11 +705,13 @@ class QuickIntentRouter(
                 """remind\s+me\s+(?:at|by)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to match.groupValues[3].trim(),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
+                buildMap {
+                    put("item", match.groupValues[3].trim())
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[1].trim(), dayToken, input))
+                }
             },
             requiredSlots = slotContract("add_reminder"),
         ),
@@ -714,8 +722,8 @@ class QuickIntentRouter(
                 """remind\s+me\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf("item" to match.groupValues[2].trim()) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                mapOf("item" to match.groupValues[2].trim()) + reminderTimeParams(match.groupValues[1].trim(), null, input)
             },
             requiredSlots = emptyMap(),
         ),
@@ -726,13 +734,15 @@ class QuickIntentRouter(
                 """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
-                    "day" to normalizeDayName(match.groupValues[1].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[2].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[1].trim().lowercase()
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[2].trim(), dayToken, input))
+                }
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
         ),
         // "set a reminder for <time> <day> to <task>" — task-bearing reminder
         IntentPattern(
@@ -741,13 +751,15 @@ class QuickIntentRouter(
                 """^(?:set|create|make)\s+(?:an?\s+)?reminder\s+(?:for|at)\s+(.+?)\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ ->
-                mapOf(
-                    "item" to normalizeReminderItem(match.groupValues[3].trim()),
-                    "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
-                ) + parseAlarmTime(match.groupValues[1].trim())
+            paramExtractor = { match, input ->
+                val dayToken = match.groupValues[2].trim().lowercase()
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("day", normalizeDayName(dayToken))
+                    putAll(reminderTimeParams(match.groupValues[1].trim(), dayToken, input))
+                }
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
         ),
         // "remind me to/about <task> on <day>" — needs time slot-fill
         IntentPattern(
@@ -777,7 +789,17 @@ class QuickIntentRouter(
                     "day" to normalizeDayName(match.groupValues[2].trim().lowercase()),
                 )
             },
-            requiredSlots = emptyMap(),
+            requiredSlots = slotContract("add_reminder"),
+        ),
+        // Bare reminder requests with no task or schedule: ask for the item, then the time.
+        IntentPattern(
+            intentName = "add_reminder",
+            regex = Regex(
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:remind\s+me|(?:set|create|make|add)\s+(?:an?\s+)?rem(?:in|ain)der)\s*[.!?]*$""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { _, _ -> emptyMap() },
+            requiredSlots = slotContract("add_reminder"),
         ),
         // Imperative reminder requests without a schedule — retain the task and start slot-filling.
         IntentPattern(
@@ -786,7 +808,13 @@ class QuickIntentRouter(
                 """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to\s+(?!(?:get|wake)\s+up\b)|about\s+)(?!(?:.+\s+)?(?:today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s*[.!?]*$)(.+?)\s*[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
-            paramExtractor = { match, _ -> mapOf("item" to normalizeReminderItem(match.groupValues[1])) },
+            paramExtractor = { match, input ->
+                buildMap {
+                    put("item", normalizeReminderItem(match.groupValues[1]))
+                    // "tonight" stays as the cue, so the time answer means PM today (#2132).
+                    if (endsWithEveningCue(input)) put("day", "tonight")
+                }
+            },
             requiredSlots = slotContract("add_reminder"),
         ),
         IntentPattern(
@@ -4717,12 +4745,35 @@ class QuickIntentRouter(
         requiredSlots: Map<String, com.kernel.ai.core.skills.slot.SlotSpec>,
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? =
-        requiredSlots.entries.firstOrNull { (key, _) -> params[key].isNullOrBlank() }?.value
+        com.kernel.ai.core.skills.slot.firstMissingSlot(requiredSlots, params)
 
     fun nextMissingSlot(
         intentName: String,
         params: Map<String, String>,
     ): com.kernel.ai.core.skills.slot.SlotSpec? = missingRequiredSlot(slotContract(intentName), params)
+
+    private val slotValidationRegistry by lazy { com.kernel.ai.core.skills.slot.SlotValidationRegistry() }
+
+    /**
+     * Deterministic slot question for an in-place match (#2082). Returns the first missing required
+     * slot, or re-asks a present value that fails its validator with that slot dropped. Null when the
+     * intent can run as it is. Only contract and validator rules may ask a slot, never model text.
+     */
+    fun pendingSlotFor(
+        intentName: String,
+        params: Map<String, String>,
+    ): com.kernel.ai.core.skills.slot.PendingSlotRequest? {
+        nextMissingSlot(intentName, params)?.let { missing ->
+            return com.kernel.ai.core.skills.slot.PendingSlotRequest(intentName, params, missing)
+        }
+        for ((slotName, value) in params) {
+            if (slotName == "intent_name" || slotName == "raw_query") continue
+            if (slotValidationRegistry.validate(intentName, slotName, value).isValid) continue
+            val spec = slotContract(intentName)[slotName] ?: return null
+            return com.kernel.ai.core.skills.slot.PendingSlotRequest(intentName, params - slotName, spec)
+        }
+        return null
+    }
 
     private fun listNameWithDescriptor(name: String, descriptor: String): Map<String, String> {
         val base = name.trim()
@@ -5368,9 +5419,62 @@ class QuickIntentRouter(
             return params
         }
 
+        private val HALF_PAST_PHRASE = Regex("""\bhalf\s+past\s+(\d{1,2})\b""")
+        private val QUARTER_PAST_PHRASE = Regex("""\bquarter\s+past\s+(\d{1,2})\b""")
+        private val TO_PHRASE = Regex("""\b(quarter|\d{1,2})\s+to\s+(\d{1,2})(?:\s*(a\.?m\.?|p\.?m\.?))?(?!\w)""")
+        private val N_PAST_PHRASE = Regex("""\b(\d{1,2})\s+past\s+(\d{1,2})\b""")
+        private val DOT_TIME_PHRASE = Regex("""(?<![\d.])(\d{1,2})\.(\d{2})(?!\d)""")
+        private val PM_DAY_PART_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?(?:in\s+the\s+(?:evening|afternoon)|evening|afternoon)\b""")
+        private val AT_NIGHT_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?at\s+night\b""")
+        private val PM_DAY_PART_BEFORE_HOUR = Regex("""\b(?:evening|afternoon)\s+(?:at\s+)?$""")
+        private val EVENING_CUE_BEFORE_HOUR = Regex("""\b(?:tonight|this\s+evening)\s+(?:at\s+|by\s+)?$""")
+
+        /**
+         * Spoken and dotted clock phrases to "H:MM" (#2146): "half past 7", "quarter past 7", "quarter to 8",
+         * "5 past 7", "7.30". Invalid phrases are left as written for the parser to reject.
+         */
+        private fun normalizeClockPhrases(raw: String): String {
+            var text = HALF_PAST_PHRASE.replace(raw) { "${it.groupValues[1]}:30" }
+            text = QUARTER_PAST_PHRASE.replace(text) { "${it.groupValues[1]}:15" }
+            text = TO_PHRASE.replace(text) { toPhrase(it) }
+            text = N_PAST_PHRASE.replace(text) { m ->
+                val minute = m.groupValues[1].toInt()
+                if (minute in 1..59) "${m.groupValues[2]}:${minute.toString().padStart(2, '0')}" else m.value
+            }
+            return DOT_TIME_PHRASE.replace(text) { "${it.groupValues[1]}:${it.groupValues[2]}" }
+        }
+
+        /**
+         * Whether N in "N to H" counts minutes before the hour: 5 to 59 in fives, "quarter" (15), or any of 13 to 59
+         * ("twenty one to eight" is 7:39). Smaller numbers ("7 to 8") are hours, so "at 7 to 8" is a bare hour.
+         */
+        internal fun isToMinuteCount(n: Int): Boolean = n in 5..59 && (n % 5 == 0 || n >= 13)
+
+        /**
+         * "quarter to H" and "N to H" (N per [isToMinuteCount]) are (H-1):(60-N). Without am/pm the
+         * result is the 24-hour clock: "quarter to 1" is 00:45. With am/pm the hour 12 flips it:
+         * "quarter to 12 pm" is 11:45 am.
+         */
+        private fun toPhrase(m: MatchResult): String {
+            val before = if (m.groupValues[1] == "quarter") 15 else m.groupValues[1].toInt()
+            if (!isToMinuteCount(before)) return m.value
+            val hour = m.groupValues[2].toInt()
+            val meridiem = m.groupValues[3].replace(".", "").lowercase()
+            if (if (meridiem.isBlank()) hour !in 1..23 else hour !in 1..12) return m.value
+            val minute = (60 - before).toString().padStart(2, '0')
+            if (meridiem.isBlank()) return "${if (hour == 1) 0 else hour - 1}:$minute"
+            val previous = if (hour == 1) 12 else hour - 1
+            val flipped = when {
+                hour != 12 -> meridiem
+                meridiem == "am" -> "pm"
+                else -> "am"
+            }
+            return "$previous:$minute $flipped"
+        }
+
         fun parseAlarmTime(raw: String): Map<String, String> {
             val params = mutableMapOf<String, String>()
-            val cleaned = normalizeCompactAlarmText(raw.lowercase().trim())
+            val cleaned = normalizeCompactAlarmText(normalizeClockPhrases(normalizeSpokenClock(raw.lowercase().trim())))
                 .replace(Regex("""\s*(o'clock|oclock)"""), "")
                 .trim()
 
@@ -5390,6 +5494,19 @@ class QuickIntentRouter(
             // Convert to 24h
             if (meridiem == "pm" && hours < 12) hours += 12
             if (meridiem == "am" && hours == 12) hours = 0
+            // "7 in the evening", "evening at 7" and "7 at night" are pm (#2146). "at night" is pm only for hours 5 to 11:
+            // "at 2 at night" stays 02:00 and "tonight at 2 at night" is asked which. "this evening at 2" is pm only
+            // for hours 5 to 11; 1 to 4 are asked by bareHourIn.
+            val afterHour = cleaned.substring(match.range.last + 1)
+            val beforeHour = cleaned.substring(0, match.range.first)
+            if (meridiem.isBlank() && hours in 1..11 && (
+                    PM_DAY_PART_AFTER_HOUR.containsMatchIn(afterHour) ||
+                        (hours in 5..11 && AT_NIGHT_AFTER_HOUR.containsMatchIn(afterHour)) ||
+                        (PM_DAY_PART_BEFORE_HOUR.containsMatchIn(beforeHour) &&
+                            (hours in 5..11 || !EVENING_CUE_BEFORE_HOUR.containsMatchIn(beforeHour))))
+            ) {
+                hours += 12
+            }
             if (hours !in 0..23) return params
 
             params["hours"] = hours.toString()

@@ -1,6 +1,15 @@
 package com.kernel.ai.core.skills.slot
 
-import com.kernel.ai.core.skills.QuickIntentRouter
+import com.kernel.ai.core.skills.BARE_SPOKEN_PARAM
+import com.kernel.ai.core.skills.BARE_TIME_PARAM
+import com.kernel.ai.core.skills.DAY_CUE_PARAM
+import com.kernel.ai.core.skills.TIME_OF_DAY_SLOT
+import com.kernel.ai.core.skills.hasEveningCue
+import com.kernel.ai.core.skills.normalizeSpokenClock
+import com.kernel.ai.core.skills.pendingTimeOfDaySlot
+import com.kernel.ai.core.skills.reminderScheduleParams
+import com.kernel.ai.core.skills.timeOfDayParams
+import java.time.LocalDateTime
 
 /**
  * Describes a required parameter that is missing from a matched intent, together with
@@ -32,35 +41,168 @@ fun normalizeSlotReply(text: String, slotName: String): String {
     }
 }
 
+/** Schedule keys a reminder reply can fill. */
+private val REMINDER_SCHEDULE_KEYS = setOf("day", "time", BARE_TIME_PARAM, BARE_SPOKEN_PARAM, DAY_CUE_PARAM)
+
+private val DAY_TOKEN = Regex(
+    """\b((?:next\s+)?(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\b""",
+    RegexOption.IGNORE_CASE,
+)
+
 /**
- * Extracts any reminder schedule values present in one natural-language slot reply.
+ * Extracts reminder schedule values from one natural-language reply (#2132).
  *
- * A single reply can fill both `day` and `time` (for example, "tomorrow at 5 pm").
- * Replies containing only one value return only that value so slot filling can prompt
- * for the remaining schedule field.
+ * A reply can fill both `day` and `time`, e.g. "tomorrow at 5 pm". A bare hour 1 to 11 with no am/pm
+ * becomes [BARE_TIME_PARAM] and is asked am/pm. [existingDay] is the day already filled: it applies to
+ * the reply's hour, but on its own it is not a schedule answer.
  */
-fun parseReminderScheduleReply(text: String): Map<String, String> {
-    val cleaned = text.trim().trimEnd('.', '!', '?')
+fun parseReminderScheduleReply(
+    text: String,
+    existingDay: String? = null,
+    now: LocalDateTime = LocalDateTime.now(),
+): Map<String, String> {
+    val cleaned = normalizeSpokenClock(text.trim()).trimEnd('.', '!', '?')
     if (cleaned.isBlank()) return emptyMap()
 
-    val params = linkedMapOf<String, String>()
-    val dayMatch = Regex(
-        """\b((?:next\s+)?(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\b""",
-        RegexOption.IGNORE_CASE,
-    ).find(cleaned)
-    if (dayMatch != null) {
-        params["day"] = normalizeReminderDay(dayMatch.groupValues[1])
-    }
-
-    QuickIntentRouter.parseAlarmTime(cleaned)["time"]?.let { params["time"] = it }
-    return params
+    val replyDay = DAY_TOKEN.find(cleaned)?.groupValues?.get(1)?.let(::normalizeReminderDay)
+    val day = replyDay ?: existingDay?.let(::normalizeReminderDay)
+    val schedule = reminderScheduleParams(cleaned, day, hasEveningCue(cleaned), now)
+        .filterKeys { it in REMINDER_SCHEDULE_KEYS }
+    if (replyDay == null && "time" !in schedule && BARE_TIME_PARAM !in schedule) return emptyMap()
+    return schedule
 }
+
+/**
+ * A reply to a reminder slot question, split into the text for the slot being asked and the
+ * schedule values the same reply carries.
+ *
+ * [value] is null when the reply is only schedule words, so the asked slot has nothing to take.
+ */
+data class ReminderSlotReply(
+    val value: String?,
+    val schedule: Map<String, String>,
+    /** The am/pm question got a reply that is not an answer: ask it again, store nothing. */
+    val unanswered: Boolean = false,
+)
+
+private val REMINDER_SCHEDULE_SLOTS = setOf("day", "time")
+
+private val REMINDER_DAY_PHRASE = "(?:today|tomorrow|tonight|(?:next\\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))"
+
+// Times need am/pm or a colon, or the "N to H" form, so a bare number inside an item ("call 3 people") is never a time.
+// The dot after "a.m" / "p.m" is optional: replies lose their final dot when trailing punctuation is trimmed.
+private val REMINDER_TIME_PHRASE =
+    "(?:\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.?|p\\.m\\.?)|\\d{1,2}:\\d{2}|\\d{1,2}\\s+to\\s+\\d{1,2}|quarter\\s+to\\s+\\d{1,2})"
+
+/** The hour of a bare-hour phrase: "7", "6:30", "10 to 8" (ten to eight) or "quarter to 1". */
+private val REMINDER_HOUR = "(?:quarter\\s+to\\s+\\d{1,2}|\\d{1,2}(?::\\d{2})?(?:\\s+to\\s+\\d{1,2})?)"
+
+/** A whole schedule phrase: "tomorrow", "on friday at 9am", "at 5 pm", "by 5pm on monday". */
+private val REMINDER_SCHEDULE_PHRASE = Regex(
+    "^(?:(?:on\\s+)?$REMINDER_DAY_PHRASE(?:\\s+(?:at|by)\\s+$REMINDER_TIME_PHRASE)?" +
+        "|(?:at|by)\\s+$REMINDER_TIME_PHRASE(?:\\s+(?:on\\s+)?$REMINDER_DAY_PHRASE)?)$",
+    RegexOption.IGNORE_CASE,
+)
+
+/**
+ * A bare hour with a day or "this evening": "tomorrow at 6", "on monday at 3", "at 7 tomorrow",
+ * "this evening at 7". The hour has no am/pm, so it is a day plus a bare hour, and the am/pm question follows.
+ */
+private val REMINDER_BARE_HOUR_PHRASE = Regex(
+        "^(?:(?:at|by)\\s+$REMINDER_HOUR\\s+(?:on\\s+)?$REMINDER_DAY_PHRASE" +
+        "|(?:(?:on\\s+)?$REMINDER_DAY_PHRASE|this\\s+evening)\\s+(?:at|by)\\s+$REMINDER_HOUR)$",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun isReminderSchedulePhrase(phrase: String): Boolean =
+    REMINDER_SCHEDULE_PHRASE.matches(phrase) || REMINDER_BARE_HOUR_PHRASE.matches(phrase)
+
+private fun parseReminderPhraseSchedule(text: String, existingDay: String?, now: LocalDateTime): Map<String, String> =
+    parseReminderScheduleReply(text.trim().trimEnd('.', '!', '?'), existingDay, now)
+
+/**
+ * Splits a reply to a reminder slot question.
+ *
+ * For `day` and `time` the reply is the schedule itself, so [ReminderSlotReply.value] is null
+ * whenever the reply carries schedule values. For the am/pm question ([TIME_OF_DAY_SLOT]) the reply is
+ * morning or evening (yes or no when the hour was given with "tonight"). For any other missing slot (the
+ * item) the reply is the item, unless it ends in a separate schedule phrase: "put the bins out at 5 pm"
+ * gives item "put the bins out" and time 17:00, while "call 3 people" and "put on sun cream" stay whole.
+ * "ring mum tomorrow at 6" gives item "ring mum" and day tomorrow; the bare hour is then asked am/pm.
+ * A reply that is only a schedule phrase gives a null value.
+ */
+fun parseReminderSlotReply(
+    text: String,
+    missingSlot: String,
+    existingParams: Map<String, String> = emptyMap(),
+    now: LocalDateTime = LocalDateTime.now(),
+): ReminderSlotReply {
+    val trimmed = text.trim()
+    val existingDay = existingParams["day"]
+    if (missingSlot == TIME_OF_DAY_SLOT) {
+        val schedule = timeOfDayParams(existingParams[BARE_TIME_PARAM], existingDay, trimmed, now)
+            ?: return ReminderSlotReply(value = null, schedule = emptyMap(), unanswered = true)
+        return ReminderSlotReply(value = null, schedule = schedule)
+    }
+    // Spoken clock words become digits here, for every reminder reply path: typed, voice and the chat screen.
+    val spoken = normalizeSpokenClock(trimmed)
+    if (missingSlot in REMINDER_SCHEDULE_SLOTS) {
+        val schedule = parseReminderPhraseSchedule(spoken, existingDay, now)
+        return ReminderSlotReply(value = if (schedule.isEmpty()) trimmed else null, schedule = schedule)
+    }
+    val phrase = spoken.trimEnd('.', '!', '?')
+    if (isReminderSchedulePhrase(phrase)) {
+        val schedule = parseReminderPhraseSchedule(phrase, existingDay, now)
+        if (schedule.isNotEmpty()) return ReminderSlotReply(value = null, schedule = schedule)
+    }
+    // Earliest split first, so the item keeps as many words as possible. Splits are on the raw words, so the
+    // item keeps number words as said; each tail is normalised on its own.
+    val words = trimmed.trimEnd('.', '!', '?').split(Regex("\\s+"))
+    for (count in 1 until words.size) {
+        val head = words.take(count).joinToString(" ")
+        val tail = normalizeSpokenClock(words.drop(count).joinToString(" "))
+        if (!isReminderSchedulePhrase(tail)) continue
+        val schedule = parseReminderPhraseSchedule(tail, existingDay, now)
+        if (schedule.isNotEmpty()) return ReminderSlotReply(value = head, schedule = schedule)
+    }
+    return ReminderSlotReply(value = trimmed, schedule = emptyMap())
+}
+
+/**
+ * The am/pm question again after a reply that was not an answer: "Sorry, I didn't catch that. Morning or evening?"
+ * The question is rebuilt from [existingParams], so repeated misses do not stack the apology.
+ */
+fun apologisedTimeOfDayQuestion(slot: SlotSpec, existingParams: Map<String, String>): SlotSpec {
+    val question = pendingTimeOfDaySlot(existingParams)?.promptTemplate ?: slot.promptTemplate
+    return slot.copy(promptTemplate = "Sorry, I didn't catch that. $question")
+}
+
+/**
+ * The slot to ask next: the first required slot still blank, else the am/pm question for a pending
+ * bare hour (#2132). While that question is pending it stands in for the blank "time".
+ */
+fun firstMissingSlot(requiredSlots: Map<String, SlotSpec>, params: Map<String, String>): SlotSpec? {
+    val timeOfDay = pendingTimeOfDaySlot(params)
+    return requiredSlots.entries
+        .firstOrNull { (key, _) -> params[key].isNullOrBlank() && !(timeOfDay != null && key == "time") }
+        ?.value
+        ?: timeOfDay
+}
+
+/**
+ * The params of a completed reminder. "tonight" is today for the handler, and [DAY_CUE_PARAM] keeps the word
+ * for the past-time message. The am/pm question's own keys are not part of the reminder.
+ */
+fun completedSlotParams(params: Map<String, String>): Map<String, String> {
+    val reminder = params - BARE_TIME_PARAM - BARE_SPOKEN_PARAM - TIME_OF_DAY_SLOT
+    return if (reminder["day"] == "tonight") reminder + mapOf("day" to "today", DAY_CUE_PARAM to "tonight") else reminder
+}
+
 
 private fun normalizeReminderDay(raw: String): String {
     val maybeNext = if (raw.startsWith("next ", ignoreCase = true)) "next " else ""
     val day = raw.removePrefix("next ").removePrefix("Next ").lowercase()
     val normalized = when (day) {
-        "tonight" -> "today"
         "mon" -> "monday"
         "tue", "tues" -> "tuesday"
         "wed" -> "wednesday"

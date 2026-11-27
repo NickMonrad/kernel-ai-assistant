@@ -152,7 +152,6 @@ internal fun shouldEnableGpuEngineRestart(
     preferenceEnabled: Boolean,
 ): Boolean = debuggableBuild && preferenceEnabled
 
-private const val MIN_AVAIL_MEM_FOR_GPU_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB absolute floor — catches 4-6 GB devices; 8 GB devices pass this
 internal const val THINKING_CHANNEL_HEADER = "<|channel>thought"
 internal const val THINKING_CLOSE_MARKER = "<channel|>"
 /** Exact malformed close marker observed in the S21 Journey 1 regression. */
@@ -341,13 +340,8 @@ internal class ThinkingStreamStateMachine(
         val complete: Boolean,
     )
 
-    private val structuredObserved = StringBuilder()
     private val structuredPending = StringBuilder()
-    private val rawObserved = StringBuilder()
     private val rawPending = StringBuilder()
-    private val emittedThinking = StringBuilder()
-    private val emittedStructuredThinking = StringBuilder()
-    private val emittedResponse = StringBuilder()
     private val malformedThoughtCandidate = StringBuilder()
     private var malformedReopenEligible = false
     private var rawMode = RawMode.VISIBLE
@@ -356,24 +350,21 @@ internal class ThinkingStreamStateMachine(
         val thinking = mutableListOf<String>()
         val response = mutableListOf<String>()
 
+        // Callbacks are per-token deltas, not cumulative snapshots (physical fixture
+        // physical_callback_fixture.json has 0 replayed events). Append verbatim;
+        // overlap-based de-duplication dropped digits and letters that repeat a tail.
         channelDelta
             ?.takeIf { it.isNotEmpty() }
             ?.let { channel ->
-                val novel = appendNovelInput(structuredObserved, channel)
-                if (novel.isNotEmpty()) {
-                    structuredPending.append(novel)
-                    processStructuredThinking(thinking)
-                }
+                structuredPending.append(channel)
+                processStructuredThinking(thinking)
             }
 
         rawMessage
             .takeIf { it.isNotEmpty() }
             ?.let { raw ->
-                val novel = appendNovelInput(rawObserved, raw)
-                if (novel.isNotEmpty()) {
-                    rawPending.append(novel)
-                    processRaw(thinking, response)
-                }
+                rawPending.append(raw)
+                processRaw(thinking, response)
             }
 
         return ThinkingStreamEmission(
@@ -439,12 +430,12 @@ internal class ThinkingStreamStateMachine(
 
             val marker = findStructuredMarker(text)
             if (marker == null) {
-                emitThinking(text, thinking, structured = true)
+                emitThinking(text, thinking)
                 structuredPending.clear()
                 return
             }
             if (marker.start > 0) {
-                emitThinking(text.substring(0, marker.start), thinking, structured = true)
+                emitThinking(text.substring(0, marker.start), thinking)
                 deletePrefix(structuredPending, marker.start)
                 continue
             }
@@ -596,21 +587,10 @@ internal class ThinkingStreamStateMachine(
     private fun emitThinking(
         candidate: String,
         thinking: MutableList<String>,
-        structured: Boolean = false,
     ) {
         val clean = stripThinkingSyntax(candidate)
-        if (clean.isEmpty()) return
-        val delta = stripReplayedPrefix(
-            current = clean,
-            emitted = emittedThinking.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty()) return
-
-        emittedThinking.append(delta)
-        if (structured) emittedStructuredThinking.append(delta)
-        if (thinkingEnabled) thinking += delta
+        if (clean.isEmpty() || !thinkingEnabled) return
+        thinking += clean
     }
 
     private fun emitResponse(
@@ -623,35 +603,8 @@ internal class ThinkingStreamStateMachine(
             warnAmbiguous(candidate.length)
             return
         }
-        val delta = stripReplayedPrefix(
-            current = candidate,
-            emitted = emittedResponse.toString(),
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (delta.isEmpty() || delta.startsWith("<ctrl")) return
-        if (containsProtocolSyntaxOrPrefix(delta)) {
-            warnAmbiguous(delta.length)
-            return
-        }
-        emittedResponse.append(delta)
-        response += delta
-    }
-
-
-    private fun appendNovelInput(
-        observed: StringBuilder,
-        candidate: String,
-    ): String {
-        val prior = observed.toString()
-        val novel = stripReplayedPrefix(
-            current = candidate,
-            emitted = prior,
-            allowOverlap = true,
-            minOverlapLength = 3,
-        )
-        if (novel.isNotEmpty()) observed.append(novel)
-        return novel
+        if (candidate.startsWith("<ctrl")) return
+        response += candidate
     }
 
     private fun findStructuredMarker(text: String): MarkerMatch? =
@@ -908,45 +861,6 @@ private val PROTOCOL_MARKERS_FOR_BOUNDARY = listOf(
     MALFORMED_THINK_CLOSE_MARKER,
     "<|think",
 )
-
-internal fun stripReplayedPrefix(
-    current: String,
-    emitted: String,
-    trimBoundaryWhitespace: Boolean = false,
-    allowOverlap: Boolean = false,
-    minOverlapLength: Int = 1,
-): String {
-    if (emitted.isEmpty()) return current
-    if (current.startsWith(emitted)) return current.removePrefix(emitted)
-
-    val currentTrimmed = current.trimEnd()
-    val emittedTrimmed = emitted.trimEnd()
-    if (emittedTrimmed.isNotEmpty() && currentTrimmed.startsWith(emittedTrimmed)) {
-        val remainder = currentTrimmed.removePrefix(emittedTrimmed)
-        return if (trimBoundaryWhitespace) remainder.trimStart() else remainder
-    }
-    if (allowOverlap) {
-        val exactOverlapRemainder = stripOverlappingReplayPrefix(current, emitted, minOverlapLength)
-        if (exactOverlapRemainder != current) {
-            return if (trimBoundaryWhitespace) exactOverlapRemainder.trimStart() else exactOverlapRemainder
-        }
-        val trimmedOverlapRemainder = stripOverlappingReplayPrefix(currentTrimmed, emittedTrimmed, minOverlapLength)
-        if (trimmedOverlapRemainder != currentTrimmed) {
-            return if (trimBoundaryWhitespace) trimmedOverlapRemainder.trimStart() else trimmedOverlapRemainder
-        }
-    }
-    return current
-}
-
-private fun stripOverlappingReplayPrefix(current: String, emitted: String, minOverlapLength: Int): String {
-    val maxOverlap = minOf(current.length, emitted.length)
-    for (overlapLength in maxOverlap downTo minOverlapLength) {
-        if (emitted.endsWith(current.take(overlapLength))) {
-            return current.drop(overlapLength)
-        }
-    }
-    return current
-}
 
 /**
  * LiteRT-LM implementation of [InferenceEngine].
@@ -2383,108 +2297,94 @@ class LiteRtInferenceEngine @Inject constructor(
     // -------------------------------------------------------------------------
     // Private helpers
     private suspend fun createEngineWithFallback(config: ModelConfig): Pair<Engine, BackendType> {
-        val orderedBackends: List<BackendType> = when (config.backendType) {
-            BackendType.CPU -> listOf(BackendType.CPU)
-            BackendType.GPU -> listOf(BackendType.GPU, BackendType.CPU)
-            BackendType.NPU -> listOf(BackendType.NPU, BackendType.GPU, BackendType.CPU)
-            BackendType.AUTO -> listOf(BackendType.GPU, BackendType.CPU)
-        }
-
-        // Check available memory before attempting GPU.
-        // 2 GB absolute floor catches genuinely low-memory devices (4-6 GB).
-        // On 8 GB devices ~2.5 GB is typically free; GPU init has its own 60s
-        // timeout guard so we don't need an overly conservative threshold (#684).
+        val hardwareProfile = hardwareProfileDetector.profile
+        val socManufacturer = hardwareProfile.socManufacturer
+        val tier = hardwareProfile.tier
         val availMem = getAvailableMemoryBytes()
         val modelFile = File(config.modelPath)
         val modelSize = if (modelFile.exists()) modelFile.length() else 0L
-        val skipGpuForMemory = availMem < MIN_AVAIL_MEM_FOR_GPU_BYTES
-        if (skipGpuForMemory) {
-            Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) below GPU minimum " +
-                "(${MIN_AVAIL_MEM_FOR_GPU_BYTES / (1024*1024)} MB) — skipping GPU backend")
+        val memInfoMb = availMem / (1024 * 1024)
+        val gpuPreferred = BackendType.GPU.activationDataType(socManufacturer, tier)
+        val attempts = planEngineAttempts(config.backendType, availMem, gpuPreferred)
+        val gpuSkipped = config.backendType != BackendType.CPU && attempts.none { it.backend == BackendType.GPU }
+        if (gpuSkipped) {
+            Log.w(TAG, "Available memory ($memInfoMb MB) below GPU minimum " +
+                "(${MIN_AVAIL_MEM_FOR_GPU_BYTES / (1024 * 1024)} MB) — skipping GPU backend")
+        } else if (gpuPreferred != null && availMem < MIN_AVAIL_MEM_FOR_GPU_BYTES + FLOAT32_EXTRA_AVAIL_MEM_BYTES) {
+            Log.w(TAG, "Available memory ($memInfoMb MB) below FLOAT32 GPU minimum " +
+                "(${(MIN_AVAIL_MEM_FOR_GPU_BYTES + FLOAT32_EXTRA_AVAIL_MEM_BYTES) / (1024 * 1024)} MB) — GPU uses default precision")
         } else if (modelSize > 0 && availMem < modelSize) {
-            Log.w(TAG, "Available memory (${availMem / (1024*1024)} MB) is less than model file " +
-                "size (${modelSize / (1024*1024)} MB) — GPU init may trigger OOM kill")
+            Log.w(TAG, "Available memory ($memInfoMb MB) is less than model file " +
+                "size (${modelSize / (1024 * 1024)} MB) — GPU init may trigger OOM kill")
         }
 
-        var lastException: Exception? = null
-        for (backendType in orderedBackends) {
-            // Honour the memory check: if GPU was skipped, don't try GPU or NPU.
-            if (skipGpuForMemory && backendType != BackendType.CPU) {
-                Log.d(TAG, "Skipping backend $backendType due to memory pressure")
-                continue
+        val (attempt, initializedEngine) = try {
+            runEngineAttempts(attempts) { initEngineAttempt(config, it) }
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            val memInfo = "$memInfoMb MB available / ${hardwareProfile.totalRamBytes / (1024 * 1024 * 1024)} GB total"
+            val summary = when {
+                gpuSkipped -> "GPU skipped (low memory — $memInfo)"
+                e is TimeoutCancellationException -> "GPU init timed out (${GPU_INIT_TIMEOUT_MS / 1000}s) — $memInfo"
+                else -> "GPU init failed: ${e.message} — $memInfo"
             }
-            try {
-                Log.d(TAG, "Trying backend: $backendType")
-                val engineConfig = EngineConfig(
-                    modelPath = config.modelPath,
-                    backend = backendType.toBackend(context),
-                    maxNumTokens = config.maxTokens,
-                    cacheDir = context.cacheDir.absolutePath,
-                )
-                // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
-                // Gallery pattern: the flag is compiled into the engine at init time, not at
-                // createConversation() time. Check ModelInfo/LlmCapability first to guard unsupported models.
-                val speculativeDecoding = resolveSpeculativeDecodingForInit(
-                    requested = config.speculativeDecodingEnabled,
-                    modelPath = config.modelPath,
-                    onProbeFailure = { modelPath, error ->
-                        Log.w(TAG, "Speculative decoding capability probe failed for $modelPath: ${error.message}")
-                    },
-                )
-                Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
-                // Construct Engine in a try-finally so we close it on failure — the timeout
-                // is advisory only (native JNI blocking calls may not be interrupted).
-                var engine: Engine? = null
-                try {
-                    val initializedEngine = withTimeout(GPU_INIT_TIMEOUT_MS) {
-                        // LiteRT reads native benchmark enablement during engine creation.
-                        withBenchmarkingEnabledForInit {
-                            withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
-                                Engine(engineConfig).also { engine = it }.also { it.initialize() }
-                            }
-                        }
-                    }
-                    Log.i(TAG, "Backend $backendType initialized successfully")
-                    return Pair(initializedEngine, backendType)
-                } catch (e: TimeoutCancellationException) {
-                    safeClose(engine, "engine candidate")
-                    currentCoroutineContext().ensureActive()
-                    Log.w(TAG, "Backend $backendType timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
-                    lastException = e
-                } catch (e: CancellationException) {
-                    safeClose(engine, "engine candidate")
-                    currentCoroutineContext().ensureActive()
-                    Log.w(TAG, "Backend $backendType cancelled: ${e.message}")
-                    lastException = e
-                } catch (e: Exception) {
-                    safeClose(engine, "engine candidate")
-                    Log.w(TAG, "Backend $backendType failed: ${e.message}")
-                    lastException = e
-                }
-            } catch (e: CancellationException) {
-                currentCoroutineContext().ensureActive()
-                Log.w(TAG, "Backend $backendType cancelled: ${e.message}")
-                lastException = e
-            } catch (e: Exception) {
-                Log.w(TAG, "Backend $backendType failed: ${e.message}")
-                lastException = e
-            }
+            throw InferenceException(
+                "Model loading failed ($summary). " +
+                    "Tier: ${tier.name}, SoC: $socManufacturer ${hardwareProfile.socModel}. " +
+                    "Last backend error: ${e.message ?: "none"}",
+                e,
+            )
         }
-
-        val profile = hardwareProfileDetector.profile
-        val memInfo = "${availMem / (1024 * 1024)} MB available / ${profile.totalRamBytes / (1024 * 1024 * 1024)} GB total"
-        val summary = when {
-            skipGpuForMemory -> "GPU skipped (low memory — $memInfo)"
-            lastException is TimeoutCancellationException -> "GPU init timed out (${GPU_INIT_TIMEOUT_MS / 1000}s) — $memInfo"
-            lastException != null -> "GPU init failed: ${lastException.message} — $memInfo"
-            else -> "unknown error — $memInfo"
-        }
-        throw InferenceException(
-            "Model loading failed ($summary). " +
-                "Tier: ${profile.tier.name}, SoC: ${profile.socManufacturer} ${profile.socModel}. " +
-                "Last backend error: ${lastException?.message ?: "none"}",
-            lastException,
+        Log.i(
+            "KernelAI",
+            "Engine path: backend=${attempt.backend} activation=${attempt.activation ?: "default"} " +
+                "reason=${attempt.reason} soc_manufacturer=$socManufacturer tier=${tier.name}",
         )
+        return Pair(initializedEngine, attempt.backend)
+    }
+
+    /** One engine-init attempt for [runEngineAttempts]: throws on failure after closing the candidate. */
+    private suspend fun initEngineAttempt(config: ModelConfig, attempt: EngineAttempt): Engine {
+        Log.d(TAG, "Trying backend: ${attempt.backend} activation=${attempt.activation ?: "default"} reason=${attempt.reason}")
+        val engineConfig = EngineConfig(
+            modelPath = config.modelPath,
+            backend = attempt.backend.toBackend(context),
+            maxNumTokens = config.maxTokens,
+            cacheDir = context.cacheDir.absolutePath,
+            activationDataType = attempt.activation,
+        )
+        // MTP speculative decoding must be enabled BEFORE Engine.initialize() —
+        // Gallery pattern: the flag is compiled into the engine at init time, not at
+        // createConversation() time. Check ModelInfo/LlmCapability first to guard unsupported models.
+        val speculativeDecoding = resolveSpeculativeDecodingForInit(
+            requested = config.speculativeDecodingEnabled,
+            modelPath = config.modelPath,
+            onProbeFailure = { modelPath, error ->
+                Log.w(TAG, "Speculative decoding capability probe failed for $modelPath: ${error.message}")
+            },
+        )
+        Log.d(TAG, "Speculative decoding: requested=${config.speculativeDecodingEnabled} active=$speculativeDecoding")
+        // Construct Engine in a try-catch so we close it on failure — the timeout
+        // is advisory only (native JNI blocking calls may not be interrupted).
+        var engine: Engine? = null
+        try {
+            // LiteRT reads native benchmark enablement during engine creation.
+            return withTimeout(GPU_INIT_TIMEOUT_MS) {
+                withBenchmarkingEnabledForInit {
+                    withSpeculativeDecodingEnabledForInit(speculativeDecoding) {
+                        Engine(engineConfig).also { engine = it }.also { it.initialize() }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            safeClose(engine, "engine candidate")
+            if (e is TimeoutCancellationException) {
+                Log.w(TAG, "Backend ${attempt.backend} timed out after ${GPU_INIT_TIMEOUT_MS}ms — falling back")
+            } else {
+                Log.w(TAG, "Backend ${attempt.backend} failed: ${e.message}")
+            }
+            throw e
+        }
     }
 
     /**

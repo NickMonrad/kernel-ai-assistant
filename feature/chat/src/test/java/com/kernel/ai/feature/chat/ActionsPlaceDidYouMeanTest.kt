@@ -113,6 +113,7 @@ class ActionsPlaceDidYouMeanTest {
         every { voiceOutputPreferences.autoSpeak } returns flowOf(true)
         every { voiceOutputPreferences.maxSpokenSentences } returns flowOf(0)
         every { voiceOutputPreferences.placeDidYouMeanEnabled } returns placeDidYouMeanOn
+        every { quickIntentRouter.pendingSlotFor(any(), any()) } returns null
 
         // Only "Porirwa" is a near miss; everything else is either exact or unrelated.
         every { suggester.suggest(any()) } returns null

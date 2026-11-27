@@ -23,8 +23,11 @@ import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.apologisedTimeOfDayQuestion
+import com.kernel.ai.core.skills.slot.completedSlotParams
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
-import com.kernel.ai.core.skills.slot.parseReminderScheduleReply
+import com.kernel.ai.core.skills.slot.parseReminderSlotReply
+import com.kernel.ai.core.voice.SpeechCardText
 import com.kernel.ai.core.voice.StartListeningCueContext
 import com.kernel.ai.core.voice.StartListeningCuePlayer
 import com.kernel.ai.core.voice.VoiceCaptureMode
@@ -75,6 +78,8 @@ import javax.inject.Inject
 private const val TAG = "KernelAI"
 private const val SLOT_REPLY_REARM_DELAY_MS = 350L
 private const val VOICE_REPLY_TTS_DELAY_MS = 150L
+private const val SLOT_PROMPT_START_TIMEOUT_MS = 10_000L
+private const val SLOT_PROMPT_PLAYBACK_SAFETY_MS = 15_000L
 private const val VOICE_COMMAND_DUPLICATE_WINDOW_MS = 2_000L
 private val VOICE_ESCAPE_PHRASES = setOf("stop", "cancel", "stop that")
 
@@ -387,6 +392,11 @@ class ActionsViewModel @Inject constructor(
      * opens the mic.
      */
     private var backgroundPaused = false
+
+    /** Slot-question playback watchdog (#2082); see [onSlotPromptWatchdog]. */
+    private var slotPromptWatchdogJob: Job? = null
+    private var slotPromptWatchdogRespeaks = 0
+
     private var pendingWriteSettingsAction: PendingWriteSettingsAction? = null
     private var pendingPhonePermissionAction: PendingPhonePermissionAction? = null
     private var pendingContactPermissionAction: PendingContactPermissionAction? = null
@@ -471,6 +481,8 @@ class ActionsViewModel @Inject constructor(
                     is VoiceInputEvent.ListeningRequested -> Unit
                     is VoiceInputEvent.ListeningStarted -> {
                         if (!ownsVoiceCapture(event.mode, event.captureSessionId)) return@collect
+                        // The slot mic is open: the never-started fallback no longer applies.
+                        if (event.mode == VoiceCaptureMode.SlotReply) cancelSlotPromptWatchdog()
                         val currentTranscript = (voiceCaptureState.value as? VoiceCaptureState.Listening)
                             ?.takeIf { it.mode == event.mode }
                             ?.transcript
@@ -644,20 +656,23 @@ class ActionsViewModel @Inject constructor(
                             actionSpeechAudible = true
                             actionStaleStopPending = false
                         }
+                        val slotPromptStart = isSlotPromptStart(event.text)
                         if (voiceSpeechCancelled) {
                             // Speech the user abandoned can still report a start; no SpeakingStopped
                             // follows it on Inflect, so accepting it would leave the card on Speaking.
                             Log.d(TAG, "ActionsViewModel: ignoring SpeakingStarted after cancelled speech")
+                            // The cancel flag belongs to earlier speech: the slot question still playing
+                            // must count, or its SpeakingStopped never re-arms the mic (#2082).
+                            if (slotPromptStart) onSlotPromptPlaybackStarted()
                             return@collect
                         }
-                        cancelPendingVoiceSlotReplyRestart()
+                        // Re-arm job only: a start that is not the slot question leaves the start watchdog armed.
+                        pendingVoiceSlotReplyRestartJob?.cancel()
+                        pendingVoiceSlotReplyRestartJob = null
                         if (_speakingActionId.value == null) {
                             _voicePlaybackState.value = VoicePlaybackState.Speaking(event.text)
                         }
-                        if (event.text == expectedSlotPromptSpeech) {
-                            _slotPromptPlaybackStarted.value = true
-                            Log.d(TAG, "ActionsViewModel: slot prompt playback started")
-                        }
+                        if (slotPromptStart) onSlotPromptPlaybackStarted()
                     }
                     VoiceOutputEvent.SpeakingStopped -> {
                         _voicePlaybackState.value = VoicePlaybackState.Idle
@@ -675,22 +690,10 @@ class ActionsViewModel @Inject constructor(
                             _voiceCaptureState.value == VoiceCaptureState.Idle &&
                             _slotPromptPlaybackStarted.value
                         ) {
+                            cancelPendingVoiceSlotReplyRestart()
                             setSlotReplyAutoRearmArmed(false, "voiceOutputSpeakingStopped")
                             clearExpectedSlotPromptSpeech()
-                            cancelPendingVoiceSlotReplyRestart()
-                            pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
-                                delay(SLOT_REPLY_REARM_DELAY_MS)
-                                if (
-                                    awaitingVoiceReply() &&
-                                    _voiceCaptureState.value == VoiceCaptureState.Idle
-                                ) {
-                                    startVoiceCapture(
-                                        mode = VoiceCaptureMode.SlotReply,
-                                        userInitiated = false,
-                                        interruptPlayback = false,
-                                    )
-                                }
-                            }
+                            scheduleSlotReplyRearm()
                         } else if (
                             shouldAutoStartVoiceSlotReply &&
                             awaitingVoiceReply() &&
@@ -735,10 +738,9 @@ class ActionsViewModel @Inject constructor(
             Log.d(TAG, "ActionsViewModel: automatic slot-reply mic skipped, screen background-paused")
             return
         }
-        // #825: Reset slot retry budget on manual mic re-tap, mirroring what startVoiceCommand()
-        // does for commandVoiceRetryCount. This ensures the user gets a fresh set of retries
-        // if they tap the mic again after the budget was exhausted.
-        slotReplyVoiceRetryCount = 0
+        // #825: a manual mic tap starts a fresh slot retry budget. Automatic opens (watchdog, re-arm)
+        // must not: a silent prompt would otherwise re-open the mic without limit (#2082).
+        if (userInitiated) slotReplyVoiceRetryCount = 0
         Log.d(TAG, "ActionsViewModel: startVoiceSlotReply pendingSlot=true userInitiated=$userInitiated")
         setSlotReplyAutoRearmArmed(false, "startVoiceSlotReply")
         clearExpectedSlotPromptSpeech()
@@ -904,10 +906,9 @@ class ActionsViewModel @Inject constructor(
      * [keepSpeech] = true (screen turned off, #1918): stops the mic and the slot-reply re-arm for
      * privacy, but leaves spoken output running so the reply finishes in the background. It also
      * skips cancelPendingVoiceSpeech(), so a pending command retry still speaks its prompt; its
-     * mic start is blocked by [backgroundPaused]. It skips clearExpectedSlotPromptSpeech() because
-     * the slot prompt may still be playing: its expected text and [slotPromptPlaybackStarted] stay
-     * accurate for the sheet if the user returns mid-prompt, and with the re-arm disarmed and
-     * [backgroundPaused] set they cannot open the mic.
+     * mic start is blocked by [backgroundPaused]. A slot question still playing has its re-arm
+     * disarmed too (#2082): when it finishes, the mic does not reopen while backgrounded, and the
+     * next slot question after [onScreenResumed] arms as usual.
      * [keepSpeech] = false (e.g. Home/navigation): stops listening and all speech, resets to idle.
      */
     fun pauseTransientVoiceUi(
@@ -1772,14 +1773,14 @@ class ActionsViewModel @Inject constructor(
                     is QuickIntentRouter.RouteResult.RegexMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
-                        } else {
+                        } else if (!primeInPlaceSlotIfNeeded(normalizedQuery, routeResult.intent, inputMode)) {
                             executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_REGEX)
                         }
                     }
                     is QuickIntentRouter.RouteResult.ClassifierMatch -> {
                         if (routeResult.intent.intentName == "start_meal_planner") {
                             handoffMealPlannerToChat(normalizedQuery, inputMode)
-                        } else {
+                        } else if (!primeInPlaceSlotIfNeeded(normalizedQuery, routeResult.intent, inputMode)) {
                             executeRoutedIntent(normalizedQuery, routeResult.intent, inputMode, IntentRoute.QUICK_CLASSIFIER)
                         }
                     }
@@ -1817,14 +1818,27 @@ class ActionsViewModel @Inject constructor(
         Log.d(TAG, "ADB_SLOT_STATE action=reply intent=${pending.request.intentName} slot=${pending.request.missingSlot.name} reply=\"$text\"")
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
-        val reminderSchedule = if (pending.request.intentName == "add_reminder") {
-            parseReminderScheduleReply(text)
+        val reminderReply = if (pending.request.intentName == "add_reminder") {
+            parseReminderSlotReply(text, pending.request.missingSlot.name, pending.request.existingParams)
         } else {
-            emptyMap()
+            null
         }
-        if (pending.request.intentName == "add_reminder" &&
-            pending.request.missingSlot.name !in reminderSchedule &&
-            reminderSchedule.isNotEmpty()
+        // A reply to the am/pm question that is not an answer asks it again; nothing is stored.
+        if (reminderReply?.unanswered == true) {
+            primePendingSlot(
+                intentName = pending.request.intentName,
+                existingParams = pending.request.existingParams,
+                missingSlot = apologisedTimeOfDayQuestion(pending.request.missingSlot, pending.request.existingParams),
+                originalQuery = pending.originalQuery,
+                inputMode = pending.inputMode,
+                delayVoicePrompt = pending.inputMode == InputMode.Voice,
+            )
+            return
+        }
+        val reminderSchedule = reminderReply?.schedule.orEmpty()
+        if (reminderReply != null &&
+            reminderReply.value == null &&
+            pending.request.missingSlot.name !in reminderSchedule
         ) {
             val mergedParams = pending.request.existingParams + reminderSchedule
             val nextMissingSlot = quickIntentRouter.nextMissingSlot(
@@ -1842,12 +1856,14 @@ class ActionsViewModel @Inject constructor(
                 )
                 return
             }
+            completeSlotFill(pending, mergedParams)
+            return
         }
         val normalizedText = reminderSchedule[pending.request.missingSlot.name]
             ?: if (pending.inputMode == InputMode.Voice) {
-                normalizeVoiceSlotReply(text, pending.request.missingSlot.name)
+                normalizeVoiceSlotReply(reminderReply?.value ?: text, pending.request.missingSlot.name)
             } else {
-                normalizeSlotReply(text, pending.request.missingSlot.name)
+                normalizeSlotReply(reminderReply?.value ?: text, pending.request.missingSlot.name)
             }
         if (normalizedText.isBlank()) {
             cancelSlotFill()
@@ -1872,6 +1888,11 @@ class ActionsViewModel @Inject constructor(
             )
             return
         }
+        completeSlotFill(pending, mergedParams)
+    }
+
+    /** Runs the completed reminder or intent with its merged params (#2132 tonight maps to today). */
+    private fun completeSlotFill(pending: PendingSlotState, mergedParams: Map<String, String>) {
         Log.d(TAG, "ADB_SLOT_STATE action=complete intent=${pending.request.intentName} finalSlots=${mergedParams.keys}")
         _pendingSlot.value = null
         viewModelScope.launch {
@@ -1881,7 +1902,7 @@ class ActionsViewModel @Inject constructor(
                 val result = executeIntent(
                     query = pending.originalQuery,
                     intentName = pending.request.intentName,
-                    params = mergedParams,
+                    params = completedSlotParams(mergedParams),
                     inputMode = pending.inputMode,
                     route = IntentRoute.SLOT_FILL,
                 )
@@ -2029,7 +2050,7 @@ class ActionsViewModel @Inject constructor(
         } else {
             null
         }
-        _slotPromptPlaybackStarted.value = false
+        slotPromptWatchdogRespeaks = 0
         if (inputMode == InputMode.Voice) {
             _voiceCaptureState.value = VoiceCaptureState.Idle
         }
@@ -2250,6 +2271,27 @@ class ActionsViewModel @Inject constructor(
                 spokenSummary = null,
             )
         }
+    }
+
+    /**
+     * An in-place match with a deterministic missing or invalid slot opens the slot sheet instead of
+     * running, so the SlotReply mic opens after the question (#2082). Returns true when it did.
+     */
+    private fun primeInPlaceSlotIfNeeded(
+        query: String,
+        intent: QuickIntentRouter.MatchedIntent,
+        inputMode: InputMode,
+    ): Boolean {
+        val pending = quickIntentRouter.pendingSlotFor(intent.intentName, intent.params) ?: return false
+        Log.d(TAG, "ActionsViewModel: in-place ${intent.intentName} needs slot ${pending.missingSlot.name} → slot sheet")
+        primePendingSlot(
+            intentName = pending.intentName,
+            existingParams = pending.existingParams,
+            missingSlot = pending.missingSlot,
+            originalQuery = query,
+            inputMode = inputMode,
+        )
+        return true
     }
 
     private suspend fun executeRoutedIntent(
@@ -2514,6 +2556,7 @@ class ActionsViewModel @Inject constructor(
         // reports the first (re-normalised) chunk instead. Slot prompts are one short question,
         // so chunking would gain nothing.
         val isSlotPrompt = summary == expectedSlotPromptSpeech
+        if (isSlotPrompt && shouldAutoStartVoiceSlotReply) armSlotPromptWatchdog(SLOT_PROMPT_START_TIMEOUT_MS)
         pendingVoiceSpeechJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             if (!spokenResponsesEnabled) return@launch
@@ -2546,6 +2589,69 @@ class ActionsViewModel @Inject constructor(
     private fun cancelPendingVoiceSlotReplyRestart() {
         pendingVoiceSlotReplyRestartJob?.cancel()
         pendingVoiceSlotReplyRestartJob = null
+        cancelSlotPromptWatchdog()
+    }
+
+    private fun scheduleSlotReplyRearm() {
+        cancelPendingVoiceSlotReplyRestart()
+        pendingVoiceSlotReplyRestartJob = viewModelScope.launch {
+            delay(SLOT_REPLY_REARM_DELAY_MS)
+            if (
+                !awaitingVoiceReply() ||
+                _voiceCaptureState.value != VoiceCaptureState.Idle
+            ) return@launch
+            if (backgroundPaused) return@launch
+            startVoiceCapture(
+                mode = VoiceCaptureMode.SlotReply,
+                userInitiated = false,
+                interruptPlayback = false,
+            )
+        }
+    }
+
+    private fun armSlotPromptWatchdog(timeoutMs: Long) {
+        slotPromptWatchdogJob?.cancel()
+        slotPromptWatchdogJob = viewModelScope.launch {
+            delay(timeoutMs)
+            onSlotPromptWatchdog()
+        }
+    }
+
+    private fun cancelSlotPromptWatchdog() {
+        slotPromptWatchdogJob?.cancel()
+        slotPromptWatchdogJob = null
+    }
+
+    /** True when a SpeakingStarted text is the pending slot question, raw or as the engine speaks it (#2082). */
+    private fun isSlotPromptStart(text: String): Boolean {
+        val expected = expectedSlotPromptSpeech ?: return false
+        return text == expected || text == SpeechCardText.speakable(expected)
+    }
+
+    private fun onSlotPromptPlaybackStarted() {
+        _slotPromptPlaybackStarted.value = true
+        Log.d(TAG, "ActionsViewModel: slot prompt playback started")
+        armSlotPromptWatchdog(SLOT_PROMPT_PLAYBACK_SAFETY_MS)
+    }
+
+    /**
+     * Slot-question playback watchdog (#2082), owned here rather than by the sheet's composition:
+     * playback that never starts is re-asked once; playback that started but never stopped, or a
+     * second silent start, opens the mic through the existing fallback.
+     */
+    private fun onSlotPromptWatchdog() {
+        slotPromptWatchdogJob = null
+        if (_pendingSlot.value?.inputMode != InputMode.Voice || !shouldAutoStartVoiceSlotReply) return
+        if (_voiceCaptureState.value != VoiceCaptureState.Idle || backgroundPaused) return
+        val question = expectedSlotPromptSpeech ?: return
+        if (!_slotPromptPlaybackStarted.value && slotPromptWatchdogRespeaks < 1) {
+            slotPromptWatchdogRespeaks++
+            Log.w(TAG, "ActionsViewModel: slot question never started; re-asking once")
+            speakForVoice(InputMode.Voice, question, spokenOverride = question)
+            return
+        }
+        Log.w(TAG, "ActionsViewModel: slot question playback stalled; opening slot mic")
+        startAutoVoiceSlotReply()
     }
 
     private fun setSlotReplyAutoRearmArmed(armed: Boolean, reason: String) {
@@ -2557,6 +2663,8 @@ class ActionsViewModel @Inject constructor(
     private fun clearExpectedSlotPromptSpeech() {
         expectedSlotPromptSpeech = null
         _slotPromptPlaybackStarted.value = false
+        slotPromptWatchdogRespeaks = 0
+        cancelSlotPromptWatchdog()
     }
 
     private fun cancelPendingVoiceSpeech() {
@@ -2812,7 +2920,7 @@ class ActionsViewModel @Inject constructor(
 
     private fun normalizeSpokenNumbers(text: String): String {
         val pattern = Regex(
-            "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh|o)(?:[ -]+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh|o))*\\b",
+            "\\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh(?!'?clock)|o(?!'?clock))(?:[ -]+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|oh(?!'?clock)|o(?!'?clock)))*\\b",
             RegexOption.IGNORE_CASE,
         )
         return pattern.replace(text) { match ->

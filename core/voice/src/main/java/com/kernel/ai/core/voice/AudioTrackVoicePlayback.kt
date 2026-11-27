@@ -21,6 +21,27 @@ internal fun playVoicePcmOnAudioTrack(
     onTrackCreated: (AudioTrack) -> Unit = {},
     onTrackReleased: (AudioTrack) -> Unit = {},
 ) {
+    val track = createVoicePcmTrack(sampleRate)
+    onTrackCreated(track)
+    try {
+        startVoicePcmTrack(track, pitch)
+        writeVoicePcm(track, samples, gain, shouldContinue)
+        if (shouldContinue()) {
+            drainVoicePcmTrack(track, shouldContinue)
+        } else {
+            fadeOutAndDiscard(track)
+        }
+    } finally {
+        onTrackReleased(track)
+        track.release()
+    }
+}
+
+/**
+ * Builds the normal-latency mono Float32 streaming track shared by the local voice controllers. The caller owns the
+ * lifecycle: [startVoicePcmTrack], [writeVoicePcm], then [drainVoicePcmTrack] or [fadeOutAndDiscard], then release.
+ */
+internal fun createVoicePcmTrack(sampleRate: Int): AudioTrack {
     val minBuffer = AudioTrack.getMinBufferSize(
         sampleRate,
         AudioFormat.CHANNEL_OUT_MONO,
@@ -48,47 +69,50 @@ internal fun playVoicePcmOnAudioTrack(
         .setTransferMode(AudioTrack.MODE_STREAM)
         .build()
     check(track.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack initialization failed" }
-    onTrackCreated(track)
+    return track
+}
 
+internal fun startVoicePcmTrack(track: AudioTrack, pitch: Float) {
+    track.play()
+    if (pitch != 1.0f) {
+        track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
+    }
+}
+
+/** Writes [samples] in blocks and stops early once [shouldContinue] is false. [gain] is applied with clamping. */
+internal fun writeVoicePcm(track: AudioTrack, samples: FloatArray, gain: Float, shouldContinue: () -> Boolean) {
     val scratch = if (gain != 1.0f) FloatArray(AUDIO_CHUNK_FLOATS) else null
-    try {
-        track.play()
-        if (pitch != 1.0f) {
-            track.playbackParams = PlaybackParams().setPitch(pitch).setSpeed(1.0f)
-        }
-        var offset = 0
-        while (offset < samples.size && shouldContinue()) {
-            val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
-            val length = end - offset
-            if (scratch != null) {
-                for (index in 0 until length) {
-                    scratch[index] = (samples[offset + index] * gain).coerceIn(-1.0f, 1.0f)
-                }
-                track.write(scratch, 0, length, AudioTrack.WRITE_BLOCKING)
-            } else {
-                track.write(samples, offset, length, AudioTrack.WRITE_BLOCKING)
+    var offset = 0
+    while (offset < samples.size && shouldContinue()) {
+        val end = minOf(offset + AUDIO_CHUNK_FLOATS, samples.size)
+        val length = end - offset
+        if (scratch != null) {
+            for (index in 0 until length) {
+                scratch[index] = (samples[offset + index] * gain).coerceIn(-1.0f, 1.0f)
             }
-            offset = end
-        }
-
-        if (shouldContinue()) {
-            // MODE_STREAM stop() is non-blocking. Padding with the hardware latency lets the real
-            // speech tail drain before release() instead of being discarded by the output HAL.
-            val latencyFrames =
-                (sampleRate.toLong() * audioTrackLatencyMs(track).coerceIn(0, 400) / 1000L).toInt()
-            if (latencyFrames > 0 && shouldContinue()) {
-                track.write(FloatArray(latencyFrames), 0, latencyFrames, AudioTrack.WRITE_BLOCKING)
-            }
-            track.stop()
-            while (shouldContinue() && track.playState != AudioTrack.PLAYSTATE_STOPPED) {
-                Thread.sleep(10)
-            }
+            track.write(scratch, 0, length, AudioTrack.WRITE_BLOCKING)
         } else {
-            fadeOutAndDiscard(track)
+            track.write(samples, offset, length, AudioTrack.WRITE_BLOCKING)
         }
-    } finally {
-        onTrackReleased(track)
-        track.release()
+        offset = end
+    }
+}
+
+/**
+ * Lets the queued audio finish: pads the hardware latency with silence, then stops and waits for the track to drain.
+ * Call only while playback should continue; a cut-short track goes to [fadeOutAndDiscard] instead.
+ */
+internal fun drainVoicePcmTrack(track: AudioTrack, shouldContinue: () -> Boolean) {
+    // MODE_STREAM stop() is non-blocking. Padding with the hardware latency lets the real
+    // speech tail drain before release() instead of being discarded by the output HAL.
+    val latencyFrames =
+        (track.sampleRate.toLong() * audioTrackLatencyMs(track).coerceIn(0, 400) / 1000L).toInt()
+    if (latencyFrames > 0 && shouldContinue()) {
+        track.write(FloatArray(latencyFrames), 0, latencyFrames, AudioTrack.WRITE_BLOCKING)
+    }
+    track.stop()
+    while (shouldContinue() && track.playState != AudioTrack.PLAYSTATE_STOPPED) {
+        Thread.sleep(10)
     }
 }
 
@@ -97,7 +121,7 @@ internal fun playVoicePcmOnAudioTrack(
  * at a non-zero level, which the output hears as a crackle. The mixer ramps volume changes, so the
  * queued audio fades to silence over [FADE_OUT_MS] before the buffer is paused and discarded.
  */
-private fun fadeOutAndDiscard(track: AudioTrack) {
+internal fun fadeOutAndDiscard(track: AudioTrack) {
     try {
         track.setVolume(0.0f)
         Thread.sleep(FADE_OUT_MS)

@@ -62,6 +62,12 @@ class VoiceCommandHandler @Inject constructor(
         context: Context,
         route: IntentRoute,
     ) {
+        // A deterministic slot question must open the Actions slot sheet, which owns the SlotReply mic (#2082).
+        if (quickIntentRouter.pendingSlotFor(intentName, params) != null) {
+            Log.d(TAG, "VoiceCommandHandler: in-place $intentName needs a slot → opening ActionsScreen")
+            navigator.navigateToActions(context, transcript)
+            return
+        }
         val directSkill = skillRegistry.get(intentName)
         val (skill, callParams) = when {
             directSkill != null -> directSkill to params

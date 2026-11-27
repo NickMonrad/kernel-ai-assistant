@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.slot
 
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -70,16 +71,24 @@ class SlotFillerManager @Inject constructor(
         conversationId: String,
         message: String,
         validationRegistry: SlotValidationRegistry = this.slotValidationRegistry,
+        now: LocalDateTime = LocalDateTime.now(),
     ): SlotFillResult {
         val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
-        val reminderSchedule = if (pending.intentName == "add_reminder") {
-            parseReminderScheduleReply(message)
+        val reminderReply = if (pending.intentName == "add_reminder") {
+            parseReminderSlotReply(message, pending.missingSlot.name, pending.existingParams, now)
         } else {
-            emptyMap()
+            null
         }
-        if (pending.intentName == "add_reminder" &&
-            pending.missingSlot.name !in reminderSchedule &&
-            reminderSchedule.isNotEmpty()
+        // A reply to the am/pm question that is not an answer asks it again, with an apology; nothing is stored.
+        if (reminderReply?.unanswered == true) {
+            val reask = pending.copy(missingSlot = apologisedTimeOfDayQuestion(pending.missingSlot, pending.existingParams))
+            pendingRequests[conversationId] = reask
+            return SlotFillResult.NeedsMore(reask)
+        }
+        val reminderSchedule = reminderReply?.schedule.orEmpty()
+        if (reminderReply != null &&
+            reminderReply.value == null &&
+            pending.missingSlot.name !in reminderSchedule
         ) {
             val mergedParams = pending.existingParams + reminderSchedule
             val nextMissingSlot = intentContractRegistry.nextMissingSlot(
@@ -96,9 +105,12 @@ class SlotFillerManager @Inject constructor(
                 pendingRequests[conversationId] = nextRequest
                 return SlotFillResult.NeedsMore(nextRequest)
             }
+            // The schedule alone answered the asked slot (e.g. the am/pm question) and nothing else is missing.
+            pendingRequests.remove(conversationId)
+            return SlotFillResult.Completed(pending.intentName, completedSlotParams(mergedParams))
         }
         val normalizedMessage = reminderSchedule[pending.missingSlot.name]
-            ?: normalizeSlotReply(message, pending.missingSlot.name)
+            ?: normalizeSlotReply(reminderReply?.value ?: message, pending.missingSlot.name)
         if (normalizedMessage.isBlank()) {
             pendingRequests.remove(conversationId)
             recoveryConversations.remove(conversationId)
@@ -153,7 +165,7 @@ class SlotFillerManager @Inject constructor(
             pendingRequests.remove(conversationId)
             SlotFillResult.Completed(
                 intentName = pending.intentName,
-                params = mergedParams,
+                params = completedSlotParams(mergedParams),
             )
         }
     }

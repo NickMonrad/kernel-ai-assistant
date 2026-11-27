@@ -1,0 +1,5 @@
+--------- beginning of main
+11-25 19:46:37.816 28040 28040 I KernelAI: WakeWordService: starting wake word detection
+11-25 19:46:37.821 28040 28040 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-25 19:46:37.949 28040 28352 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-25 19:46:37.972 28040 28352 D KernelAI: WakeWordDetector: recording started

@@ -114,7 +114,7 @@ class RunIntentSkill @Inject constructor(
                 RunIntentModelAction("bulk_add_to_list", "items[] (JSON strings), list_name? (defaults to shopping list; creates it if needed)"),
                 RunIntentModelAction("get_list_items", "list_name? (defaults to shopping list)"),
                 RunIntentModelAction("remove_from_list", "item, list_name?"),
-                RunIntentModelAction("add_reminder", "item, day, time"),
+                RunIntentModelAction("add_reminder", "item, time, day? (defaults to the next occurrence of the time)"),
             )),
             RunIntentModelCategory("DATE AND MATH", listOf(
                 RunIntentModelAction("get_date_diff", GET_DATE_DIFF_PARAMETER_HELP),
