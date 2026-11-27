@@ -57,6 +57,13 @@ class PlaceDidYouMeanNzAssetsTest {
     }
 
     @Test
+    fun typoOfMultiWordNzNameIsStillAskedWhenAWordIsALocality() {
+        // "Maunganui" and "Raumati" are LINZ localities on their own; only a whole known place suppresses the question.
+        assertEquals("Did you mean Mount Maunganui?", navigate("navigate to Monut Maunganui", "Monut Maunganui")?.prompt)
+        assertEquals("Did you mean Raumati Beach?", navigate("navigate to Raumati Beah", "Raumati Beah")?.prompt)
+    }
+
+    @Test
     fun addressDetailsSurviveTheYes() {
         assertEquals("navigate to 12 Porirua Street", navigate("navigate to 12 Porirwa Street", "12 Porirwa Street")?.suggestedText)
     }

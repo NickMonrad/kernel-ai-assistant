@@ -128,7 +128,10 @@ internal class PlaceSlotMatcher(
             .filter { it.folded.isNotEmpty() && seen.add(it.folded) }
     }
 
-    /** Folded known-place names (LINZ). A heard window that spells one is never asked about. */
+    /**
+     * Folded known-place names (LINZ). A heard place that spells one in full is never asked about. Only the
+     * whole heard place counts: a known word inside a longer phrase ("Raumati" in "Raumati Beah") does not block.
+     */
     private val knownFolds: Set<String> = knownNames.map { PlaceSpelling.fold(it) }.filter { it.isNotEmpty() }.toHashSet()
 
     /** Candidates, closest first. */
@@ -144,12 +147,12 @@ internal class PlaceSlotMatcher(
      * The NZ name to offer as a suggestion for [heard], or null. Never a rewrite.
      *
      * Competitors take part only when spelling-plausible (spelling within [maxDistance]); a sound-only
-     * match neither wins nor blocks. Any exact match, or any window that spells a known place, gives no
-     * suggestion. When the top two are tied on
-     * distance (within [TIE_EPSILON]), the margin is taken on spelling distance.
+     * match neither wins nor blocks. Any exact match, or a heard place that spells a known locality in full,
+     * gives no suggestion. When the top two are tied on distance (within [TIE_EPSILON]), the margin is taken
+     * on spelling distance.
      */
     fun suggest(heard: String, maxDistance: Double, margin: Double): Scored? {
-        if (windows(heard).any { it.folded in knownFolds }) return null
+        if (PlaceSpelling.fold(heard) in knownFolds) return null
         val ranked = rank(heard).filter { it.nz || it.spelling <= maxDistance }
         if (ranked.any { it.exact }) return null
         val top = ranked.firstOrNull() ?: return null
