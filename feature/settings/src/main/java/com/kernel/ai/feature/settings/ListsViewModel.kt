@@ -383,6 +383,8 @@ class ListsViewModel @Inject constructor(
         val sourceItems: List<ListItemEntity>,
         val activeGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
         val completedGroups: List<EffectiveHierarchyGroup<ListItemEntity>>,
+        /** Ticked sub-items hidden under each unticked parent, keyed by the parent's row id. */
+        val doneChildCounts: Map<Long, Int>,
     )
 
     private val hierarchyFlowCache =
@@ -408,19 +410,27 @@ class ListsViewModel @Inject constructor(
                 )
                 val matching = groups.mapNotNull { group ->
                     val parentMatches = query.isBlank() || group.parent.text.contains(query, true)
-                    val childMatches = group.children.filter { query.isBlank() || it.text.contains(query, true) }
                     val favouriteParent = group.parent.isFavourite
-                    val favouriteChildren = group.children.filter { it.isFavourite }
-                    val children = when {
-                        query.isNotBlank() && !parentMatches -> childMatches
-                        filter == ItemFilter.FAVOURITES_ONLY && !favouriteParent -> favouriteChildren
+                    val candidates = when {
+                        query.isNotBlank() && !parentMatches ->
+                            group.children.filter { it.text.contains(query, true) }
+                        filter == ItemFilter.FAVOURITES_ONLY && !favouriteParent ->
+                            group.children.filter { it.isFavourite }
                         else -> group.children
+                    }
+                    // A ticked sub-item leaves its unticked parent's active list. Only search that
+                    // names the sub-item and the completed-only filter show it under that parent.
+                    val children = when {
+                        group.parent.checked -> candidates
+                        filter == ItemFilter.COMPLETED_ONLY -> candidates.filter { it.checked }
+                        query.isNotBlank() && !parentMatches -> candidates
+                        else -> candidates.filterNot { it.checked }
                     }
                     val filterMatches = when (filter) {
                         ItemFilter.ALL -> true
-                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || favouriteChildren.isNotEmpty()
+                        ItemFilter.FAVOURITES_ONLY -> favouriteParent || group.children.any { it.isFavourite }
                         ItemFilter.ACTIVE_ONLY -> !group.parent.checked
-                        ItemFilter.COMPLETED_ONLY -> group.parent.checked
+                        ItemFilter.COMPLETED_ONLY -> group.parent.checked || children.isNotEmpty()
                     }
                     if (filterMatches && (parentMatches || children.isNotEmpty())) {
                         EffectiveHierarchyGroup(group.parent, children)
@@ -428,15 +438,20 @@ class ListsViewModel @Inject constructor(
                 }
                 val active = groupsForStatus(matching, checked = false, comparator)
                 val completed = groupsForStatus(matching, checked = true, comparator)
+                val doneChildCounts = groups
+                    .filterNot { it.parent.checked }
+                    .associate { group -> group.parent.id to group.children.count { it.checked } }
+                    .filterValues { it > 0 }
                 DisplayedHierarchy(
                     sourceItems = items,
                     activeGroups = active,
                     completedGroups = completed,
+                    doneChildCounts = doneChildCounts,
                 )
             }.stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
-                DisplayedHierarchy(emptyList(), emptyList(), emptyList()),
+                DisplayedHierarchy(emptyList(), emptyList(), emptyList(), emptyMap()),
             )
         }
 

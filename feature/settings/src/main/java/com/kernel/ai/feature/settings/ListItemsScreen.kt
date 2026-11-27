@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -53,6 +55,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
@@ -105,6 +108,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -174,6 +178,54 @@ private fun formatDueDate(dueAt: Long): String {
 
 private fun isOverdue(dueAt: Long, checked: Boolean): Boolean =
     !checked && epochToLocalDate(dueAt).isBefore(LocalDate.now())
+
+private val dueChipFormatter = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM")
+
+private fun formatDueChip(dueAt: Long): String = "Due ${epochToLocalDate(dueAt).format(dueChipFormatter)}"
+
+@Composable
+private fun SubItemRow(
+    child: ListItemEntity,
+    enabled: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = child.checked,
+            onCheckedChange = { onToggle() },
+            enabled = enabled,
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onOpen)
+                .padding(vertical = 4.dp),
+        ) {
+            Text(
+                text = child.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (child.checked) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (child.checked) TextDecoration.LineThrough else null,
+            )
+            child.dueAt?.let { dueAtMs ->
+                val overdue = isOverdue(dueAtMs, child.checked)
+                Text(
+                    text = formatDueDate(dueAtMs),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (overdue) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
 
 // ── Sort / filter label helpers ──────────────────────────────────────────────────────────────────
 
@@ -1077,6 +1129,7 @@ fun ListItemsScreen(
                                                     showDragHandle = hierarchyEditingEnabled,
                                                     containerColor = rowColor,
                                                     showDisclosure = item.itemId in completeParentItemIds,
+                                                    doneChildCount = displayedHierarchy.doneChildCounts[item.id] ?: 0,
                                                     isExpanded = item.itemId !in collapsedParentItemIds,
                                                     onToggleExpanded = {
                                                         val collapse = item.itemId !in collapsedParentItemIds
@@ -1230,17 +1283,25 @@ fun ListItemsScreen(
     }
 
     // ── Edit bottom sheet ────────────────────────────────────────────────────────────────────────
-    editingItem?.let { item ->
+    editingItem?.let { editing ->
+        // The live row, so Save never writes back a stale checked state after sub-item ticks.
+        val item = completeGroups.flatMap { listOf(it.parent) + it.children }
+            .firstOrNull { it.id == editing.id } ?: editing
+        val isSubItem = completeGroups.any { group -> group.children.any { it.id == item.id } }
         ItemDetailsSheet(
             item = item,
             title = "Edit item",
             primaryActionLabel = "Save",
-            canAddSubItem = !isRemoteReadOnly && completeGroups.any { it.parent.id == item.id },
+            canAddSubItem = !isRemoteReadOnly && !isSubItem && !item.checked,
             onAddSubItem = {
                 addSubItemParentId = item.itemId
                 editingItem = null
                 showAddDialog = true
             },
+            subItems = completeGroups.firstOrNull { it.parent.id == item.id }?.children.orEmpty(),
+            interactionsEnabled = !isRemoteReadOnly,
+            onToggleSubItem = { viewModel.toggleChecked(it) },
+            onOpenSubItem = { editingItem = it },
             onSave = { updated ->
                 viewModel.updateItem(updated)
                 editingItem = null
@@ -1687,6 +1748,8 @@ internal fun ListItemRow(
     /** Colour the row paints itself with; callers pass the animated drag/highlight colour. */
     containerColor: Color = ListItemDefaults.containerColor,
     showDisclosure: Boolean = false,
+    /** Ticked sub-items hidden under this unticked parent; surfaced as a "N done" note. */
+    doneChildCount: Int = 0,
     isExpanded: Boolean = true,
     onToggleExpanded: () -> Unit = {},
     onToggle: () -> Unit,
@@ -1808,6 +1871,16 @@ internal fun ListItemRow(
                     onInactiveClick = { if (interactionsEnabled) onSelectToggle() },
                 )
             }
+            if (doneChildCount > 0 && !isMultiSelectMode) {
+                Text(
+                    text = "$doneChildCount done",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable(enabled = interactionsEnabled, onClick = onEdit)
+                        .padding(vertical = 8.dp),
+                )
+            }
             val dueAtMs = item.dueAt
             if (dueAtMs != null) {
                 val overdue = isOverdue(dueAtMs, item.checked)
@@ -1892,6 +1965,11 @@ internal fun ItemDetailsSheet(
     primaryActionLabel: String = "Save",
     canAddSubItem: Boolean,
     onAddSubItem: () -> Unit,
+    /** Complete child set of [item], unticked and ticked alike; empty for sub-items. */
+    subItems: List<ListItemEntity> = emptyList(),
+    interactionsEnabled: Boolean = true,
+    onToggleSubItem: (ListItemEntity) -> Unit = {},
+    onOpenSubItem: (ListItemEntity) -> Unit = {},
     onSave: (ListItemEntity) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -1902,7 +1980,12 @@ internal fun ItemDetailsSheet(
     var isFavourite by remember(item.id) { mutableStateOf(item.isFavourite) }
     var notificationTime by remember(item.id) { mutableStateOf(item.notificationTime) }
     var notifyEnabled by remember(item.id) { mutableStateOf(item.notificationTime != null) }
+    var descriptionFocused by remember { mutableStateOf(false) }
+    var doneExpanded by remember(item.id) { mutableStateOf(true) }
     val descriptionUrls = remember(description) { findListItemUrls(description) }
+    val openSubItems = subItems.filterNot { it.checked }
+    val doneSubItems = subItems.filter { it.checked }
+    val showSubItems = canAddSubItem || subItems.isNotEmpty()
 
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -1914,174 +1997,244 @@ internal fun ItemDetailsSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .imePadding()
                 .padding(horizontal = 24.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Text field
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth().testTag("list_item_details_title"),
-                label = { Text("Item") },
-                minLines = 3,
-                maxLines = 6,
-                singleLine = false,
-            )
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                modifier = Modifier.fillMaxWidth().testTag("list_item_details_description"),
-                label = { Text("Description") },
-                minLines = 3,
-                maxLines = 8,
-                singleLine = false,
-            )
-            DescriptionUrlActions(
-                urls = descriptionUrls,
-                activateLinks = true,
-            )
-
-            if (canAddSubItem) {
-                OutlinedButton(
-                    onClick = onAddSubItem,
-                    modifier = Modifier.fillMaxWidth(),
+            // Header: title on the left, favourite star on the right. Applied on Save.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { isFavourite = !isFavourite },
+                    modifier = Modifier.testTag("list_item_details_favourite"),
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Add sub-item")
+                    Icon(
+                        imageVector = if (isFavourite) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = if (isFavourite) "Remove from favourites" else "Add to favourites",
+                        tint = if (isFavourite) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            // Everything above the footer scrolls; Cancel and Save stay pinned below it.
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().testTag("list_item_details_title"),
+                    label = { Text("Item") },
+                    minLines = 1,
+                    maxLines = 6,
+                )
+
+                // Due date chip directly under the item field.
+                Spacer(modifier = Modifier.height(8.dp))
+                val dueAtMs = dueAt
+                if (dueAtMs == null) {
+                    AssistChip(
+                        onClick = { showDatePicker = true },
+                        label = { Text("Set due date") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Event,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                    )
+                } else {
+                    val overdue = isOverdue(dueAtMs, item.checked)
+                    val tint = if (overdue) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable { showDatePicker = true }
+                                    .padding(start = 12.dp, end = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.Event,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = tint,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = formatDueChip(dueAtMs),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = tint,
+                                )
+                            }
+                            IconButton(onClick = {
+                                dueAt = null
+                                notificationTime = null
+                                notifyEnabled = false
+                            }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear due date")
+                            }
+                        }
+                    }
+                }
+
+                // Notify me row (only when a due date is set)
+                if (dueAt != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (notifyEnabled) Modifier.clickable { showTimePicker = true }
+                                else Modifier
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = if (notifyEnabled) Icons.Default.Notifications
+                            else Icons.Default.NotificationsNone,
+                            contentDescription = null,
+                            tint = if (notifyEnabled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Notify me",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (notifyEnabled && notificationTime != null) {
+                                val notifTime = java.time.Instant.ofEpochMilli(notificationTime!!)
+                                    .atZone(java.time.ZoneId.systemDefault())
+                                    .toLocalTime()
+                                Text(
+                                    text = notifTime.format(
+                                        java.time.format.DateTimeFormatter.ofPattern("HH:mm"),
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = notifyEnabled,
+                            onCheckedChange = { enabled ->
+                                notifyEnabled = enabled
+                                if (enabled) {
+                                    // Default: due-date day at 09:00 local
+                                    val base = dueAt ?: System.currentTimeMillis()
+                                    val localDate = Instant.ofEpochMilli(base)
+                                        .atZone(ZoneId.systemDefault())
+                                        .toLocalDate()
+                                    notificationTime = localDate
+                                        .atTime(9, 0)
+                                        .atZone(ZoneId.systemDefault())
+                                        .toInstant()
+                                        .toEpochMilli()
+                                    showTimePicker = true
+                                } else {
+                                    notificationTime = null
+                                }
+                            },
+                        )
+                    }
+                }
+
+                // Description collapses to one line until focused or filled.
+                Spacer(modifier = Modifier.height(12.dp))
+                val descriptionExpanded = descriptionFocused || description.isNotEmpty()
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { descriptionFocused = it.isFocused }
+                        .testTag("list_item_details_description"),
+                    placeholder = { Text("Add a description") },
+                    minLines = if (descriptionExpanded) 3 else 1,
+                    maxLines = 8,
+                )
+                DescriptionUrlActions(
+                    urls = descriptionUrls,
+                    activateLinks = true,
+                )
+
+                if (showSubItems) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Sub-items · ${openSubItems.size} left",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    openSubItems.forEach { child ->
+                        SubItemRow(
+                            child = child,
+                            enabled = interactionsEnabled,
+                            onToggle = { onToggleSubItem(child) },
+                            onOpen = { onOpenSubItem(child) },
+                        )
+                    }
+                    if (canAddSubItem) {
+                        TextButton(onClick = onAddSubItem) {
+                            Icon(Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add sub-item")
+                        }
+                    }
+                    if (doneSubItems.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .clickable { doneExpanded = !doneExpanded },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Done · ${doneSubItems.size}",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                imageVector = if (doneExpanded) Icons.Default.ExpandLess
+                                else Icons.Default.ExpandMore,
+                                contentDescription = if (doneExpanded) "Collapse done sub-items"
+                                else "Expand done sub-items",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (doneExpanded) {
+                            doneSubItems.forEach { child ->
+                                SubItemRow(
+                                    child = child,
+                                    enabled = interactionsEnabled,
+                                    onToggle = { onToggleSubItem(child) },
+                                    onOpen = { onOpenSubItem(child) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Due date row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.Event,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                if (dueAt != null) {
-                    Text(
-                        text = formatDueDate(dueAt!!),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { showDatePicker = true },
-                    )
-                    IconButton(onClick = {
-                        dueAt = null
-                        notificationTime = null
-                        notifyEnabled = false
-                    }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear due date")
-                    }
-                } else {
-                    TextButton(onClick = { showDatePicker = true }) {
-                        Text("Set due date")
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Favourite switch
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = if (isFavourite) Icons.Default.Star else Icons.Default.StarBorder,
-                    contentDescription = null,
-                    tint = if (isFavourite) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Mark as favourite",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Switch(
-                    modifier = Modifier.testTag("list_item_details_favourite_switch"),
-                    checked = isFavourite,
-                    onCheckedChange = { isFavourite = it },
-                )
-            }
-
-            // Notify me row (only when a due date is set)
-            if (dueAt != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (notifyEnabled) Modifier.clickable { showTimePicker = true }
-                            else Modifier
-                        ),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = if (notifyEnabled) Icons.Default.Notifications
-                        else Icons.Default.NotificationsNone,
-                        contentDescription = null,
-                        tint = if (notifyEnabled) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Notify me",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        if (notifyEnabled && notificationTime != null) {
-                            val notifTime = java.time.Instant.ofEpochMilli(notificationTime!!)
-                                .atZone(java.time.ZoneId.systemDefault())
-                                .toLocalTime()
-                            Text(
-                                text = notifTime.format(
-                                    java.time.format.DateTimeFormatter.ofPattern("HH:mm"),
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = notifyEnabled,
-                        onCheckedChange = { enabled ->
-                            notifyEnabled = enabled
-                            if (enabled) {
-                                // Default: due-date day at 09:00 local
-                                val base = dueAt ?: System.currentTimeMillis()
-                                val localDate = Instant.ofEpochMilli(base)
-                                    .atZone(ZoneId.systemDefault())
-                                    .toLocalDate()
-                                notificationTime = localDate
-                                    .atTime(9, 0)
-                                    .atZone(ZoneId.systemDefault())
-                                    .toInstant()
-                                    .toEpochMilli()
-                                showTimePicker = true
-                            } else {
-                                notificationTime = null
-                            }
-                        },
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Save / Cancel
+            // Save / Cancel stay pinned under the scrolling middle.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

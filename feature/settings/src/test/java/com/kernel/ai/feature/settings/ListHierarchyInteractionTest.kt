@@ -465,6 +465,37 @@ class ListHierarchyInteractionTest {
         assertEquals(listOf(child.id), completeGroups.first().children.map { it.id })
     }
 
+    @Test
+    fun `dropping at the end of a group keeps the dragged child ahead of its ticked sub-items`() {
+        val parent = item(1)
+        val salt = item(2, parentItemId = parent.itemId)
+        val sumac = item(3, parentItemId = parent.itemId, checked = true)
+        val dragged = item(4)
+        val complete = listOf(
+            EffectiveHierarchyGroup(parent, listOf(salt, sumac)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
+        )
+        // The projection hides the ticked sub-item from the active list, so the drag sees only Salt.
+        val visible = complete.map { group -> group.copy(children = group.children.filterNot { it.checked }) }
+
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visible,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ParentRow(parent.id),
+        )
+
+        assertEquals(salt.orderKey, placement?.lowerOrderKey)
+        assertEquals(sumac.orderKey, placement?.upperOrderKey)
+        assertEquals(listOf(2L, 4L, 3L), placement?.resultGroups?.first()?.children?.map { it.id })
+        assertEquals(
+            listOf(2L, 4L),
+            hierarchyGroupsForDragPreview(placement, visible, emptySet(), searchQuery = "")
+                .first().children.map { it.id },
+        )
+    }
+
     private fun item(id: Long, parentItemId: String? = null, checked: Boolean = false) =
         ListItemEntity(
             id = id,
