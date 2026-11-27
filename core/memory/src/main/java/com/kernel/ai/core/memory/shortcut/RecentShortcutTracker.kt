@@ -7,7 +7,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Tracks recently used shortcut IDs.
+ * Tracks recently used shortcut IDs (CI path-filter probe for #2150).
  *
  * Records when a user explicitly opens a shortcut from Tools, drawer, or other
  * deliberate tool-launch surfaces. Does NOT record prompt text, personal data,
