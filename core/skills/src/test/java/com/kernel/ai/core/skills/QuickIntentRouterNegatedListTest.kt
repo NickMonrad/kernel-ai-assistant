@@ -134,4 +134,75 @@ class QuickIntentRouterNegatedListTest {
             assertEquals("get_list_items", match.intent.intentName, "intent for '$input'")
         }
     }
+
+    @Nested
+    @DisplayName("Captures stop only at real sentence ends, so decimals and hyphens survive")
+    inner class SentenceEndCaptures {
+
+        @Test
+        fun `decimal item in add_to_list is kept whole`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("add 2.5 kg flour to my shopping list"))
+            assertEquals("add_to_list", match.intent.intentName)
+            assertEquals("2.5 kg flour", match.intent.params["item"])
+        }
+
+        @Test
+        fun `fraction-normalised item in add_to_list is kept whole`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("add half a cup of sugar to my shopping list"))
+            assertEquals("add_to_list", match.intent.intentName)
+            assertEquals("0.5 cup of sugar", match.intent.params["item"])
+        }
+
+        @Test
+        fun `decimal item in remove_from_list is kept whole`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("remove 1.5L milk from my shopping list"))
+            assertEquals("remove_from_list", match.intent.intentName)
+            assertEquals("1.5L milk", match.intent.params["item"])
+        }
+
+        @Test
+        fun `decimal list name in create_list is kept whole`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("create a list called v2.0 ideas"))
+            assertEquals("create_list", match.intent.intentName)
+            assertEquals("v2.0 ideas", match.intent.params["list_name"])
+        }
+
+        @Test
+        fun `hyphenated item starting with no is not treated as negation`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("add no-sugar jam to my shopping list"))
+            assertEquals("add_to_list", match.intent.intentName)
+            assertEquals("no-sugar jam", match.intent.params["item"])
+        }
+    }
+
+    @Nested
+    @DisplayName("Negation is scoped to its clause, so a comma or colon ends it")
+    inner class ClauseBreaks {
+
+        @ParameterizedTest(name = "add_to_list classifier: \"{0}\" is not vetoed")
+        @ValueSource(strings = ["No worries, add milk to my shopping list", "never mind, add bread to my grocery list"])
+        fun `negation before a clause break does not veto add_to_list`(input: String) {
+            val result = addToListRouter.route(input)
+            assertEquals("add_to_list", intentNameOf(result), "intent for '$input'")
+        }
+    }
+
+    @Nested
+    @DisplayName("\"don't forget\" stays a memory write, not a list write")
+    inner class ForgetIsMemory {
+
+        @Test
+        fun `don't forget to add milk to my list routes to save_memory`() {
+            val match = assertInstanceOf(QuickIntentRouter.RouteResult.RegexMatch::class.java, regexOnlyRouter.route("don't forget to add milk to my list"))
+            assertEquals("save_memory", match.intent.intentName)
+            assertEquals("to add milk to my list", match.intent.params["content"])
+        }
+    }
+
+    private fun intentNameOf(result: QuickIntentRouter.RouteResult): String? = when (result) {
+        is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+        is QuickIntentRouter.RouteResult.ClassifierMatch -> result.intent.intentName
+        is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+        is QuickIntentRouter.RouteResult.FallThrough -> null
+    }
 }
