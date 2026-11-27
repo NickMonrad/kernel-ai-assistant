@@ -77,7 +77,7 @@ internal fun eveningCueBeforeTime(utterance: String, timePhrase: String): Boolea
  * the evening cue), or its hour is not 1 to 11. Digits go through [QuickIntentRouter.parseAlarmTime]
  * so compact times ("7 30") read as 7:30. Spoken hours ("six", "at six") are read when there are no digits.
  */
-internal fun bareHourIn(timePhrase: String): BareHour? {
+internal fun bareHourIn(timePhrase: String, evening: Boolean = hasEveningCue(timePhrase)): BareHour? {
     val cleaned = normalizeSpokenClock(timePhrase.trim().lowercase())
     if (cleaned.isEmpty() || AM_PM.containsMatchIn(cleaned)) return null
     val parsed = QuickIntentRouter.parseAlarmTime(cleaned)
@@ -85,7 +85,7 @@ internal fun bareHourIn(timePhrase: String): BareHour? {
     // "at night" is a day part, except that "tonight at 2 at night" is asked which, like "tonight at 2".
     val dayParts = DAY_PART.findAll(EVENING_CUE.replace(cleaned, " ")).map { it.value }.toList()
     if (dayParts.isNotEmpty()) {
-        val asked = dayParts.all { it == "night" } && hasEveningCue(cleaned) && parsed["hours"]?.toInt() in 1..4
+        val asked = dayParts.all { it == "night" } && evening && parsed["hours"]?.toInt() in 1..4
         if (!asked) return null
     }
 
@@ -149,6 +149,30 @@ private fun nextOccurrence(hour: Int, minute: Int, now: LocalDateTime): Pair<Loc
 internal fun clockText(hour: Int, minute: Int): String = "%02d:%02d".format(hour, minute)
 
 /**
+ * A time with the day part said after its day ("tomorrow evening at 7"), rewritten from the hour so trailing text
+ * cannot hide the day part: "7." or "7 please" still read as pm. Afternoon and evening add 12 to hours 1 to 11, as
+ * [QuickIntentRouter.parseAlarmTime] does; morning keeps hours 1 to 11 as am. "night" adds 12 to hours 5 to 11, and
+ * hours 1 to 4 keep "at night" so [bareHourIn] still asks. A time with am/pm, or an hour that cannot change, is
+ * returned unchanged.
+ */
+internal fun timeWithDayPart(time: String, dayPart: String?): String {
+    if (dayPart == null || AM_PM.containsMatchIn(time)) return time
+    val parsed = QuickIntentRouter.parseAlarmTime(time)
+    val hours = parsed["hours"]?.toInt() ?: return time
+    val minutes = parsed.getValue("minutes").toInt()
+    return when (dayPart.lowercase()) {
+        "morning" -> if (hours in 1..11) "%d:%02d am".format(hours, minutes) else time
+        "afternoon", "evening" -> if (hours in 1..11) "%d:%02d pm".format(hours, minutes) else time
+        "night" -> when (hours) {
+            in 5..11 -> "%d:%02d pm".format(hours, minutes)
+            in 1..4 -> "%d:%02d at night".format(hours, minutes)
+            else -> time
+        }
+        else -> time
+    }
+}
+
+/**
  * Schedule params for a reminder time phrase (#2132, #2146).
  *
  * [QuickIntentRouter.parseAlarmTime] runs first, so its day, label and compact times are kept.
@@ -165,7 +189,7 @@ internal fun reminderScheduleParams(
     val day = dayWord ?: parsed["day"]
     val evening = eveningCue || day == "tonight"
     val sameDay = day == null || day == "today" || day == "tonight"
-    val bare = bareHourIn(timePhrase)
+    val bare = bareHourIn(timePhrase, evening)
     if (bare == null) {
         val hours = parsed["hours"]?.toInt()
         // "tonight at 6 in the morning" / "tonight at 7am": the next time that clock reads, not tonight.
