@@ -1,0 +1,72 @@
+11-26 07:47:06.582 23495 23495 I KernelAI: external_prompt_trust callerUid=-1 trust=DIRECT
+11-26 07:47:06.612 23495 23495 D KernelAI: WakeWordService: already running — ignoring duplicate onStartCommand
+11-26 07:47:06.892 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=executeAction
+11-26 07:47:06.895 23495 23495 D KernelAI: ActionsViewModel: NeedsSlot for "set a timer" → showing slot sheet
+11-26 07:47:06.895 23495 23495 D KernelAI: ActionsViewModel: primePendingSlot intent=set_timer inputMode=Voice missing=duration_seconds delayVoicePrompt=false
+11-26 07:47:06.895 23495 23495 D KernelAI: ADB_SLOT_STATE action=create intent=set_timer missingSlot=duration_seconds existingSlots=[]
+11-26 07:47:06.895 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=primePendingSlot
+11-26 07:47:06.895 23495 23495 D KernelAI: ActionsViewModel: slot prompt="How long would you like the timer for?" autoRearm=true spokenResponsesEnabled=true
+11-26 07:47:07.698 23495 23495 I KernelAI: Inflect Micro TTS selected as active voice output backend.
+11-26 07:47:08.331 23495 23672 I KernelAI: SpeakingStarted engine=inflect chars=38 epochMs=1795643228331
+11-26 07:47:08.332 23495 23495 D KernelAI: ActionsViewModel: slot prompt playback started
+11-26 07:47:08.376 13228 11694 I audio_hw_route: primary_out-set_route_for_playback-1: routes to device(speaker) for usage(media)
+11-26 07:47:10.647 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-26 07:47:11.001 23495 23495 D KernelAI: ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-26 07:47:11.219 23495 23671 I KernelAI: WakeWordService: yielding mic to voice session
+11-26 07:47:11.262 13228 13228 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recognition)
+11-26 07:47:11.340 23495 23671 D KernelAI: WakeWordDetector: stopped
+11-26 07:47:11.344 13228 23964 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:11.344 13228 23964 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recording)
+11-26 07:47:11.441 23495 23495 D KernelAI: ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-26 07:47:13.636 13228 23110 I audio_hw_route: primary_out-set_unroute_for_playback-1: current device(speaker) is still in use by other streams or need_to_skip_unroute
+11-26 07:47:14.572 13228 23110 I audio_hw_route: fast_out-set_unroute_for_playback-1: unroutes to device(speaker) for usage(media)
+11-26 07:47:21.435 13228 23110 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recording)
+11-26 07:47:21.644 23495 23495 D KernelAI: ActionsViewModel: slot-reply voice error — retry 1/2
+11-26 07:47:21.645 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=slotReplyVoiceRetry
+11-26 07:47:21.656 23495 23661 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-26 07:47:21.732 23495 24078 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-26 07:47:21.758 23495 24078 D KernelAI: WakeWordDetector: recording started
+11-26 07:47:21.762 13228 24081 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:21.762 13228 24081 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recognition)
+11-26 07:47:23.430 23495 23661 I KernelAI: SpeakingStarted engine=inflect chars=66 epochMs=1795643243429
+11-26 07:47:23.432 23495 23495 D KernelAI: ActionsViewModel: slot prompt playback started
+11-26 07:47:23.468 13228 11694 I audio_hw_route: primary_out-set_route_for_playback-1: routes to device(speaker) for usage(media)
+11-26 07:47:27.415 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-26 07:47:27.768 23495 23495 D KernelAI: ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-26 07:47:27.923 23495 23661 I KernelAI: WakeWordService: yielding mic to voice session
+11-26 07:47:27.948 13228 23110 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recognition)
+11-26 07:47:27.994 23495 23661 D KernelAI: WakeWordDetector: stopped
+11-26 07:47:28.010 13228 24124 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:28.010 13228 24124 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recording)
+11-26 07:47:28.093 23495 23495 D KernelAI: ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-26 07:47:30.407 13228 23110 I audio_hw_route: primary_out-set_unroute_for_playback-1: current device(speaker) is still in use by other streams or need_to_skip_unroute
+11-26 07:47:31.219 13228 23110 I audio_hw_route: fast_out-set_unroute_for_playback-1: unroutes to device(speaker) for usage(media)
+11-26 07:47:38.096 13228 23110 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recording)
+11-26 07:47:38.280 23495 23495 D KernelAI: ActionsViewModel: slot-reply voice error — retry 2/2
+11-26 07:47:38.281 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=true reason=slotReplyVoiceRetry
+11-26 07:47:38.291 23495 23696 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-26 07:47:38.368 23495 24128 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-26 07:47:38.400 13228 24131 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:38.400 13228 24131 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recognition)
+11-26 07:47:38.401 23495 24128 D KernelAI: WakeWordDetector: recording started
+11-26 07:47:40.221 23495 23666 I KernelAI: SpeakingStarted engine=inflect chars=66 epochMs=1795643260221
+11-26 07:47:40.223 23495 23495 D KernelAI: ActionsViewModel: slot prompt playback started
+11-26 07:47:40.284 13228 11694 I audio_hw_route: primary_out-set_route_for_playback-1: routes to device(speaker) for usage(media)
+11-26 07:47:44.268 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=voiceOutputSpeakingStopped
+11-26 07:47:44.620 23495 23495 D KernelAI: ActionsViewModel: startVoiceCapture mode=SlotReply userInitiated=false interruptPlayback=false pendingSlot=true
+11-26 07:47:44.775 23495 23666 I KernelAI: WakeWordService: yielding mic to voice session
+11-26 07:47:44.790 13228 23110 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recognition)
+11-26 07:47:44.856 23495 23666 D KernelAI: WakeWordDetector: stopped
+11-26 07:47:44.870 13228 24228 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:44.870 13228 24228 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recording)
+11-26 07:47:44.944 23495 23495 D KernelAI: ActionsViewModel: voiceInputController.startListening started mode=SlotReply
+11-26 07:47:47.260 13228 23110 I audio_hw_route: primary_out-set_unroute_for_playback-1: current device(speaker) is still in use by other streams or need_to_skip_unroute
+11-26 07:47:48.064 13228 23110 I audio_hw_route: fast_out-set_unroute_for_playback-1: unroutes to device(speaker) for usage(media)
+11-26 07:47:54.942 13228 23110 I audio_hw_route: primary_in-set_unroute_for_capture-3: unroutes to device(mic) for usage(recording)
+11-26 07:47:55.146 23495 23495 D KernelAI: ActionsViewModel: slot-reply voice error — no retry (handedOff=false), waiting for manual input
+11-26 07:47:55.146 23495 23495 D KernelAI: ActionsViewModel: setSlotReplyAutoRearmArmed armed=false reason=slotReplyVoiceRetryExhausted
+11-26 07:47:55.152 23495 23666 I KernelAI: WakeWordDetector: starting 3-stage ONNX pipeline — highThreshold=0.65 lowThreshold=0.5 (STT verification active)
+11-26 07:47:55.218 23495 24242 I KernelAI: WakeWordDetector: models loaded (embedding provider=session_created_nnapi_requested_assignment_unverified; mel+classifier: CPU)
+11-26 07:47:55.238 23495 24242 D KernelAI: WakeWordDetector: recording started
+11-26 07:47:55.239 13228 24245 I audio_hw_route: primary_in-adev_set_route_callstream: before acquiring in lock
+11-26 07:47:55.239 13228 24245 I audio_hw_route: primary_in-set_route_for_capture-3: routes to device(mic) for usage(recognition)

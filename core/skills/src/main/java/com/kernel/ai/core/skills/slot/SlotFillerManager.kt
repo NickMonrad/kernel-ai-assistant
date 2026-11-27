@@ -72,14 +72,15 @@ class SlotFillerManager @Inject constructor(
         validationRegistry: SlotValidationRegistry = this.slotValidationRegistry,
     ): SlotFillResult {
         val pending = pendingRequests[conversationId] ?: return SlotFillResult.Cancelled
-        val reminderSchedule = if (pending.intentName == "add_reminder") {
-            parseReminderScheduleReply(message)
+        val reminderReply = if (pending.intentName == "add_reminder") {
+            parseReminderSlotReply(message, pending.missingSlot.name)
         } else {
-            emptyMap()
+            null
         }
-        if (pending.intentName == "add_reminder" &&
-            pending.missingSlot.name !in reminderSchedule &&
-            reminderSchedule.isNotEmpty()
+        val reminderSchedule = reminderReply?.schedule.orEmpty()
+        if (reminderReply != null &&
+            reminderReply.value == null &&
+            pending.missingSlot.name !in reminderSchedule
         ) {
             val mergedParams = pending.existingParams + reminderSchedule
             val nextMissingSlot = intentContractRegistry.nextMissingSlot(
@@ -98,7 +99,7 @@ class SlotFillerManager @Inject constructor(
             }
         }
         val normalizedMessage = reminderSchedule[pending.missingSlot.name]
-            ?: normalizeSlotReply(message, pending.missingSlot.name)
+            ?: normalizeSlotReply(reminderReply?.value ?: message, pending.missingSlot.name)
         if (normalizedMessage.isBlank()) {
             pendingRequests.remove(conversationId)
             recoveryConversations.remove(conversationId)
