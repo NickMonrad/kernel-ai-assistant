@@ -190,6 +190,8 @@ object InflectMicroTextFrontend {
         value = value.replace("flʊɹɹˈɛsənt", "flʊˈɹɛsənt")
         value = value.replace("θˈaʊzənd", "θˈaʊzˌænd")
         value = value.replace("mˈɪliən", "mˈɪljən")
+        // eSpeak reads the split "nine teen" with a stress on both halves; "nineteen" is naɪntˈiːn (#2118 owner pick).
+        value = value.replace(Regex("(?<!\\S)nˈaɪn tˈiːn(?!\\S)"), "naɪntˈiːn")
         return value.replace(whitespace, " ").trim()
     }
 

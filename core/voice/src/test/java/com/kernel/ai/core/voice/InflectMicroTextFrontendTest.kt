@@ -487,4 +487,45 @@ class InflectMicroTextFrontendTest {
         assertEquals(1, phonemizeCalls)
         assertTrue(first.text.startsWith("Sentence 1"))
     }
+
+    @Test
+    fun applyPhonemeOverrides_joins_nineteen_with_stress_on_teen() {
+        assertEquals(
+            "naɪntˈiːn θˈaʊzˌænd pˈiːpəl",
+            InflectMicroTextFrontend.applyPhonemeOverrides("nˈaɪn tˈiːn θˈaʊzənd pˈiːpəl"),
+        )
+    }
+
+    @Test
+    fun applyPhonemeOverrides_joins_nineteen_in_year_reading() {
+        assertEquals(
+            "ɪn naɪntˈiːn nˈaɪnti nˈaɪn",
+            InflectMicroTextFrontend.applyPhonemeOverrides("ɪn nˈaɪn tˈiːn nˈaɪnti nˈaɪn"),
+        )
+    }
+
+    @Test
+    fun applyPhonemeOverrides_leaves_other_split_teens_unchanged() {
+        assertEquals(
+            "fˈɪf tˈiːn sˈɛvən tˈiːn",
+            InflectMicroTextFrontend.applyPhonemeOverrides("fˈɪf tˈiːn sˈɛvən tˈiːn"),
+        )
+    }
+
+    @Test
+    fun nineteen_reaches_joined_phonemes_through_normalize_speech_chunks_and_phonemize() {
+        val fakeEspeak = mapOf(
+            "nine teen thousand people" to "nˈaɪn tˈiːn θˈaʊzənd pˈiːpəl",
+            "It happened in nine teen ninety nine." to "ɪt hˈæpənd ɪn nˈaɪn tˈiːn nˈaɪnti nˈaɪn.",
+        )
+        val people = InflectMicroTextFrontend.phonemizeChunks(
+            InflectMicroTextFrontend.normalize("nineteen thousand people"),
+        ) { text -> InflectMicroTextFrontend.applyPhonemeOverrides(fakeEspeak.getValue(text)) }
+        assertEquals(listOf("naɪntˈiːn θˈaʊzˌænd pˈiːpəl"), people.map { it.phonemes })
+
+        val year = InflectMicroTextFrontend.phonemizeChunks(
+            InflectMicroTextFrontend.normalize("It happened in 1999."),
+        ) { text -> InflectMicroTextFrontend.applyPhonemeOverrides(fakeEspeak.getValue(text)) }
+        assertEquals(listOf("ɪt hˈæpənd ɪn naɪntˈiːn nˈaɪnti nˈaɪn."), year.map { it.phonemes })
+    }
 }
