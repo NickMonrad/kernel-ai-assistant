@@ -179,6 +179,33 @@ object InflectMicroTextFrontend {
         ).asSequence()
     }
 
+    /**
+     * Lazy synthesis units for one raw reply: speakable text, normalized, speech chunks, then phonemized pieces in
+     * order. A part that cannot be normalized or phonemized goes to [onSkip] and the rest of the text still yields
+     * (the reply stream's failure contract).
+     */
+    fun speechPieces(
+        rawText: String,
+        onSkip: (Exception) -> Unit,
+        phonemize: (String) -> String,
+    ): Sequence<PhonemizedChunk> = sequence {
+        val normalized = try {
+            normalize(SpeechCardText.speakable(rawText))
+        } catch (error: Exception) {
+            onSkip(error)
+            return@sequence
+        }
+        for (speechChunk in speechChunks(normalized)) {
+            val pieces = try {
+                phonemizeChunks(speechChunk, phonemize = phonemize)
+            } catch (error: Exception) {
+                onSkip(error)
+                continue
+            }
+            yieldAll(pieces)
+        }
+    }
+
     private fun boundedPieces(sentence: String, maxChunkChars: Int): List<String> {
         if (sentence.length <= maxChunkChars) return listOf(sentence)
         return sentence.split(clauseBoundary).flatMap { clause ->
