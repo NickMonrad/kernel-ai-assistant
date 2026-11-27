@@ -76,6 +76,31 @@ class KokoroVoiceOutputController @Inject constructor(
         }
     }
 
+    /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
+    suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
+        val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+        synthesisLock.withLock {
+            val preparation = prepare(voice)
+            val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
+                ?: return@withLock KokoroSpeedResult.Unavailable(
+                    (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
+                )
+            try {
+                measureKokoroSpeed(
+                    text = KOKORO_SPEED_TEST_TEXT,
+                    splitText = { text -> loaded.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)) },
+                    synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
+                    sampleRate = KokoroTts.SAMPLE_RATE_HZ,
+                    peakMemoryMb = ::readPeakMemoryMb,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                KokoroSpeedResult.Unavailable("Kokoro speed test failed: ${error.message}")
+            }
+        }
+    }
+
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
         openReply(request, speakRemainder = null)
 

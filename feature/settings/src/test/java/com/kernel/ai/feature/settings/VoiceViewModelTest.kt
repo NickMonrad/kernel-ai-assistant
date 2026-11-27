@@ -16,6 +16,9 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.Asr4allSwitchFailure
@@ -107,6 +110,7 @@ class VoiceViewModelTest {
         )
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
     private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
@@ -159,6 +163,7 @@ class VoiceViewModelTest {
         hardwareProfileDetector,
         context,
         sherpaVoiceOutputController,
+        kokoroVoiceOutputController,
         piperVoiceSetup,
         asr4allSizeSwitcher,
         termsAcceptancePreferences,
@@ -311,6 +316,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -345,6 +351,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -379,6 +386,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -486,6 +494,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -521,6 +530,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -531,6 +541,43 @@ class VoiceViewModelTest {
             listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
             releaseViewModel.uiState.value.availableOutputEngines,
         )
+    }
+
+    @Test
+    fun `kokoro is not selected when the phone would stutter and the previous engine stays`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
+            audioSeconds = 4.0,
+            synthesisSeconds = 4.4,
+            firstChunkSeconds = 1.2,
+            peakMemoryMb = 1_300L,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        val done = viewModel.uiState.value.kokoroSpeed as KokoroSpeedUiState.Done
+        assertTrue(done.lines.last().startsWith("Kokoro not selected: speech would stutter"))
+    }
+
+    @Test
+    fun `kokoro is selected once the phone keeps up with playback`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
+            audioSeconds = 4.0,
+            synthesisSeconds = 2.0,
+            firstChunkSeconds = 0.8,
+            peakMemoryMb = 1_300L,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.KokoroExperimental, viewModel.uiState.value.selectedOutputEngine)
     }
 
     @Test
@@ -548,6 +595,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -907,6 +955,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -958,6 +1007,7 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
+            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,

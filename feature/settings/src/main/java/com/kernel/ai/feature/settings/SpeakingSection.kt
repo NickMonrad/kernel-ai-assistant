@@ -106,6 +106,7 @@ internal fun SpeakingSection(
     onDownloadKokoroPack: () -> Unit,
     onCancelKokoroPack: () -> Unit,
     onDeleteKokoroPack: () -> Unit,
+    onTestKokoroSpeed: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit,
     onCancelInflectMicro: () -> Unit,
     onDeleteInflectMicro: () -> Unit,
@@ -370,11 +371,20 @@ internal fun SpeakingSection(
                             extraLine = when {
                                 downloading != null -> "Downloading ${(downloading.progress.coerceIn(0f, 1f) * 100).toInt()}%"
                                 failed -> "Download failed. Tap Retry."
-                                kokoroSelected && !ready -> "Selected. Download the pack first; the phone's voice speaks until then."
+                                kokoroSelected && !ready -> "Selected. Download the pack first; other voices speak until then."
                                 else -> null
                             },
                             subContent = {
                                 TermsOfUseLinkWithSheet()
+                                if (ready) {
+                                    OutlinedButton(
+                                        onClick = onTestKokoroSpeed,
+                                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Running,
+                                        colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Test Kokoro voice speed" },
+                                    ) { Text("Test voice speed") }
+                                    KokoroSpeedPanel(uiState.kokoroSpeed)
+                                }
                                 if (kokoroSelected) {
                                     when {
                                         downloading != null -> OutlinedButton(
@@ -503,6 +513,23 @@ private fun KokoroVoicePicker(
                     text = "${voice.displayName}: ${voice.description}",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun KokoroSpeedPanel(state: KokoroSpeedUiState) {
+    when (state) {
+        KokoroSpeedUiState.Idle -> Unit
+        KokoroSpeedUiState.Running -> Text(
+            text = "Testing voice speed…",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        is KokoroSpeedUiState.Done -> Column(modifier = Modifier.fillMaxWidth()) {
+            state.lines.forEach { line ->
+                Text(text = line, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
