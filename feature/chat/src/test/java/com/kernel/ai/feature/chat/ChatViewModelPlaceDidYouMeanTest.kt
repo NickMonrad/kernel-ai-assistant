@@ -329,19 +329,25 @@ class ChatViewModelPlaceDidYouMeanTest {
 
     @Test
     fun `hung matcher gives the normal path, not silence`() = runTest(dispatcher) {
-        // Blocks on a real thread; the real-time bound (PlaceDidYouMeanConfig.TIMEOUT_MS, 3 s) fires first.
+        // Blocks on a real thread until released; the real-time bound (PlaceDidYouMeanConfig.TIMEOUT_MS, 3 s) fires first.
+        // Released in finally so no matcher thread outlives the test.
+        val release = java.util.concurrent.CountDownLatch(1)
         every { suggester.suggest("Porirwa") } answers {
-            Thread.sleep(5_000)
+            release.await(15, java.util.concurrent.TimeUnit.SECONDS)
             "Porirua"
         }
-        val vm = createViewModel()
-        advanceUntilIdle()
+        try {
+            val vm = createViewModel()
+            advanceUntilIdle()
 
-        send(vm, "navigate to Porirwa")
-        awaitConversation(vm, "Navigating.", timeoutMs = 10_000)
+            send(vm, "navigate to Porirwa")
+            awaitConversation(vm, "Navigating.", timeoutMs = 10_000)
 
-        assertEquals(listOf<Any?>("Porirwa"), destinations())
-        assertFalse(vm.getConversationAsText().contains("Did you mean"))
+            assertEquals(listOf<Any?>("Porirwa"), destinations())
+            assertFalse(vm.getConversationAsText().contains("Did you mean"))
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test
