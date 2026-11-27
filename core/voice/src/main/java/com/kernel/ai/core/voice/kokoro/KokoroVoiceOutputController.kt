@@ -62,8 +62,9 @@ class KokoroVoiceOutputController @Inject constructor(
     @Volatile private var engineVoice: KokoroVoice? = null
     @Volatile private var audioFocusRequest: AudioFocusRequest? = null
     @Volatile private var latestTiming: KokoroReplyTiming? = null
+    @Volatile private var latestGeneration = -1L
     private val speakingStopGate = SpeakingStopGate()
-    private val activeReply = AtomicReference<VoiceReplyStream<String>?>(null)
+    private val activeReply = AtomicReference<KokoroReplySession?>(null)
     private val playbackScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val sink = AudioTrackVoicePcmSink()
     private val hooks = ControllerHooks()
@@ -76,11 +77,27 @@ class KokoroVoiceOutputController @Inject constructor(
     }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =
-        openReply(request)
+        openReply(request, speakRemainder = null)
 
-    override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult = withContext(Dispatchers.IO) {
+    /**
+     * Streams a reply. If a chunk fails after audio has queued, the unspoken rest goes to [speakRemainder] (Inflect
+     * Micro) once Kokoro's audio ends. With nothing queued, the append returns Unavailable and the caller speaks it all.
+     */
+    suspend fun openStreamingSessionWithRemainder(
+        request: VoiceSpeakRequest,
+        speakRemainder: suspend (String) -> VoiceOutputResult,
+    ): VoiceOutputStreamingSession = openReply(request, speakRemainder)
+
+    override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
+        speakWithRemainder(request, speakRemainder = null)
+
+    /** Speaks [request] with Kokoro; the hand-off rule is described on [openStreamingSessionWithRemainder]. */
+    suspend fun speakWithRemainder(
+        request: VoiceSpeakRequest,
+        speakRemainder: (suspend (String) -> VoiceOutputResult)?,
+    ): VoiceOutputResult = withContext(Dispatchers.IO) {
         if (request.text.isBlank()) return@withContext VoiceOutputResult.Spoken
-        val reply = openReply(request)
+        val reply = openReply(request, speakRemainder)
         try {
             val appended = reply.append(request.text, isFinal = true)
             reply.awaitPlayback()
@@ -93,7 +110,10 @@ class KokoroVoiceOutputController @Inject constructor(
     }
 
     /** Stops any reply still playing, then prepares a new one. Only the newest reply may emit audio. */
-    private suspend fun openReply(request: VoiceSpeakRequest): VoiceReplyStream<String> = withContext(Dispatchers.IO) {
+    private suspend fun openReply(
+        request: VoiceSpeakRequest,
+        speakRemainder: (suspend (String) -> VoiceOutputResult)?,
+    ): KokoroReplySession = withContext(Dispatchers.IO) {
         val timing = KokoroReplyTiming(replyIds.incrementAndGet())
         timing.mark("open", "chars=${request.text.length}")
         openLock.withLock {
@@ -112,27 +132,28 @@ class KokoroVoiceOutputController @Inject constructor(
                 ?: if (loaded == null) VoiceOutputResult.Unavailable("Kokoro engine is not initialized.") else null
             // Every Kokoro-unavailable reply falls back to Inflect; log the reason so a silent fallback is diagnosable.
             unavailable?.let { Log.w(TAG, "Kokoro reply falls back: ${it.message}") }
-            val reply = VoiceReplyStream(
+            val handoff = KokoroHandoff()
+            val stream: VoiceReplyStream<KokoroUnit> = VoiceReplyStream(
                 engine = "Kokoro",
                 spokenText = request.text,
                 generation = generation,
                 isCurrent = { isCurrent(generation) },
                 unavailable = unavailable,
-                chunker = { text, onSkip ->
-                    // Phonemizing failures reach onSkip; the final append reports them so the fallback speaks once.
-                    val chunks = try {
+                // Each sentence is phonemized on its own, so a failing one leaves exactly its unspoken text (#2117).
+                chunker = { text, _ ->
+                    kokoroSentenceUnits(text, handoff) { sentence ->
                         val started = System.currentTimeMillis()
-                        loaded?.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)).orEmpty().also {
+                        loaded?.splitText(KokoroTextFrontend.phonemizerInput(sentence, voice.locale)).orEmpty().also {
                             val splitMs = System.currentTimeMillis() - started
-                            timing.mark("split", "chars=${text.length} chunks=${it.size} splitMs=$splitMs")
+                            timing.mark("split", "chars=${sentence.length} chunks=${it.size} splitMs=$splitMs")
                         }
-                    } catch (error: Exception) {
-                        onSkip(error)
-                        emptyList()
                     }
-                    chunks.asSequence()
                 },
-                synthesize = { chunk -> loaded?.let { synthesizeChunk(it, chunk, generation, timing) } },
+                synthesize = { unit ->
+                    handoff.synthesizeOrHandOff(unit) { chunk ->
+                        loaded?.let { synthesizeChunk(it, chunk, generation, timing) }
+                    }
+                },
                 sink = timing.timed(sink),
                 sampleRate = KokoroTts.SAMPLE_RATE_HZ,
                 hooks = hooks,
@@ -140,7 +161,17 @@ class KokoroVoiceOutputController @Inject constructor(
                 pitch = pitch,
                 scope = playbackScope,
             )
+            val reply = KokoroReplySession(
+                stream = stream,
+                handoff = handoff,
+                timing = timing,
+                voice = voice.name,
+                isCurrent = { isCurrent(generation) },
+                speakRemainder = speakRemainder,
+                scope = playbackScope,
+            )
             latestTiming = timing
+            latestGeneration = generation
             activeReply.getAndSet(reply)?.abort()
             reply
         }
@@ -172,6 +203,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 val synthMs = System.currentTimeMillis() - started
                 val audioMs = audio.size * 1000L / KokoroTts.SAMPLE_RATE_HZ
                 val rtf = synthMs.toDouble() / audioMs.coerceAtLeast(1L)
+                timing.recordRtf(rtf)
                 timing.mark(
                     "synth",
                     "chars=${chunk.length} lockWaitMs=${started - requested} synthMs=$synthMs audioMs=$audioMs " +
@@ -271,7 +303,7 @@ class KokoroVoiceOutputController @Inject constructor(
 
     private inner class ControllerHooks : VoiceReplyHooks {
         override fun onPlaybackStarting(generation: Long, text: String) {
-            latestTiming?.mark("playbackStarting")
+            if (generation == latestGeneration) latestTiming?.playbackStarting()
             requestAudioFocus()
             VoiceOutputTrace.speakingStarted("kokoro", text)
             VoiceOutputTrace.logSpeakingStarted("kokoro", text.length)

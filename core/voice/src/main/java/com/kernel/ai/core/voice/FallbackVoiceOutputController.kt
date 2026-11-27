@@ -166,8 +166,13 @@ class FallbackVoiceOutputController @Inject constructor(
         val result = kokoro.warmUp()
         if (result !is VoiceOutputResult.Unavailable) {
             activate(kokoro)
-            val spoken = kokoro.speak(request)
-            if (spoken !is VoiceOutputResult.Unavailable) return spoken
+            var handedOff = false
+            val spoken = kokoro.speakWithRemainder(request) { text ->
+                handedOff = true
+                speakWithInflectOrAndroid(request.copy(text = text))
+            }
+            // Once Kokoro has played audio, a hand-off's result stands: speaking the whole reply again would repeat it.
+            if (handedOff || spoken !is VoiceOutputResult.Unavailable) return spoken
         }
         return speakWithInflectOrAndroid(request)
     }
@@ -193,16 +198,23 @@ class FallbackVoiceOutputController @Inject constructor(
         val result = kokoro.warmUp()
         if (result !is VoiceOutputResult.Unavailable) {
             activate(kokoro)
-            val kokoroSession = recordedStreamSession(engine, kokoro, kokoro.openStreamingSession(request))
+            val kokoroSession = recordedStreamSession(
+                engine,
+                kokoro,
+                kokoro.openStreamingSessionWithRemainder(request) { text ->
+                    speakWithInflectOrAndroid(request.copy(text = text))
+                },
+            )
             return kokoroStreamWithInflectFallback(request, kokoroSession)
         }
         return openInflectStreamingSessionOrFallback(request, VoiceOutputEngine.InflectMicroExperimental)
     }
 
     /**
-     * Kokoro reports a failed reply only on the final append, and only when none of the reply's audio was queued
-     * (VoiceReplyStream). Its buffered text is therefore unplayed: Inflect Micro speaks it whole, and Android TTS is
-     * used only if Inflect Micro is unavailable too (#2117). A chunk the engine skips mid-reply is not a fallback trigger.
+     * Kokoro reports a reply it could not start only on the final append, and only when none of its audio was queued
+     * (VoiceReplyStream). Its buffered text is then unplayed: Inflect Micro speaks it whole, and Android TTS is used only
+     * if Inflect Micro is unavailable too (#2117). A chunk that fails after audio has queued hands the rest of the reply
+     * to Inflect Micro inside the Kokoro session, so this wrapper never re-speaks it.
      */
     private fun kokoroStreamWithInflectFallback(
         request: VoiceSpeakRequest,

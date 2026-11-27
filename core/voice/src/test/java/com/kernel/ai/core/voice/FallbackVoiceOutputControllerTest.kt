@@ -137,14 +137,14 @@ class FallbackVoiceOutputControllerTest {
         selectedEngine.value = VoiceOutputEngine.KokoroExperimental
         val request = VoiceSpeakRequest("Kokoro regression")
         coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
-        coEvery { kokoro.speak(request) } returns VoiceOutputResult.Spoken
+        coEvery { kokoro.speakWithRemainder(request, any()) } returns VoiceOutputResult.Spoken
 
         val controller = buildController()
         val result = controller.speak(request)
 
         assertEquals(VoiceOutputResult.Spoken, result)
         coVerify(exactly = 1) { kokoro.warmUp() }
-        coVerify(exactly = 1) { kokoro.speak(request) }
+        coVerify(exactly = 1) { kokoro.speakWithRemainder(request, any()) }
         coVerify(exactly = 0) { sherpa.speak(any()) }
         coVerify(exactly = 0) { inflect.speak(any()) }
         coVerify(exactly = 0) { androidTts.speak(any()) }
@@ -504,7 +504,7 @@ class FallbackVoiceOutputControllerTest {
             val kokoroSession = mockk<VoiceOutputStreamingSession>()
             val fullText = "The sky appears blue due to Rayleigh scattering."
             coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
-            coEvery { kokoro.openStreamingSession(request) } returns kokoroSession
+            coEvery { kokoro.openStreamingSessionWithRemainder(request, any()) } returns kokoroSession
             coEvery { kokoroSession.append("The sky appears blue due to ", false) } returns VoiceOutputResult.Spoken
             coEvery { kokoroSession.append("Rayleigh scattering.", true) } returns
                 VoiceOutputResult.Unavailable("Kokoro synthesis failed")
@@ -530,7 +530,7 @@ class FallbackVoiceOutputControllerTest {
             val request = VoiceSpeakRequest(text = "")
             val kokoroSession = mockk<VoiceOutputStreamingSession>()
             coEvery { kokoro.warmUp() } returns VoiceOutputResult.Spoken
-            coEvery { kokoro.openStreamingSession(request) } returns kokoroSession
+            coEvery { kokoro.openStreamingSessionWithRemainder(request, any()) } returns kokoroSession
             coEvery { kokoroSession.append("Kia ora.", true) } returns
                 VoiceOutputResult.Unavailable("Kokoro synthesis failed")
             coEvery { inflect.warmUp() } returns VoiceOutputResult.Unavailable("Inflect model missing")
