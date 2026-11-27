@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -46,7 +47,7 @@ class JsSkillRunner @Inject constructor(
     @SuppressLint("SetJavaScriptEnabled")
     suspend fun execute(skillName: String, args: Map<String, String>): String =
         withContext(Dispatchers.Main) {
-            val deferred = CompletableDeferred<String>()
+            val call = JsSkillCall(skillName)
             val webView = WebView(context)
             try {
                 webView.settings.apply {
@@ -57,7 +58,7 @@ class JsSkillRunner @Inject constructor(
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     cacheMode = WebSettings.LOAD_NO_CACHE
                 }
-                webView.addJavascriptInterface(ResultBridge(deferred), BRIDGE_NAME)
+                webView.addJavascriptInterface(ResultBridge(call), BRIDGE_NAME)
 
                 val argsJson = JSONObject(args as Map<*, *>).toString()
 
@@ -65,7 +66,7 @@ class JsSkillRunner @Inject constructor(
                     private var callInjected = false
 
                     override fun onPageFinished(view: WebView, url: String) {
-                        if (callInjected || deferred.isCompleted || url == "about:blank") return
+                        if (callInjected || call.isCompleted || url == "about:blank") return
                         callInjected = true
                         val js = """
                             (async () => {
@@ -85,38 +86,92 @@ class JsSkillRunner @Inject constructor(
                         request: WebResourceRequest?,
                         error: WebResourceError?,
                     ) {
-                        if (!deferred.isCompleted) {
-                            deferred.completeExceptionally(
-                                Exception("WebView load error: ${error?.description}")
-                            )
-                        }
+                        call.fail(Exception("WebView load error: ${error?.description}"))
                     }
+
+                    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean =
+                        call.onRendererGone(
+                            didCrash = detail.didCrash(),
+                            rendererPriority = detail.rendererPriorityAtExit(),
+                            destroy = { view.destroy() },
+                        )
                 }
 
                 webView.loadUrl("file:///android_asset/skills/$skillName/index.html")
                 Log.d(TAG, "JsSkillRunner: loading skill=$skillName args=$args")
 
-                withTimeoutOrNull(TIMEOUT_MS) { deferred.await() }
+                withTimeoutOrNull(TIMEOUT_MS) { call.await() }
                     ?: throw Exception("JS skill '$skillName' timed out after ${TIMEOUT_MS / 1000}s")
             } finally {
-                webView.destroy()
+                call.destroyWebView { webView.destroy() }
             }
         }
 
-    private class ResultBridge(private val deferred: CompletableDeferred<String>) {
+    private class ResultBridge(private val call: JsSkillCall) {
         @JavascriptInterface
         fun onResult(jsonResult: String) {
-            if (deferred.isCompleted) return
+            if (call.isCompleted) return
             try {
                 val obj = JSONObject(jsonResult)
                 if (obj.optBoolean("success", false)) {
-                    deferred.complete(obj.optString("result", ""))
+                    call.succeed(obj.optString("result", ""))
                 } else {
-                    deferred.completeExceptionally(Exception(obj.optString("error", "Unknown JS error")))
+                    call.fail(Exception(obj.optString("error", "Unknown JS error")))
                 }
             } catch (e: Exception) {
-                deferred.completeExceptionally(e)
+                call.fail(e)
             }
         }
     }
 }
+
+/**
+ * One `JsSkillRunner.execute` call. Owns the pending result and guarantees it completes once:
+ * later bridge results, load errors, or renderer-gone callbacks are ignored after the first.
+ * Kept free of WebView types so the completion rules are unit-testable on the JVM.
+ */
+internal class JsSkillCall(private val skillName: String) {
+    private val deferred = CompletableDeferred<String>()
+    private var webViewDestroyed = false
+
+    val isCompleted: Boolean get() = deferred.isCompleted
+
+    suspend fun await(): String = deferred.await()
+
+    /** Returns false if the call already completed. */
+    fun succeed(result: String): Boolean = deferred.complete(result)
+
+    /** Returns false if the call already completed. */
+    fun fail(error: Throwable): Boolean = deferred.completeExceptionally(error)
+
+    /**
+     * The WebView renderer was killed (for example by lmkd). Fails the call once with
+     * [JsSkillRendererGoneException], destroys the WebView, and returns true so the
+     * default crash-the-app behaviour (returning false) does not apply.
+     */
+    fun onRendererGone(
+        didCrash: Boolean,
+        rendererPriority: Int,
+        destroy: () -> Unit,
+    ): Boolean {
+        Log.w(
+            TAG,
+            "JsSkillRunner: renderer gone skill=$skillName didCrash=$didCrash " +
+                "rendererPriorityAtExit=$rendererPriority alreadyCompleted=${deferred.isCompleted}",
+        )
+        fail(JsSkillRendererGoneException(skillName))
+        destroyWebView(destroy)
+        return true
+    }
+
+    /** Destroys the WebView at most once; called from both the renderer-gone path and `finally`. */
+    fun destroyWebView(destroy: () -> Unit) {
+        if (webViewDestroyed) return
+        webViewDestroyed = true
+        destroy()
+    }
+}
+
+/** Surfaced to the model/user as a failed skill result; the caller may retry. */
+internal class JsSkillRendererGoneException(skillName: String) :
+    Exception("The JS skill '$skillName' was interrupted; please try again.")
