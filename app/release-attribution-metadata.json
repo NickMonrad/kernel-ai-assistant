@@ -103,7 +103,12 @@
     "fbjni-0.7.0-licence.txt": "f62d190c08e2b300b45780f0b3cabcacc78d0e373f7a0de79d31f82b084d35ea",
     "sherpa-onnx-1.13.0-inflect-third-party-notices.txt": "d7c46702a4bf7613738dc1e5464975f51d7a1327512ae1e362f4cd8ab40d866c",
     "openwakeword-0.5.1-notices.txt": "e4d2610b04bcc7c1cbac038a4e881f66be59693fa1893092b669c9d9a16986c9",
-    "cc-by-nc-sa-4.0-legalcode.txt": "e66c269d4819aaab34b49ef5220c4ddab6756f21bb5180761a4eb8561f2b7bbd"
+    "cc-by-nc-sa-4.0-legalcode.txt": "e66c269d4819aaab34b49ef5220c4ddab6756f21bb5180761a4eb8561f2b7bbd",
+    "phonemis-MIT.txt": "f09f9295f76d14fdac54f708716e3d30c712cecb7f7a26a2b23284e56a88231e",
+    "verbalis-MIT.txt": "9a417583d76484b71455f7cdf565ac81ac4c803dd30c973232b3de92680a4401",
+    "xsimd-BSD-3-Clause.txt": "501352acba62cc54e8e3d293754d606f919c9b425b962193c211f9fa29cd9940",
+    "nlohmann-json-MIT.txt": "8838e206e44184072a772982558b267ab22c6161375fca7fa21de61cfde570f7",
+    "Unicode-3.0.txt": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
   },
   "wake_word_assets": [
     {

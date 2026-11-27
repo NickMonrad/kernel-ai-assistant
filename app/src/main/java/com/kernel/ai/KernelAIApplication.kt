@@ -171,8 +171,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
             Log.w("KernelAI", "onTrimMemory level=$level — releasing inference session")
             inferenceEngine.releaseForMemoryPressure()
         }
-        // Kokoro's engine (~0.95 GB) is released from RUNNING_LOW on and reloads at the next Kokoro reply (#2117).
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) kokoroVoiceOutputController.unloadEngine()
+        // Kokoro's engine (~0.95 GB) is released from BACKGROUND on, the same level as the chat model above; it reloads at the next Kokoro reply (#2117).
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) kokoroVoiceOutputController.unloadEngine()
     }
 }
 internal fun shouldRunNormalBackgroundWork(isInflectProbeBuild: Boolean): Boolean =

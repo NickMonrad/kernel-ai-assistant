@@ -50,6 +50,11 @@ internal val RUNTIME_NOTICES = listOf(
     "Sherpa-ONNX 1.13.0 Inflect third-party notices" to "sherpa-onnx-1.13.0-inflect-third-party-notices.txt",
     "openWakeWord 0.5.1 notices" to "openwakeword-0.5.1-notices.txt",
     "CC BY-NC-SA 4.0 legal code (Hey Jandal and openWakeWord models)" to "cc-by-nc-sa-4.0-legalcode.txt",
+    "Phonemis MIT notice (Kokoro phonemiser)" to "phonemis-MIT.txt",
+    "Verbalis MIT notice (Kokoro phonemiser)" to "verbalis-MIT.txt",
+    "xsimd 14.2 BSD-3-Clause notice" to "xsimd-BSD-3-Clause.txt",
+    "nlohmann-json 3.12.0 MIT notice" to "nlohmann-json-MIT.txt",
+    "Unicode License v3 (Unicode table data)" to "Unicode-3.0.txt",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
