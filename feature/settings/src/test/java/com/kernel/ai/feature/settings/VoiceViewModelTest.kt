@@ -190,6 +190,8 @@ class VoiceViewModelTest {
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns MutableStateFlow(false)
+        coEvery { voiceOutputPreferences.setPlaceDidYouMeanEnabled(any()) } just Runs
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
         every { voiceOutputPreferences.sherpaSpeed } returns sherpaSpeed

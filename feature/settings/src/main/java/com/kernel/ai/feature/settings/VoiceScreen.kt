@@ -318,6 +318,7 @@ fun VoiceScreen(
         onSherpaPitchChanged = viewModel::setSherpaPitch,
         onSherpaGainChanged = viewModel::setSherpaGain,
         onAutoSpeakChanged = viewModel::setAutoSpeak,
+        onPlaceDidYouMeanChanged = viewModel::setPlaceDidYouMeanEnabled,
         onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
@@ -530,6 +531,7 @@ private fun VoiceScreenContent(
     onSherpaPitchChanged: (Float) -> Unit,
     onSherpaGainChanged: (Float) -> Unit,
     onAutoSpeakChanged: (Boolean) -> Unit,
+    onPlaceDidYouMeanChanged: (Boolean) -> Unit,
     onMaxSpokenSentencesChanged: (Int) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
@@ -750,6 +752,23 @@ private fun VoiceScreenContent(
                     Switch(
                         checked = uiState.autoSpeak,
                         onCheckedChange = onAutoSpeakChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("Did you mean place prompts (experimental)") },
+                supportingContent = {
+                    Text(
+                        text = "Ask before acting when a navigation or weather place is a near miss of an NZ place name. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.placeDidYouMeanEnabled,
+                        onCheckedChange = onPlaceDidYouMeanChanged,
                     )
                 },
             )
@@ -1198,6 +1217,7 @@ private fun VoiceScreenPreview() {
             onSherpaPitchChanged = {},
             onSherpaGainChanged = {},
             onAutoSpeakChanged = {},
+            onPlaceDidYouMeanChanged = {},
             onMaxSpokenSentencesChanged = {},
             onActiveSpeakerIdChanged = {},
             onKokoroVoiceSelected = {},

@@ -5381,9 +5381,16 @@ class QuickIntentRouter(
          * See issue #621 for the multi-turn confirmation fast-path design.
          */
         val AFFIRMATIONS = setOf(
-            "yes", "yeah", "yep", "yup", "sure", "ok", "okay",
+            "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "yes please",
             "go ahead", "go for it", "do it", "please", "please do",
             "aye", "absolutely", "definitely", "go on", "sounds good",
+            "correct", "that's right", "thats right",
+        )
+
+        /** Simple negations: an answer to a pending yes/no question that is not a yes. */
+        val NEGATIONS = setOf(
+            "no", "nope", "nah", "negative", "wrong", "incorrect", "not that",
+            "no that's wrong", "no thats wrong",
         )
 
         /** Returns true if [input] is a simple affirmation (case-insensitive, trims whitespace). */

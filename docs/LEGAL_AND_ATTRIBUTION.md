@@ -103,6 +103,15 @@ These direct dependencies are declared in `gradle/libs.versions.toml`. Release n
 | en_GB-cori-high Piper voice | Debug-only British English female voice | Upstream model card: trained from scratch on LibriVox (public domain); the trainer lists the voice as public domain | Excluded from v0.1 release, along with all other Piper voice packs and the Sherpa runtime. Source details are recorded for development, not release clearance. |
 | Kokoro experimental voice pack | Debug-only/post-launch TTS path for v0.1 | Exact app asset is Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`; upstream Kokoro 82M lineage is recorded as Apache-2.0 | Not release-visible for v0.1 under #1014; this trace is not release sign-off. |
 
+### Bundled place-name data (#2079)
+
+| Dataset | Asset | Licence / terms | Required notice |
+|---|---|---|---|
+| LINZ NZ Place Names (layer 51681), Land Information New Zealand | `core/skills/src/main/assets/place_dym/linz_localities.txt`: Locality and Suburb names, de-duplicated and sorted, otherwise unchanged | CC BY 4.0 (https://data.linz.govt.nz/license/attribution-4-0-international/) | Exact LINZ wording: "Contains data sourced from the LINZ Data Service licensed for reuse under CC BY 4.0". Source: https://data.linz.govt.nz/layer/51681-nz-place-names-nzgb/ |
+| GeoNames | `core/skills/src/main/assets/place_dym/competitor_places.txt`: Australian populated place names (PPL feature class) | CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) | "Place names © GeoNames, licensed under CC BY 4.0". Source: https://www.geonames.org/ |
+
+Both are used only by the experimental "Did you mean" place prompt (#2079) and are reproduced in `NOTICE` (root and `app/src/main/assets/legal/NOTICE.txt`).
+
 ## External services and data sources
 
 These are not all OSS attribution items, but they must be reflected in Play Store privacy/data disclosures and user-facing docs:
