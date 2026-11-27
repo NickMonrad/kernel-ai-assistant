@@ -619,7 +619,7 @@ class InflectMicroTextFrontendTest {
             "Meeting 10:30–11:30." to "Meeting ten thirty to eleven thirty.",
             "Run time 1:30:45." to "Run time one hour, thirty minutes and forty five seconds.",
             "Cool to 18 – 22°C." to "Cool to eigh teen to twenty two degrees.",
-            "A 5–10 km ride." to "A five to ten kilometres ride.",
+            "A 5–10 km ride." to "A five to ten kilometre ride.",
             "Wait 10 min for a 45s clip." to "Wait ten minutes for a forty five second clip.",
             "Use #1 setting." to "Use number one setting.",
             "Tax +5% today." to "Tax plus five percent today.",
@@ -683,6 +683,39 @@ class InflectMicroTextFrontendTest {
                 InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)),
                 input,
             )
+        }
+    }
+
+    @Test
+    fun review_round_2_regressions_read_naturally_through_the_inflect_frontend() {
+        val cases = listOf(
+            "Reduce the sauce by 1/2" to "Reduce the sauce by half",
+            "Reduce by 1/3 before serving" to "Reduce by a third before serving",
+            "after 1/2 hour add salt" to "after half an hour add salt",
+            "Use from 1/2 to 3/4 cup of water" to "Use from half to three quarters of a cup of water",
+            "Between 1/3 and 1/2 of users" to "Between a third and half of users",
+            "Fill until 1/2 full" to "Fill until half full",
+            "Microwave on 1/2 power" to "Microwave on half power",
+            "After 1/4 of the year" to "After a quarter of the year",
+            "On 1/2 the days" to "On half the days",
+            "Set 1/2 cup aside" to "Set half a cup aside",
+            "part 1/2 cup water" to "part half a cup water",
+            "level 1/2 teaspoon" to "level half a teaspoon",
+            "I ran the 10 km." to "I ran the ten kilometres.",
+            "Add 1 1/2 cups flour" to "Add one and a half cups flour",
+            "2 1/4 tsp yeast" to "two and a quarter tsp yeast",
+            "1 1/2 hours" to "one and a half hours",
+            "Rated 7/10" to "Rated seven out of ten",
+            "I'd give it 8/10" to "I'd give it eight out of ten",
+            "9/10 dentists agree" to "nine out of ten dentists agree",
+            "Apt. 2/10" to "apt two, ten",
+            "1920x1080" to "nine teen twenty by ten eighty",
+            "€2bn" to "two billion euros",
+            "£3k" to "three thousand pounds",
+            "A 5–10 km ride." to "A five to ten kilometre ride.",
+        )
+        cases.forEach { (input, expected) ->
+            assertEquals(expected, InflectMicroTextFrontend.normalize(SpeechCardText.speakable(input)), input)
         }
     }
 }

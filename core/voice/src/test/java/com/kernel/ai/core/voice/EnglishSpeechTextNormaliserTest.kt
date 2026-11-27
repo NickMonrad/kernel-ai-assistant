@@ -409,4 +409,66 @@ class EnglishSpeechTextNormaliserTest {
         assertEquals("three or more people", kokoroText("3+ people"))
         assertEquals("four by four ute", kokoroText("4x4 ute"))
     }
+
+    @Test
+    fun slash_numbers_after_a_cue_or_before_a_measure_word_read_as_fractions_not_dates() {
+        assertEquals("Reduce the sauce by half", kokoroText("Reduce the sauce by 1/2"))
+        assertEquals("Reduce by a third before serving", kokoroText("Reduce by 1/3 before serving"))
+        assertEquals("after half an hour add salt", kokoroText("after 1/2 hour add salt"))
+        assertEquals("Use from half to three quarters of a cup of water", kokoroText("Use from 1/2 to 3/4 cup of water"))
+        assertEquals("Between a third and half of users", kokoroText("Between 1/3 and 1/2 of users"))
+        assertEquals("Fill until half full", kokoroText("Fill until 1/2 full"))
+        assertEquals("Microwave on half power", kokoroText("Microwave on 1/2 power"))
+        assertEquals("After a quarter of the year", kokoroText("After 1/4 of the year"))
+        assertEquals("On half the days", kokoroText("On 1/2 the days"))
+        assertEquals("Set half a cup aside", kokoroText("Set 1/2 cup aside"))
+        assertEquals("part half a cup water", kokoroText("part 1/2 cup water"))
+        assertEquals("level half a teaspoon", kokoroText("level 1/2 teaspoon"))
+    }
+
+    @Test
+    fun mixed_numbers_read_as_a_whole_and_a_fraction() {
+        assertEquals("Add one and a half cups flour", kokoroText("Add 1 1/2 cups flour"))
+        assertEquals("two and a quarter tsp yeast", kokoroText("2 1/4 tsp yeast"))
+        assertEquals("one and a half hours", kokoroText("1 1/2 hours"))
+    }
+
+    @Test
+    fun tenths_for_ratings_read_out_of_ten() {
+        assertEquals("Rated seven out of ten", kokoroText("Rated 7/10"))
+        assertEquals("I'd give it eight out of ten", kokoroText("I'd give it 8/10"))
+        assertEquals("nine out of ten dentists agree", kokoroText("9/10 dentists agree"))
+    }
+
+    @Test
+    fun apt_with_a_dot_reads_as_a_flat_address() {
+        assertEquals("apt two, ten", kokoroText("Apt. 2/10"))
+    }
+
+    @Test
+    fun pixel_sizes_read_as_two_dimensions_joined_by_by() {
+        assertEquals("nineteen twenty by ten eighty", kokoroText("1920x1080"))
+    }
+
+    @Test
+    fun euro_and_pound_amounts_with_a_scale_suffix_read_the_scale() {
+        assertEquals("two billion euros", kokoroText("€2bn"))
+        assertEquals("three thousand pounds", kokoroText("£3k"))
+        assertEquals("one point five million euros", kokoroText("€1.5m"))
+    }
+
+    @Test
+    fun unit_after_an_article_stays_singular_across_a_range_and_the_needs_a_following_word() {
+        assertEquals("A five to ten kilometre ride.", kokoroText("A 5–10 km ride."))
+        assertEquals("five to ten kilometres", kokoroText("5–10 km"))
+        assertEquals("I ran the ten kilometres.", kokoroText("I ran the 10 km."))
+        assertEquals("the five kilometre walk", kokoroText("the 5 km walk"))
+    }
+
+    @Test
+    fun integer_words_returns_non_ascii_digits_unchanged_instead_of_dropping_them() {
+        assertEquals("\u0663", EnglishSpeechTextNormaliser.integerWords("\u0663"))
+        assertEquals("\uFF13", EnglishSpeechTextNormaliser.integerWords("\uFF13"))
+        assertEquals("", EnglishSpeechTextNormaliser.integerWords(""))
+    }
 }
