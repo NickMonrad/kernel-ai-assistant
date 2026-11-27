@@ -55,8 +55,9 @@ object InflectMicroTextFrontend {
      * Inflect only: "one million two hundred thousand dollars and fifty cents" garbled when read as one run (the
      * amount came out as $1,232,050). A comma after the scale word and a sentence break before the cents read it
      * as 1,200,000.50 on the S23U (#2115). Kokoro reads the unchanged text correctly, so this stays out of the shared normaliser.
+     * The number phrase may also contain "and" and respelled teens ("two hundred and fifty thousand", "fif teen thousand").
      */
-    private val millionCentsClause = Regex("""\b(million|billion) ((?:(?:$NUMBER_WORD_ALTERNATION) )+dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
+    private val millionCentsClause = Regex("""\b(million|billion) ((?:(?:$NUMBER_WORD_ALTERNATION|and|teen) )+dollars) and ((?:[a-z]+ )*?[a-z]+) cents\b""")
 
     fun normalize(text: String): String {
         var value = text

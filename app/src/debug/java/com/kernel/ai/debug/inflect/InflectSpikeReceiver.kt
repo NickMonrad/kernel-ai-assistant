@@ -151,7 +151,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         val normalizeMs = elapsedMs(normalizeStarted)
         val phonemizeStarted = System.nanoTime()
         val chunks = if (segments == null) {
-            InflectMicroTextFrontend.phonemizeChunks(normalized, phonemize = ::phonemizeChunk)
+            InflectMicroTextFrontend.phonemizeSpeechChunks(normalized, phonemize = ::phonemizeChunk).toList()
         } else {
             segments.map { segment ->
                 val segmentText = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(segment))
@@ -170,7 +170,7 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         val initMs = elapsedMs(initStarted)
         try {
             InflectSpikeRuntime.install(runner)
-            // Same chunk sequence as InflectMicroVoiceOutputController: each chunk is synthesised separately, in order.
+            // Same chunk sequence as InflectReplyStream (speechChunks, then phonemizeChunks): each chunk is synthesised separately, in order.
             val pieces = chunks.mapIndexed { index, chunk ->
                 runner.synthesize(
                     phonemeText = chunk.phonemes,

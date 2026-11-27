@@ -389,6 +389,30 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun normalize_splits_money_clause_with_and_and_teen_words_for_inflect() {
+        assertEquals(
+            "It cost one million, two hundred and fifty thousand dollars. And fifty cents.",
+            InflectMicroTextFrontend.normalize("It cost \$1,250,000.50."),
+        )
+        assertEquals(
+            "It cost one million, fif teen thousand dollars. And fifty cents.",
+            InflectMicroTextFrontend.normalize("It cost \$1,015,000.50."),
+        )
+        assertEquals(
+            "It cost three million, four hundred and twenty thousand dollars. And five cents.",
+            InflectMicroTextFrontend.normalize("It cost \$3,420,000.05."),
+        )
+    }
+
+    @Test
+    fun normalize_does_not_split_people_sentence_with_decimal_dollars_and_cents() {
+        assertEquals(
+            "Five million people paid five dollars and ten cents each.",
+            InflectMicroTextFrontend.normalize("Five million people paid \$5.10 each."),
+        )
+    }
+
+    @Test
     fun phonemizeChunks_keeps_long_text_without_and_joins_as_one_chunk() {
         val text = "Tomorrow the wind is light from the north, with showers easing by midday, clearing late in the evening, then cooler air settles over the coast overnight."
         val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = text, phonemize = { it })
