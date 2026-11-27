@@ -197,6 +197,12 @@ class QuickIntentRouter(
         """\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)*(?:it|that|this|them)\b|\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)+to\s+""",
         RegexOption.IGNORE_CASE,
     )
+    // #2155 — "no lists", "without a list", "don't list them", "not a list" anywhere in the prompt.
+    // Used only to veto classifier get_list_items claims; regex list patterns are unaffected.
+    private val NEGATED_LIST_MENTION_RE = Regex(
+        """\b(?:no|without|never|not|don'?t|do\s+not)\b[^.!?]*\blists?\b""",
+        RegexOption.IGNORE_CASE,
+    )
 
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
@@ -5090,6 +5096,11 @@ class QuickIntentRouter(
             // #1455 — same daypart guard as Stage 1: never let the classifier claim a
             // get_weather answer for wording the weather skill cannot represent.
             if (daypartWeatherBlocked && result?.intentName == "get_weather") {
+                return RouteResult.FallThrough(input = trimmed)
+            }
+            // #2155 — a negated or stylistic mention ("No lists.", "answer without a list") is not a
+            // list read. Drop the classifier's get_list_items claim so the LLM answers the prompt.
+            if (result?.intentName == "get_list_items" && NEGATED_LIST_MENTION_RE.containsMatchIn(apostropheNormalized)) {
                 return RouteResult.FallThrough(input = trimmed)
             }
             if (result != null && result.confidence >= similarityThreshold) {
