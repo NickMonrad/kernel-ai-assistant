@@ -89,17 +89,20 @@ private val REMINDER_SCHEDULE_SLOTS = setOf("day", "time")
 
 private val REMINDER_DAY_PHRASE = "(?:today|tomorrow|tonight|(?:next\\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))"
 
+/** A day part said after the day: "tomorrow evening at 7". */
+private val REMINDER_DAY_PART = "(?:morning|afternoon|evening|night)"
+
 // Times need am/pm or a colon, or the "N to H" form, so a bare number inside an item ("call 3 people") is never a time.
 // The dot after "a.m" / "p.m" is optional: replies lose their final dot when trailing punctuation is trimmed.
 private val REMINDER_TIME_PHRASE =
-    "(?:\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.?|p\\.m\\.?)|\\d{1,2}:\\d{2}|\\d{1,2}\\s+to\\s+\\d{1,2}|quarter\\s+to\\s+\\d{1,2})"
+    "(?:\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|a\\.m\\.?|p\\.m\\.?)|\\d{1,2}:\\d{2}|(?:quarter|\\d{1,2})\\s+to\\s+\\d{1,2}(?:\\s*(?:am|pm|a\\.m\\.?|p\\.m\\.?))?)"
 
 /** The hour of a bare-hour phrase: "7", "6:30", "10 to 8" (ten to eight) or "quarter to 1". */
 private val REMINDER_HOUR = "(?:quarter\\s+to\\s+\\d{1,2}|\\d{1,2}(?::\\d{2})?(?:\\s+to\\s+\\d{1,2})?)"
 
 /** A whole schedule phrase: "tomorrow", "on friday at 9am", "at 5 pm", "by 5pm on monday". */
 private val REMINDER_SCHEDULE_PHRASE = Regex(
-    "^(?:(?:on\\s+)?$REMINDER_DAY_PHRASE(?:\\s+(?:at|by)\\s+$REMINDER_TIME_PHRASE)?" +
+    "^(?:(?:on\\s+)?$REMINDER_DAY_PHRASE(?:\\s+$REMINDER_DAY_PART)?(?:\\s+(?:at|by)\\s+$REMINDER_TIME_PHRASE)?" +
         "|(?:at|by)\\s+$REMINDER_TIME_PHRASE(?:\\s+(?:on\\s+)?$REMINDER_DAY_PHRASE)?)$",
     RegexOption.IGNORE_CASE,
 )
@@ -110,7 +113,7 @@ private val REMINDER_SCHEDULE_PHRASE = Regex(
  */
 private val REMINDER_BARE_HOUR_PHRASE = Regex(
         "^(?:(?:at|by)\\s+$REMINDER_HOUR\\s+(?:on\\s+)?$REMINDER_DAY_PHRASE" +
-        "|(?:(?:on\\s+)?$REMINDER_DAY_PHRASE|this\\s+evening)\\s+(?:at|by)\\s+$REMINDER_HOUR)$",
+        "|(?:(?:on\\s+)?$REMINDER_DAY_PHRASE(?:\\s+$REMINDER_DAY_PART)?|this\\s+evening)\\s+(?:at|by)\\s+$REMINDER_HOUR)$",
     RegexOption.IGNORE_CASE,
 )
 

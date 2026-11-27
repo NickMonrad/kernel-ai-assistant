@@ -685,7 +685,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
@@ -693,7 +693,7 @@ class QuickIntentRouter(
                 buildMap {
                     put("item", normalizeReminderItem(match.groupValues[1]))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[3].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[4].trim(), match.groupValues[3]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -746,15 +746,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
                 val dayToken = match.groupValues[1].trim().lowercase()
                 buildMap {
-                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("item", normalizeReminderItem(match.groupValues[4].trim()))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[2].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[3].trim(), match.groupValues[2]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),

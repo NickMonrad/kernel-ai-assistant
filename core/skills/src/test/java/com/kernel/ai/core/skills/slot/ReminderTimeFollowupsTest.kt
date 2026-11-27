@@ -1,6 +1,7 @@
 package com.kernel.ai.core.skills.slot
 
 import com.kernel.ai.core.skills.BARE_TIME_PARAM
+import com.kernel.ai.core.skills.DAY_CUE_PARAM
 import com.kernel.ai.core.skills.TIME_OF_DAY_SLOT
 import com.kernel.ai.core.skills.intent.IntentContractRegistry
 import com.kernel.ai.core.skills.pendingTimeOfDaySlot
@@ -305,6 +306,51 @@ class ReminderTimeFollowupsTest {
                 again.missingSlot.promptTemplate.startsWith("Sorry, I didn't catch that. "),
                 "at $clock: ${again.missingSlot.promptTemplate}",
             )
+        }
+    }
+
+    @Test
+    fun `item reply with a spoken quarter to hour and pm splits the item from the time`() {
+        clocks.forEach { clock ->
+            val reply = parseReminderSlotReply("ring mum at quarter to eight pm", "item", now = now(clock))
+            assertEquals("ring mum", reply.value, "at $clock")
+            assertEquals("19:45", reply.schedule["time"], "at $clock")
+        }
+        assertScheduleAtClocks("ring mum at ten to eight pm", "item", "time", List(4) { "19:50" })
+    }
+
+    @Test
+    fun `item reply with a day part before the time splits the day and the time`() {
+        clocks.forEach { clock ->
+            val evening = parseReminderSlotReply("ring mum tomorrow evening at 7", "item", now = now(clock))
+            assertEquals("ring mum", evening.value, "at $clock")
+            assertEquals("tomorrow", evening.schedule["day"], "at $clock")
+            assertEquals("19:00", evening.schedule["time"], "at $clock")
+
+            val morning = parseReminderSlotReply("ring mum tomorrow morning at 7", "item", now = now(clock))
+            assertEquals("ring mum", morning.value, "at $clock")
+            assertEquals("7:00", morning.schedule["time"], "at $clock")
+        }
+    }
+
+    @Test
+    fun `tonight at 1 then no is 13 00 today with the tonight cue, so the handler reports it as passed`() {
+        clocks.forEach { clock ->
+            val asked = parseReminderSlotReply("tonight at 1", "time", now = now(clock)).schedule
+            assertEquals("01:00", asked[BARE_TIME_PARAM], "at $clock")
+            val answer = parseReminderSlotReply("no", TIME_OF_DAY_SLOT, asked, now(clock)).schedule
+            assertEquals("13:00", answer["time"], "at $clock")
+            assertEquals("today", answer["day"], "at $clock")
+            assertEquals("tonight", answer[DAY_CUE_PARAM], "at $clock")
+        }
+    }
+
+    @Test
+    fun `tonight at 2 at night in a time reply asks which`() {
+        clocks.forEach { clock ->
+            val reply = parseReminderSlotReply("tonight at 2 at night", "time", now = now(clock))
+            assertEquals("02:00", reply.schedule[BARE_TIME_PARAM], "at $clock")
+            assertEquals("tonight", reply.schedule["day"], "at $clock")
         }
     }
 }
