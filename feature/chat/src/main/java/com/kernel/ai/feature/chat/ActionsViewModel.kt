@@ -23,6 +23,7 @@ import com.kernel.ai.core.skills.SettingsDeepLink
 import com.kernel.ai.core.skills.ToolPresentationJson
 import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.slot.PendingSlotRequest
+import com.kernel.ai.core.skills.slot.ReminderSlotReply
 import com.kernel.ai.core.skills.slot.completedSlotParams
 import com.kernel.ai.core.skills.slot.normalizeSlotReply
 import com.kernel.ai.core.skills.slot.parseReminderSlotReply
@@ -1783,7 +1784,7 @@ class ActionsViewModel @Inject constructor(
         setSlotReplyAutoRearmArmed(false, "onSlotReply")
         clearExpectedSlotPromptSpeech()
         val reminderReply = if (pending.request.intentName == "add_reminder") {
-            parseReminderSlotReply(text, pending.request.missingSlot.name, pending.request.existingParams)
+            parseReminderReply(text, pending.request.missingSlot.name, pending.request.existingParams)
         } else {
             null
         }
@@ -2799,6 +2800,31 @@ class ActionsViewModel @Inject constructor(
             trimmed
         }
         return normalizeSlotReply(normalized, slotName)
+    }
+
+    /**
+     * Parses a reminder slot reply. A spoken clock ("half past seven", "seven thirty", "seven in the evening",
+     * "7 30 p.m.") is first turned into the digit form the typed path reads. The digit form is used only when
+     * it yields a schedule, so an item reply with no time keeps its words ("buy one more" stays as said).
+     */
+    private fun parseReminderReply(
+        text: String,
+        missingSlot: String,
+        existingParams: Map<String, String>,
+    ): ReminderSlotReply {
+        val raw = parseReminderSlotReply(text, missingSlot, existingParams)
+        val trimmed = text.trim()
+        val spoken = normalizeSpokenClock(trimmed)
+        if (spoken == trimmed) return raw
+        val spokenReply = parseReminderSlotReply(spoken, missingSlot, existingParams)
+        return if (spokenReply.schedule.isNotEmpty() || spokenReply.unanswered) spokenReply else raw
+    }
+
+    private fun normalizeSpokenClock(text: String): String {
+        val words = normalizeSpokenNumbers(normalizeSpokenTimes(text))
+        return SPACED_DIGIT_TIME.replace(words) { match ->
+            "${match.groupValues[1]}:${match.groupValues[2]} ${match.groupValues[3]}"
+        }
     }
 
     private fun looksLikeNumericSlot(slotName: String): Boolean {

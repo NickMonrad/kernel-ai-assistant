@@ -840,6 +840,117 @@ class ActionsViewModelTest {
         assertEquals(false, insertedActions.single().isSuccess)
     }
 
+    @Test
+    fun `spoken reminder reply half past seven in the evening runs at 19 30`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("half past seven in the evening")
+        advanceUntilIdle()
+        assertEquals("19:30", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken reminder reply seven thirty pm runs at 19 30`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("seven thirty pm")
+        advanceUntilIdle()
+        assertEquals("19:30", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken reminder reply quarter to eight at night runs at 19 45`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("quarter to eight at night")
+        advanceUntilIdle()
+        assertEquals("19:45", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken reminder reply quarter past seven pm runs at 19 15`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("quarter past seven pm")
+        advanceUntilIdle()
+        assertEquals("19:15", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken reminder reply five past seven pm runs at 19 05`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("five past seven pm")
+        advanceUntilIdle()
+        assertEquals("19:05", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken reminder reply seven in the evening runs at 19 00 without a question`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("seven in the evening")
+        advanceUntilIdle()
+        assertEquals("19:00", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `speech to text 7 colon 30 p m runs at 19 30`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("7:30 p.m.")
+        advanceUntilIdle()
+        assertEquals("19:30", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `speech to text 7 30 p m runs at 19 30`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("7 30 p.m.")
+        advanceUntilIdle()
+        assertEquals("19:30", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    @Test
+    fun `spoken half past 7 asks morning or evening and the answer sets 19 30`() = runTest(dispatcher) {
+        val runIntentSkill = CapturingRunIntentSkill()
+        stubRunIntent(runIntentSkill)
+        viewModel.executeAction("Remind me to buy milk tomorrow", InputMode.Voice)
+        advanceUntilIdle()
+        viewModel.onSlotReply("half past 7")
+        advanceUntilIdle()
+        assertEquals("Morning or evening?", viewModel.pendingSlot.value?.request?.promptMessage)
+        viewModel.onSlotReply("in the evening")
+        advanceUntilIdle()
+        assertEquals("19:30", runIntentSkill.calls.single().arguments["time"])
+    }
+
+    private fun stubRunIntent(skill: CapturingRunIntentSkill) {
+        every { skillRegistry.get(any()) } answers {
+            when (firstArg<String>()) {
+                "run_intent" -> skill
+                else -> null
+            }
+        }
+    }
+
     private class CapturingRunIntentSkill(
         private val responder: (SkillCall) -> SkillResult = {
             SkillResult.Success("Executed ${it.arguments["intent_name"]}")
