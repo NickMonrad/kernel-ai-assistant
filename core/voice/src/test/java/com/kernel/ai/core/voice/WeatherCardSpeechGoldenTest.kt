@@ -33,7 +33,7 @@ class WeatherCardSpeechGoldenTest {
     @Test
     fun `inflect spells out numbers through its own frontend`() {
         assertEquals(
-            "Oakland, eleven degrees, Clear sky. Today: high seventeen, low ten. humidity ninety two percent",
+            "Oakland, eleven degrees, Clear sky. Today: high seven teen, low ten. humidity ninety two percent",
             InflectMicroTextFrontend.normalize(SpeechCardText.speakable(card)),
         )
     }

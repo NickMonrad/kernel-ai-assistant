@@ -45,6 +45,30 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun applyPhonemeOverrides_respells_thousand_and_million() {
+        assertEquals(
+            "θˈaʊzˌænd pˈiːpəl mˈɪljən",
+            InflectMicroTextFrontend.applyPhonemeOverrides("θˈaʊzənd pˈiːpəl mˈɪliən"),
+        )
+    }
+
+    @Test
+    fun normalize_splits_every_teen_number_word() {
+        val teens = listOf("thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen")
+        val split = listOf("thir teen", "four teen", "fif teen", "six teen", "seven teen", "eigh teen", "nine teen")
+        teens.zip(split).forEach { (word, expected) ->
+            assertEquals("$expected thousand people", InflectMicroTextFrontend.normalize("$word thousand people"))
+        }
+    }
+
+    @Test
+    fun normalize_splits_teen_digits_and_keeps_capitalised_teen_and_fifteenth() {
+        assertTrue(InflectMicroTextFrontend.normalize("The stadium holds 15,000 people.").contains("fif teen thousand people"))
+        assertTrue(InflectMicroTextFrontend.normalize("Fifteen people came.").startsWith("Fif teen people"))
+        assertFalse(InflectMicroTextFrontend.normalize("the fifteenth row").contains("fif teen"))
+    }
+
+    @Test
     fun normalize_matches_pinned_num2words_parity_vectors() {
         val vectors = mapOf(
             "105" to "one hundred and five",
@@ -74,14 +98,14 @@ class InflectMicroTextFrontendTest {
             Triple(
                 "Founded in 1999, renamed in 2005, updated in 2026, a band from the 1990s.",
                 "Founded in one thousand nine hundred and ninety nine, renamed in two thousand and five, updated in two thousand and twenty six, a band from the 1990s.",
-                "Founded in nineteen ninety nine, renamed in two thousand and five, updated in twenty twenty six, a band from the nineteen nineties.",
+                "Founded in nine teen ninety nine, renamed in two thousand and five, updated in twenty twenty six, a band from the nine teen nineties.",
             ),
-            Triple("It happened in 1999.", "It happened in one thousand nine hundred and ninety nine.", "It happened in nineteen ninety nine."),
+            Triple("It happened in 1999.", "It happened in one thousand nine hundred and ninety nine.", "It happened in nine teen ninety nine."),
             Triple("Founded in 2026.", "Founded in two thousand and twenty six.", "Founded in twenty twenty six."),
             Triple(
                 "The stadium holds 15,000 people.",
                 "The stadium holds one five oh oh oh people.",
-                "The stadium holds fifteen thousand people.",
+                "The stadium holds fif teen thousand people.",
             ),
             Triple("1,000,000 people", "one oh oh oh oh oh oh people", "one million people"),
             Triple("1,000.50 litres", "onezero point five oh litres", "one thousand point five litres"),
@@ -139,7 +163,7 @@ class InflectMicroTextFrontendTest {
     @Test
     fun normalize_preserves_time_boundary_before_apostrophe() {
         val normalized = InflectMicroTextFrontend.normalize("11:15 there's ...")
-        assertTrue(normalized.contains("eleven fifteen there's"))
+        assertTrue(normalized.contains("eleven fif teen there's"))
         assertFalse(normalized.contains("fifteenthere's"))
         assertFalse(normalized.contains("thirtythis"))
     }
@@ -316,7 +340,7 @@ class InflectMicroTextFrontendTest {
     @Test
     fun normalize_splits_million_cents_clause_for_inflect() {
         assertEquals(
-            "The stadium holds fifteen thousand people and cost one million, two hundred thousand dollars. And fifty cents.",
+            "The stadium holds fif teen thousand people and cost one million, two hundred thousand dollars. And fifty cents.",
             InflectMicroTextFrontend.normalize("The stadium holds 15,000 people and cost \$1,200,000.50."),
         )
     }

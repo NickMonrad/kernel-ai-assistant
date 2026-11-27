@@ -141,35 +141,51 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         wavFile.parentFile?.mkdirs()
 
         val startedAt = System.nanoTime()
+        val segments = intent.getStringExtra(EXTRA_SEGMENTS)?.let(InflectListeningVariants::parseSegments)
+        val overrides = InflectListeningVariants.parseOverrides(intent.getStringExtra(EXTRA_PHONEME_OVERRIDES))
+        fun phonemizeChunk(chunkText: String): String = overrides.fold(
+            InflectMicroTextFrontend.applyPhonemeOverrides(InflectPhonemizer.phonemize(chunkText, dataDirectory)),
+        ) { acc, (from, to) -> acc.replace(from, to) }
         val normalizeStarted = System.nanoTime()
         val normalized = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(text))
         val normalizeMs = elapsedMs(normalizeStarted)
         val phonemizeStarted = System.nanoTime()
-        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalized) { chunkText ->
-            InflectMicroTextFrontend.applyPhonemeOverrides(
-                InflectPhonemizer.phonemize(chunkText, dataDirectory),
-            )
+        val chunks = if (segments == null) {
+            InflectMicroTextFrontend.phonemizeChunks(normalized, phonemize = ::phonemizeChunk)
+        } else {
+            segments.map { segment ->
+                val segmentText = InflectMicroTextFrontend.normalize(SpeechCardText.speakable(segment))
+                InflectMicroTextFrontend.PhonemizedChunk(segmentText, phonemizeChunk(segmentText))
+            }
         }
         val phonemizeMs = elapsedMs(phonemizeStarted)
+        val defaultSpeed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+        val numberSpeed = intent.getStringExtra(EXTRA_NUMBER_SPEED)?.toFloat()
+        val chunkSpeeds = chunks.map { chunk ->
+            if (numberSpeed != null && InflectListeningVariants.containsNumberWord(chunk.text)) numberSpeed else defaultSpeed
+        }
+        val gapSamples = intent.getIntExtra(EXTRA_GAP_MS, 0) * InflectMicroOnnxRunner.SAMPLE_RATE_HZ / 1_000
         val initStarted = System.nanoTime()
         val runner = InflectMicroOnnxRunner(modelDirectory)
         val initMs = elapsedMs(initStarted)
         try {
             InflectSpikeRuntime.install(runner)
             // Same chunk sequence as InflectMicroVoiceOutputController: each chunk is synthesised separately, in order.
-            val pieces = chunks.map { chunk ->
+            val pieces = chunks.mapIndexed { index, chunk ->
                 runner.synthesize(
                     phonemeText = chunk.phonemes,
-                    speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f),
+                    speed = chunkSpeeds[index],
                     variation = intent.getFloatExtra(EXTRA_VARIATION, 0.667f),
                     seed = intent.getLongExtra(EXTRA_SEED, 7L),
                 ).waveform
             }
-            val waveform = FloatArray(pieces.sumOf { it.size })
+            val gap = FloatArray(gapSamples)
+            val parts = pieces.flatMapIndexed { index, piece -> if (index == 0) listOf(piece) else listOf(gap, piece) }
+            val waveform = FloatArray(parts.sumOf { it.size })
             var offset = 0
-            for (piece in pieces) {
-                piece.copyInto(waveform, offset)
-                offset += piece.size
+            for (part in parts) {
+                part.copyInto(waveform, offset)
+                offset += part.size
             }
             writeFloatWav(wavFile, waveform)
             summaryFile.writeText(
@@ -179,6 +195,8 @@ class InflectSpikeReceiver : BroadcastReceiver() {
                   "normalized_text": ${json(normalized)},
                   "chunk_count": ${chunks.size},
                   "chunk_phonemes": ${json(chunks.map { it.phonemes })},
+                  "chunk_speeds": ${json(chunkSpeeds)},
+                  "gap_samples": $gapSamples,
                   "normalize_ms": $normalizeMs,
                   "phonemize_ms": $phonemizeMs,
                   "initialization_ms": $initMs,
@@ -301,6 +319,10 @@ class InflectSpikeReceiver : BroadcastReceiver() {
         const val EXTRA_SEED = "seed"
         const val EXTRA_SPEED = "speed"
         const val EXTRA_VARIATION = "variation"
+        const val EXTRA_SEGMENTS = "segments"
+        const val EXTRA_NUMBER_SPEED = "number_speed"
+        const val EXTRA_GAP_MS = "gap_ms"
+        const val EXTRA_PHONEME_OVERRIDES = "phoneme_overrides"
         const val EVIDENCE_DIRECTORY = "inflect-spike"
         const val RUNTIME_EVIDENCE_DIRECTORY = "inflect-validation"
         private const val DEFAULT_PHONEME_TEXT = "həlˈoʊ"

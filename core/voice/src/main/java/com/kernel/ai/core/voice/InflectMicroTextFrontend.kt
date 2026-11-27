@@ -20,6 +20,18 @@ object InflectMicroTextFrontend {
             "billion|trillion)\\b",
     )
 
+    private val teenSplitPatterns = listOf(
+        "thirteen" to "thir teen", "fourteen" to "four teen", "fifteen" to "fif teen", "sixteen" to "six teen",
+        "seventeen" to "seven teen", "eighteen" to "eigh teen", "nineteen" to "nine teen",
+    ).map { (word, split) -> Regex("\\b$word\\b", RegexOption.IGNORE_CASE) to split }
+
+    /** Splits teen words so eSpeak keeps the unreduced "teen" (#2115 Inflect teen round). */
+    private fun splitTeens(text: String): String = teenSplitPatterns.fold(text) { acc, (pattern, split) ->
+        pattern.replace(acc) { match ->
+            if (match.value[0].isUpperCase()) split.replaceFirstChar { it.uppercaseChar() } else split
+        }
+    }
+
     private val abbreviations = listOf(
         "Dr." to "doctor", "Mr." to "mister", "Mrs." to "missus", "Ms." to "miss",
         "Prof." to "professor", "St." to "saint", "vs." to "versus", "etc." to "et cetera",
@@ -73,6 +85,7 @@ object InflectMicroTextFrontend {
             Regex("\\b(\\d{3})(?=\\s+(?:North|South|East|West)\\b)", RegexOption.IGNORE_CASE),
         ) { match -> EnglishSpeechTextNormaliser.expandDigits(match.groupValues[1]) }
         value = EnglishSpeechTextNormaliser.normalize(value)
+        value = splitTeens(value)
         value = millionCentsClause.replace(value) { match ->
             "${match.groupValues[1]}, ${match.groupValues[2]}. And ${match.groupValues[3]} cents"
         }
@@ -91,6 +104,8 @@ object InflectMicroTextFrontend {
         var value = Normalizer.normalize(phonemes, Normalizer.Form.NFD)
         value = value.replace("sˈæskɐtʃˌuːən", "sɐskˈætʃəwən")
         value = value.replace("flʊɹɹˈɛsənt", "flʊˈɹɛsənt")
+        value = value.replace("θˈaʊzənd", "θˈaʊzˌænd")
+        value = value.replace("mˈɪliən", "mˈɪljən")
         return value.replace(whitespace, " ").trim()
     }
 
