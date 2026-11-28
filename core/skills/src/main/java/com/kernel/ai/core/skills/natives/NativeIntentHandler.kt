@@ -271,11 +271,18 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle(${UnknownIntentReplies.loggableName(normalizedName)}) failed", e)
-            SkillResult.Failure("run_intent", e.message ?: "Unknown error")
+            SkillResult.Failure(
+                skillName = "run_intent",
+                error = GENERIC_INTENT_FAILURE_REPLY,
+                technicalDetail = e.message ?: "Unknown error",
+            )
         }
         recordIntentOutcome(normalizedName, route, result)
         return result
     }
+
+    // Unexpected failures are logged above with the raw exception; the user hears only this sentence (#2176).
+    private val GENERIC_INTENT_FAILURE_REPLY = "Sorry, that didn't work. Please try again."
 
     /** Outcome only: registered intent names, never params or result text (#1870). */
     private fun recordIntentOutcome(normalizedName: String, route: IntentRoute, result: SkillResult) {
@@ -2897,13 +2904,29 @@ class NativeIntentHandler @Inject constructor(
         }
     }
 
+    // The model sends from_unit/to_unit as the tool describes, but has also sent from/to and
+    // source/target keys (#2176). The first non-blank alias wins.
+    private val CONVERT_UNITS_FROM_KEYS = listOf("from_unit", "from", "source_unit", "source", "unit_from")
+    private val CONVERT_UNITS_TO_KEYS = listOf("to_unit", "to", "target_unit", "target", "unit_to")
+    private val CONVERT_UNITS_FRIENDLY_REPLY = "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'."
+
+    private fun firstNonBlankParam(params: Map<String, String>, keys: List<String>): String? =
+        keys.firstNotNullOfOrNull { key -> params[key]?.trim()?.takeIf { it.isNotBlank() } }
+
+    // The spoken reply is the friendly sentence; the raw detail goes to the tool chip (SkillResult.Failure contract).
+    private fun convertUnitsFailure(technicalDetail: String): SkillResult.Failure = SkillResult.Failure(
+        skillName = "convert_units",
+        error = CONVERT_UNITS_FRIENDLY_REPLY,
+        technicalDetail = technicalDetail,
+    )
+
     private fun convertUnits(params: Map<String, String>): SkillResult {
         val value = params["value"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No conversion value provided")
-        val fromUnit = params["from_unit"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No source unit provided")
-        val toUnit = params["to_unit"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No target unit provided")
+            ?: return convertUnitsFailure("No conversion value provided")
+        val fromUnit = firstNonBlankParam(params, CONVERT_UNITS_FROM_KEYS)
+            ?: return convertUnitsFailure("No source unit provided")
+        val toUnit = firstNonBlankParam(params, CONVERT_UNITS_TO_KEYS)
+            ?: return convertUnitsFailure("No target unit provided")
 
         return try {
             val result = UnitConversionEvaluator.convert(value, fromUnit, toUnit)
@@ -2936,7 +2959,7 @@ class NativeIntentHandler @Inject constructor(
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
-            SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
+            convertUnitsFailure(e.message ?: "Could not convert units")
         }
     }
 

@@ -2648,6 +2648,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `unexpected handler failure speaks a friendly reply and keeps the raw detail`() {
+        every { clockRepository.observeStopwatch() } returns kotlinx.coroutines.flow.flow<ClockStopwatch> {
+            throw IllegalStateException("clock store closed")
+        }
+
+        val result = handleIntent("get_stopwatch_status", emptyMap())
+
+        assertEquals(
+            SkillResult.Failure(
+                "run_intent",
+                "Sorry, that didn't work. Please try again.",
+                technicalDetail = "clock store closed",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `lap_stopwatch fails truthfully when stopwatch is not running`() {
         every { clockRepository.observeStopwatch() } returns flowOf(
             ClockStopwatch(
@@ -3897,7 +3915,34 @@ class NativeIntentHandlerTest {
         val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"))
 
         assertEquals(
-            SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
+            SkillResult.Failure(
+                "convert_units",
+                "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'.",
+                technicalDetail = "Unsupported unit 'parsecs'",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units accepts from-to, source-target and unit_from-unit_to aliases`() {
+        val canonical = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"))
+        for ((fromKey, toKey) in listOf("from" to "to", "source" to "target", "source_unit" to "target_unit", "unit_from" to "unit_to")) {
+            val result = handleIntent("convert_units", mapOf("value" to "5", fromKey to "miles", toKey to "km"))
+            assertEquals(canonical, result, "aliases $fromKey/$toKey")
+        }
+    }
+
+    @Test
+    fun `convert_units missing source unit gives a friendly reply and keeps the raw detail`() {
+        val result = handleIntent("convert_units", mapOf("value" to "3.75", "to_unit" to "ml"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'.",
+                technicalDetail = "No source unit provided",
+            ),
             result,
         )
     }

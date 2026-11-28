@@ -501,7 +501,7 @@ class QuickIntentRouterTest {
         @ValueSource(strings = [
             "set a time for 5pm", "set a time to meet", "set the time on the oven",
             "set the time", "set time", "see the time", "see the timer", "start time", "Start time.",
-            "create a time", "See Tim.", "can you set the time",
+            "create a time", "See Tim.", "can you set the time", "what time is it",
         ])
         fun `whole-utterance timer rule does not claim non-timer phrases`(input: String) {
             val result = regexOnlyRouter.route(input)
@@ -3185,6 +3185,9 @@ class QuickIntentRouterTest {
             Arguments.of("set a twenty minute timer", "1200"),
             Arguments.of("set a forty five minute timer", "2700"),
             Arguments.of("set a forty-five minute timer", "2700"),
+            Arguments.of("set of 30 second time", "30"),
+            Arguments.of("set a 30 second time", "30"),
+            Arguments.of("set a 5 minute time", "300"),
         )
 
         @JvmStatic
@@ -4479,6 +4482,13 @@ class QuickIntentRouterTest {
             Arguments.of("convert 189 cm to feet and inches", "189", "cm", "inches"),
             Arguments.of("convert 6 feet 2 inches to cm", "74", "inches", "cm"),
             Arguments.of("convert 100 km an hour to metres a second", "100", "kilometers per hour", "metres per second"),
+            Arguments.of("How many mills and three quarters of a cup", "0.75", "cup", "ml"),
+            Arguments.of("how many mls in 3/4 of a cup", "0.75", "cup", "ml"),
+            Arguments.of("how many mill litres are in 2 cups", "2", "cups", "ml"),
+            Arguments.of("convert 250 mils to cups", "250", "ml", "cups"),
+            Arguments.of("3 and three quarters of a cup to ml", "3.75", "cup", "ml"),
+            Arguments.of("2 and 3/4 of a cup to ml", "2.75", "cup", "ml"),
+            Arguments.of("how many ml and 3/4 of a cup", "0.75", "cup", "ml"),
         )
 
         @JvmStatic
