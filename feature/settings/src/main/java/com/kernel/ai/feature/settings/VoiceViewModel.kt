@@ -879,9 +879,9 @@ class VoiceViewModel @Inject constructor(
             current != previous -> _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Idle) }
             result is KokoroSpeedResult.Measured && result.allowsKokoro -> {
                 selectKokoroEngine()
-                val sample = kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+                val sample = kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT))
                 _uiState.update {
-                    it.copy(kokoroSampleError = if (sample is VoiceOutputResult.Unavailable) KOKORO_SAMPLE_FAILED_MESSAGE else null)
+                    it.copy(kokoroSampleError = if (sample is VoiceOutputResult.Unavailable) VoiceOutputCopy.KOKORO_SAMPLE_FAILED_MESSAGE else null)
                 }
             }
             else -> _uiState.update {
@@ -952,11 +952,11 @@ class VoiceViewModel @Inject constructor(
         sampleJob = viewModelScope.launch {
             val result = when (card) {
                 VoiceSampleCard.PIPER -> sherpaVoiceOutputController.speak(
-                    VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT, sherpaVoice = sherpaVoice),
+                    VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT, sherpaVoice = sherpaVoice),
                 )
-                VoiceSampleCard.INFLECT -> inflectMicroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
-                VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
-                VoiceSampleCard.PHONE -> androidTextToSpeechController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+                VoiceSampleCard.INFLECT -> inflectMicroVoiceOutputController.speak(VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT))
+                VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT))
+                VoiceSampleCard.PHONE -> androidTextToSpeechController.speak(VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT))
             }
             // A cancelled sample ends silently: its tap already cleared the state, and a newer sample must not be cleared.
             if (!isActive) return@launch
@@ -1168,8 +1168,6 @@ class VoiceViewModel @Inject constructor(
     }
 }
 
-private const val VOICE_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
-
 internal const val SAMPLE_FAILED_MESSAGE =
     "Couldn't play the sample. Delete the voice and download it again, then retry."
 
@@ -1185,5 +1183,4 @@ sealed interface KokoroSpeedUiState {
 
 internal const val KOKORO_NO_CHAT_MODEL_MESSAGE = "Kokoro can't be checked until a chat model is downloaded."
 internal const val KOKORO_CHECK_UNAVAILABLE_MESSAGE = "Couldn't prepare the check on this phone."
-internal const val KOKORO_SAMPLE_FAILED_MESSAGE = "Couldn't play the sample with Kokoro."
 private const val KOKORO_CHECK_LOG_TAG = "KernelAI"

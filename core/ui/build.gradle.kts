@@ -25,6 +25,7 @@ android {
 
 dependencies {
     api(project(":core:permissions"))
+    implementation(project(":core:voice"))
     // Compose
     api(platform(libs.compose.bom))
     api(libs.compose.ui)
