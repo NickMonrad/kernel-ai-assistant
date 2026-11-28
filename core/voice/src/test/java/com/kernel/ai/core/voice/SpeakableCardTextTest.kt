@@ -30,6 +30,22 @@ class SpeakableCardTextTest {
         assertEquals(expected, SpeechCardText.speakable(input))
     }
 
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(
+        delimiter = ';',
+        quoteCharacter = '`',
+        value = [
+            "Born 1990 (aged 34) ; Born 1990 (aged 34)",
+            "Game (2 of 3) ; Game (2 of 3)",
+            "(approx. 5) ; (approx. 5)",
+            "Mount Ruapehu (2,797 m) ; Mount Ruapehu (2,797 m)",
+            "1 L (2 pints) ; 1 L (2 pints)",
+        ],
+    )
+    fun `brackets that are not a unit conversion stay as written`(input: String, expected: String) {
+        assertEquals(expected, SpeechCardText.speakable(input))
+    }
+
     @Test
     fun `line breaks after clause punctuation do not double the full stop`() {
         assertEquals("Done. Next", SpeechCardText.speakable("Done.\nNext"))
