@@ -19,19 +19,27 @@ import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroSpeedCheckCache
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.WakeWordPreferences
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +52,7 @@ private const val KEY_SELECTED_OUTPUT = "selected_speech_output"
 private const val KEY_SELECTED_WAKE_WORD = "selected_wake_word"
 private const val KEY_NOTIFICATIONS_ASKED = "notifications_asked"
 private const val KEY_ONLINE_SPEECH = "allow_online_speech"
+private const val KEY_KOKORO_VOICE = "selected_kokoro_voice"
 
 /** One screen of the setup wizard. [loaded] is false until persisted progress is read. */
 data class SetupWizardUiState(
@@ -105,6 +114,16 @@ data class SetupWizardUiState(
     val extraOutputEngine: VoiceOutputEngine? = null,
     /** The output first-run setup chooses on this phone. A Kokoro pick falls back to it until the check passes (#2173). */
     val defaultOutput: VoiceOutputEngine = VoiceOutputEngine.SherpaExperimental,
+    /** The Kokoro pack is on disk, so the Kokoro card shows its voice sample and, when Kokoro is picked, its picker (#2191). */
+    val kokoroReady: Boolean = false,
+    /** The Kokoro voice the picker shows: the stored one, or the one picked in this run. Saved by Finish or Skip. */
+    val kokoroVoice: KokoroVoice = KokoroVoice.DEFAULT,
+    /** A speed check passed on this build, so the Kokoro card does not say the current voice stays until one does. */
+    val kokoroCheckPassed: Boolean = false,
+    /** True while the Kokoro sample plays on the speech step. */
+    val kokoroSamplePlaying: Boolean = false,
+    /** Shown under the Kokoro sample when it could not play; null otherwise. */
+    val kokoroSampleError: String? = null,
 )
 
 /**
@@ -134,6 +153,8 @@ class SetupWizardViewModel @Inject constructor(
     private val voiceDefaultsProvisioner: VoiceDefaultsProvisioner,
     private val wakeWordPreferences: WakeWordPreferences,
     private val platformReader: MakeYoursPlatformReader,
+    private val kokoroSpeedCheckCache: KokoroSpeedCheckCache,
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -152,6 +173,9 @@ class SetupWizardViewModel @Inject constructor(
 
     /** Every first-run model before the asr4all filter applied by the speech input choice. */
     private var allPlannedModels: List<KernelModel> = emptyList()
+
+    /** The Kokoro sample in progress; cancelled by [stopKokoroSample]. */
+    private var kokoroSampleJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -191,6 +215,7 @@ class SetupWizardViewModel @Inject constructor(
             }
             storedInput = currentInput
             storedOutput = currentOutput
+            val storedKokoroVoice = voiceOutputPreferences.selectedKokoroVoice.first()
 
             val savedInput = savedStateHandle.get<String>(KEY_SELECTED_INPUT)
                 ?.let { VoiceInputEngine.fromStorage(it) }
@@ -259,6 +284,10 @@ class SetupWizardViewModel @Inject constructor(
                 extraInputEngine = SetupSpeechOptions.extraCurrent(inputOptions, currentInput),
                 extraOutputEngine = SetupSpeechOptions.extraCurrent(outputOptions, currentOutput),
                 defaultOutput = defaultOutput,
+                kokoroReady = KokoroSetup.kernelModels().all { isModelDownloaded(it) },
+                kokoroVoice = savedStateHandle.get<String>(KEY_KOKORO_VOICE)?.let { KokoroVoice.fromStorage(it) }
+                    ?: storedKokoroVoice,
+                kokoroCheckPassed = kokoroSpeedCheckCache.hasValidPass(),
             )
         }
     }
@@ -366,6 +395,45 @@ class SetupWizardViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(choice = choice)
     }
 
+    /** Picks the Kokoro voice for the picker and the sample. Saved only by Finish or Skip (#2191). */
+    fun onKokoroVoiceSelected(voice: KokoroVoice) {
+        stopKokoroSample()
+        savedStateHandle[KEY_KOKORO_VOICE] = voice.name
+        _uiState.value = _uiState.value.copy(kokoroVoice = voice)
+    }
+
+    /** Plays the Kokoro sample with the picked voice, or stops it while it plays (#2191). */
+    fun toggleKokoroSample() {
+        if (_uiState.value.kokoroSamplePlaying) {
+            stopKokoroSample()
+            return
+        }
+        _uiState.value = _uiState.value.copy(kokoroSamplePlaying = true, kokoroSampleError = null)
+        kokoroSampleJob = viewModelScope.launch {
+            val result = kokoroVoiceOutputController.speak(
+                VoiceSpeakRequest(text = VoiceOutputCopy.SAMPLE_TEXT, kokoroVoice = _uiState.value.kokoroVoice),
+            )
+            ensureActive()
+            _uiState.value = _uiState.value.copy(
+                kokoroSamplePlaying = false,
+                kokoroSampleError = if (result is VoiceOutputResult.Unavailable) {
+                    VoiceOutputCopy.KOKORO_SAMPLE_FAILED_MESSAGE
+                } else {
+                    null
+                },
+            )
+        }
+    }
+
+    /** Stops a playing Kokoro sample: when the step is left, when a voice is picked, and when the sample is tapped again. */
+    private fun stopKokoroSample() {
+        if (!_uiState.value.kokoroSamplePlaying) return
+        kokoroSampleJob?.cancel()
+        kokoroSampleJob = null
+        kokoroVoiceOutputController.stop()
+        _uiState.value = _uiState.value.copy(kokoroSamplePlaying = false)
+    }
+
     /** Re-reads the phone's state for the Make Jandal yours rows. Reads only; never writes or requests. */
     fun refreshPlatform() {
         viewModelScope.launch {
@@ -397,6 +465,7 @@ class SetupWizardViewModel @Inject constructor(
      * On the last step, finishes the wizard, then [onDone].
      */
     fun onContinue(onDone: () -> Unit) {
+        stopKokoroSample()
         val state = _uiState.value
         // Every step needs the Terms of Use accepted first; the UI disables Continue too (#1998).
         if (!state.termsAccepted) return
@@ -413,6 +482,7 @@ class SetupWizardViewModel @Inject constructor(
 
     /** Goes back one step. On the first step, leaves the wizard via [onExit] without completing it. */
     fun onBack(onExit: () -> Unit) {
+        stopKokoroSample()
         val previous = SetupWizardFlow.previous(_uiState.value.step)
         if (previous == null) {
             onExit()
@@ -426,6 +496,7 @@ class SetupWizardViewModel @Inject constructor(
         val state = _uiState.value
         viewModelScope.launch {
             val output = saveSpeechChoices(state)
+            saveKokoroVoice(state)
             saveNetworkChoice(state.choice)
             startChosenInput(effectiveInput(state.inputEngine))
             startChosenVoice(output)
@@ -442,11 +513,13 @@ class SetupWizardViewModel @Inject constructor(
      * Skip never applies the Make Jandal yours choices.
      */
     fun onSkip(onDone: (DownloadNetworkChoice) -> Unit) {
+        stopKokoroSample()
         val state = _uiState.value
         if (!state.termsAccepted) return
         viewModelScope.launch {
             val effective = storedChoice ?: DownloadNetworkChoice.WIFI_ONLY
             val output = saveSpeechChoices(state)
+            saveKokoroVoice(state)
             if (storedChoice == null) downloadNetworkPreferences.setChoice(effective)
             // Inflect queues on Skip too; Cori alone never does (#1936). Queued after the network choice (consent).
             if (output == VoiceOutputEngine.InflectMicroExperimental) queueInflectMicro()
@@ -495,6 +568,13 @@ class SetupWizardViewModel @Inject constructor(
     /** Writes the network choice only when it differs from the stored one, so a kept choice is untouched. */
     private suspend fun saveNetworkChoice(choice: DownloadNetworkChoice) {
         if (choice != storedChoice) downloadNetworkPreferences.setChoice(choice)
+    }
+
+    /** Saves the Kokoro voice picked in this run, only while Kokoro is the output (#2191). */
+    private suspend fun saveKokoroVoice(state: SetupWizardUiState) {
+        if (touched(KEY_KOKORO_VOICE) && state.outputEngine == VoiceOutputEngine.KokoroExperimental) {
+            voiceOutputPreferences.setSelectedKokoroVoice(state.kokoroVoice)
+        }
     }
 
     /**

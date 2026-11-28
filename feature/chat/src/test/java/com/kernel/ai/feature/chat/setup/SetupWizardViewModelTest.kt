@@ -13,6 +13,10 @@ import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.setup.SetupWizardProgress
 import com.kernel.ai.core.voice.Asr4AllInstall
 import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroSpeedCheckCache
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.inference.terms.TERMS_VERSION
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
@@ -25,9 +29,12 @@ import com.kernel.ai.core.voice.VoiceDefaultsProvisioner
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceInputPreferences
+import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoiceOutputPreferences
+import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoicePackDownloadState
+import com.kernel.ai.core.voice.VoiceSpeakRequest
 import com.kernel.ai.core.voice.WakeWordPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -35,6 +42,7 @@ import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -64,9 +72,13 @@ class SetupWizardViewModelTest {
     private val wakeWordPreferences: WakeWordPreferences = mockk(relaxed = true)
     private val platformReader: MakeYoursPlatformReader = mockk(relaxed = true)
     private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
+    private val kokoroSpeedCheckCache: KokoroSpeedCheckCache = mockk(relaxed = true)
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
 
     @BeforeEach
     fun setUp() {
+        every { voiceOutputPreferences.selectedKokoroVoice } returns flowOf(KokoroVoice.EMMA)
+        coEvery { kokoroSpeedCheckCache.hasValidPass() } returns false
         every { voiceOutputPreferences.selectedSherpaVoice } returns flowOf(SherpaPiperVoice.CoriHigh)
         every { voicePackDownloadManager.downloadStates } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
         Dispatchers.setMain(dispatcher)
@@ -133,6 +145,8 @@ class SetupWizardViewModelTest {
             wakeWordPreferences = wakeWordPreferences,
             platformReader = platformReader,
             termsAcceptancePreferences = termsAcceptancePreferences,
+            kokoroSpeedCheckCache = kokoroSpeedCheckCache,
+            kokoroVoiceOutputController = kokoroVoiceOutputController,
             savedStateHandle = handle,
         )
 
@@ -1112,5 +1126,107 @@ class SetupWizardViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.termsAccepted)
         coVerify(exactly = 1) { termsAcceptancePreferences.setAccepted(true, TermsAcceptanceSource.SETUP_WIZARD, any()) }
+    }
+
+    // ── Kokoro card on the speech step (#2191) ───────────────────────────────────
+
+    /** Marks every Kokoro file on disk, as a finished pack download leaves it. */
+    private fun kokoroPackOnDisk(files: List<KernelModel> = KokoroSetup.kernelModels()) {
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            files.associateWith { DownloadState.Downloaded("/models/kokoro") },
+        )
+    }
+
+    @Test
+    fun `the Kokoro voice starts at the stored voice`() {
+        every { voiceOutputPreferences.selectedKokoroVoice } returns flowOf(KokoroVoice.DANIEL)
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(KokoroVoice.DANIEL, vm.uiState.value.kokoroVoice)
+    }
+
+    @Test
+    fun `picking a Kokoro voice is saved only at Finish`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onKokoroVoiceSelected(KokoroVoice.HEART)
+        assertEquals(KokoroVoice.HEART, vm.uiState.value.kokoroVoice)
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedKokoroVoice(any()) }
+
+        vm.finishFromDownloadStep()
+
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedKokoroVoice(KokoroVoice.HEART) }
+    }
+
+    @Test
+    fun `skipping saves the picked Kokoro voice too, because Skip queues the pack`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onKokoroVoiceSelected(KokoroVoice.DANIEL)
+        vm.onSkip {}
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedKokoroVoice(KokoroVoice.DANIEL) }
+    }
+
+    @Test
+    fun `the Kokoro sample speaks the picked voice before it is saved`() {
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.onKokoroVoiceSelected(KokoroVoice.HEART)
+        vm.toggleKokoroSample()
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) {
+            kokoroVoiceOutputController.speak(
+                match<VoiceSpeakRequest> { it.kokoroVoice == KokoroVoice.HEART && it.text == VoiceOutputCopy.SAMPLE_TEXT },
+            )
+        }
+    }
+
+    @Test
+    fun `leaving the speech step stops a playing Kokoro sample`() {
+        val sampling = CompletableDeferred<Unit>()
+        coEvery { kokoroVoiceOutputController.speak(any()) } coAnswers {
+            sampling.await()
+            VoiceOutputResult.Spoken
+        }
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.toggleKokoroSample()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.kokoroSamplePlaying)
+
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.kokoroSamplePlaying)
+        verify(exactly = 1) { kokoroVoiceOutputController.stop() }
+    }
+
+    @Test
+    fun `the Kokoro card is ready only when every Kokoro file is on disk`() {
+        kokoroPackOnDisk()
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.kokoroReady)
+    }
+
+    @Test
+    fun `a missing Kokoro file keeps the card not ready`() {
+        kokoroPackOnDisk(KokoroSetup.kernelModels().drop(1))
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.uiState.value.kokoroReady)
+    }
+
+    @Test
+    fun `a cached Kokoro speed pass is reported to the card`() {
+        coEvery { kokoroSpeedCheckCache.hasValidPass() } returns true
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.kokoroCheckPassed)
     }
 }

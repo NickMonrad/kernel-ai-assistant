@@ -166,7 +166,7 @@ class KokoroVoiceOutputController @Inject constructor(
             val generation = playbackGeneration.get()
             val gain = voiceOutputPreferences.voiceGain.first()
             val pitch = voiceOutputPreferences.voicePitch.first()
-            val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+            val voice = request.kokoroVoice ?: voiceOutputPreferences.selectedKokoroVoice.first()
             timing.mark("settingsRead", "voice=${voice.name}")
             val cached = engine != null && engineVoice == voice
             val preparation = synthesisLock.withLock { prepareForReply(voice, timing) }
