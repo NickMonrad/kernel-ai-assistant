@@ -16,7 +16,7 @@ enum class HomeItem(val title: String, val description: String, val fallbackHowT
     LISTS_WIDGET(
         title = "Lists widget",
         description = "Items from one of your lists at a glance",
-        fallbackHowTo = "Long-press an empty spot on your home screen, tap Widgets, then pick Lists.",
+        fallbackHowTo = "Long-press an empty spot on your home screen, tap Widgets, pick Jandal, then Lists.",
     ),
     LISTS_SHORTCUT(
         title = "Lists shortcut",
@@ -44,12 +44,12 @@ object HomeWidgetPinning {
         HomeItem.JANDAL_WIDGET -> requestWidgetPin(
             context,
             ComponentName(context, JANDAL_PROVIDER),
-            confirmationCallback(context, item),
+            confirmationPendingIntent(context, item),
         )
         HomeItem.LISTS_WIDGET -> requestWidgetPin(
             context,
             ComponentName(context, LISTS_PROVIDER),
-            confirmationCallback(context, item),
+            confirmationPendingIntent(context, item),
         )
         HomeItem.LISTS_SHORTCUT -> when (ListsShortcut.requestPin(context)) {
             ListsShortcut.PinResult.Requested -> PinResult.Requested
@@ -82,15 +82,22 @@ object HomeWidgetPinning {
 
     fun addedMessage(item: HomeItem): String = "${item.title} added to your home screen"
 
-    private fun confirmationCallback(context: Context, item: HomeItem): PendingIntent {
+    /**
+     * Success callback for [AppWidgetManager.requestPinAppWidget]. Extras are fixed per item, so the
+     * PendingIntent is immutable: the launcher must not rewrite them.
+     */
+    internal const val CONFIRMATION_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+    internal fun confirmationPendingIntent(context: Context, item: HomeItem): PendingIntent {
         val intent = Intent(ACTION_PIN_CONFIRMED)
-            .setComponent(ComponentName(context, HomeWidgetPinConfirmedReceiver::class.java))
-            .putExtra(EXTRA_ITEM, item.name)
-        return PendingIntent.getBroadcast(
-            context,
-            item.ordinal,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
+        intent.setClass(context, HomeWidgetPinConfirmedReceiver::class.java)
+        intent.putExtra(EXTRA_ITEM, item.name)
+        return PendingIntent.getBroadcast(context, item.ordinal, intent, CONFIRMATION_FLAGS)
+    }
+
+    /** Item named by a confirmation broadcast; null for another action, a missing extra, or an unknown name. */
+    internal fun confirmedItem(action: String?, itemName: String?): HomeItem? {
+        if (action != ACTION_PIN_CONFIRMED || itemName == null) return null
+        return HomeItem.entries.firstOrNull { it.name == itemName }
     }
 }

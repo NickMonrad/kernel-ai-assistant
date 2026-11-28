@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,7 +32,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.ui.theme.CharcoalDark
 import com.kernel.ai.core.ui.theme.SandLight
@@ -93,23 +96,31 @@ internal fun HomeScreenSection(
 @Composable
 private fun HomeItemPreview(item: HomeItem) {
     val tileShape = RoundedCornerShape(12.dp)
+    // Decorative: the row's title and description are the accessible label, so tiles expose no semantics.
+    // Fixed width, minimum height: text may wrap or grow the tile at large font scales instead of clipping.
+    val tileModifier = Modifier
+        .width(96.dp)
+        .heightIn(min = 40.dp)
+        .clearAndSetSemantics {}
     when (item) {
         HomeItem.JANDAL_WIDGET -> Box(
-            modifier = Modifier
-                .size(width = 96.dp, height = 40.dp)
-                .clip(tileShape)
-                .background(SandLight),
+            modifier = tileModifier.clip(tileShape).background(SandLight),
             contentAlignment = Alignment.Center,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Mic, contentDescription = null, tint = CharcoalDark, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(text = "Ask Jandal", style = MaterialTheme.typography.labelSmall, color = CharcoalDark)
+                Text(
+                    text = "Ask Jandal",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CharcoalDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
         HomeItem.LISTS_WIDGET -> Column(
-            modifier = Modifier
-                .size(width = 96.dp, height = 40.dp)
+            modifier = tileModifier
                 .clip(tileShape)
                 .background(SandLight)
                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -119,12 +130,19 @@ private fun HomeItemPreview(item: HomeItem) {
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = CharcoalDark,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Text(text = "• Milk", style = MaterialTheme.typography.labelSmall, color = CharcoalDark)
-            Text(text = "• Eggs", style = MaterialTheme.typography.labelSmall, color = CharcoalDark)
+            Text(
+                text = "• Milk",
+                style = MaterialTheme.typography.labelSmall,
+                color = CharcoalDark,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         HomeItem.LISTS_SHORTCUT -> Box(
-            modifier = Modifier.size(width = 96.dp, height = 40.dp),
+            modifier = tileModifier,
             contentAlignment = Alignment.Center,
         ) {
             Image(

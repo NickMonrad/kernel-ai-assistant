@@ -31,10 +31,10 @@ object HomeWidgetPinEvents {
  */
 class HomeWidgetPinConfirmedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != HomeWidgetPinning.ACTION_PIN_CONFIRMED) return
-        val item = intent.getStringExtra(HomeWidgetPinning.EXTRA_ITEM)
-            ?.let { name -> HomeItem.entries.firstOrNull { it.name == name } }
-            ?: return
+        val item = HomeWidgetPinning.confirmedItem(
+            intent.action,
+            intent.getStringExtra(HomeWidgetPinning.EXTRA_ITEM),
+        ) ?: return
         HomeWidgetPinEvents.emit(item)
     }
 }
