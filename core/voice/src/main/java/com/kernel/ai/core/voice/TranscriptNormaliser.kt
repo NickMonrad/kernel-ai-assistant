@@ -12,6 +12,7 @@ import android.util.Log
  * - [KIWI_PHONETIC_REPLACEMENTS] — word-level Kiwi/Māori mishears (#935, #939, #1852)
  * - [STT_UNIT_ALIAS_REPLACEMENTS] — unit/abbreviation normalisations (#1017)
  * - [MISHEARD_ADD_LIST_COMMAND] — "add" misheard as "I've"/"I'd"/"ad" in list commands (#1820)
+ * - [US_TO_NZ_SPELLING] — US→NZ spelling of words the recogniser writes (#2177)
  *
  * ## False-positive note
  * `comrade` → `kumara` is a known limitation: "i was a comrade in arms" becomes
@@ -145,6 +146,33 @@ object TranscriptNormaliser {
     }
 
     /**
+     * US→NZ spelling (#2177): the recogniser writes US forms ("mom", "color") in an en-NZ app. Whole words only; every
+     * pair is a form that is never the intended NZ word. The heard word's case carries over: "Mom" → "Mum", "MOM" → "MUM".
+     * Left out as unsafe: "center", "gray" (names), "meter" (NZ electricity meter), "license", "tire", "honor" (the
+     * device brand).
+     */
+    private val US_TO_NZ_SPELLING: List<Pair<Regex, String>> = listOf(
+        "mommies" to "mummies", "mommy" to "mummy", "moms" to "mums", "mom" to "mum",
+        "colors" to "colours", "color" to "colour", "colored" to "coloured",
+        "favorites" to "favourites", "favorite" to "favourite",
+        "flavors" to "flavours", "flavor" to "flavour", "humor" to "humour",
+        "neighbors" to "neighbours", "neighbor" to "neighbour",
+        "neighborhoods" to "neighbourhoods", "neighborhood" to "neighbourhood",
+        "theaters" to "theatres", "theater" to "theatre", "jewelry" to "jewellery",
+        "traveled" to "travelled", "traveling" to "travelling",
+        "travelers" to "travellers", "traveler" to "traveller",
+        "canceled" to "cancelled", "canceling" to "cancelling",
+        "labeled" to "labelled", "labeling" to "labelling",
+    ).map { (us, nz) -> Regex("""\b${Regex.escape(us)}\b""", RegexOption.IGNORE_CASE) to nz }
+
+    /** Gives [nz] the case shape of the [heard] word: all caps, capitalised, or as written. */
+    private fun matchCase(heard: String, nz: String): String = when {
+        heard.length > 1 && heard.all { it.isUpperCase() } -> nz.uppercase()
+        heard[0].isUpperCase() -> nz.replaceFirstChar { it.uppercaseChar() }
+        else -> nz
+    }
+
+    /**
      * Normalise [text] by applying all replacement rules in order.
      *
      * - Returns [text] unchanged if blank.
@@ -175,6 +203,9 @@ object TranscriptNormaliser {
             val before = out
             out = "add ${m.groupValues[1]} to ${m.groupValues[2]}${m.groupValues[3]}"
             Log.w(TAG, "MISHEARD_ADD applied to \"$before\" → \"$out\"")
+        }
+        for ((re, replacement) in US_TO_NZ_SPELLING) {
+            out = re.replace(out) { match -> matchCase(match.value, replacement) }
         }
         return out
     }

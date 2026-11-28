@@ -728,7 +728,7 @@ class Asr4allVoiceInputController internal constructor(
         // Superseded: no finish, no error, no transcript.
         if (discard.get()) return
         if (textHeard) emitSpeechEndedOnce(c)
-        val text = TranscriptNormaliser.stripTrailingSentencePunctuation(eng.finish().trim())
+        val text = TranscriptNormaliser.normalise(eng.finish().trim())
         if (c.endedAtNanos != 0L) {
             val end = c.end
             JandalEvents.record(

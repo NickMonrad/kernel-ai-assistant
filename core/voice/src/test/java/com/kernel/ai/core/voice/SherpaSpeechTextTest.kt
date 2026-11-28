@@ -24,6 +24,8 @@ class SherpaSpeechTextTest {
             "Done!                                       | Done!",
             "Next,                                       | Next.",
             "Added \"bananas\" to your shopping list.      | Added \"bananas\" to your shopping list.",
+            "He said \"not wings.\"                         | He said \"not wings.\"",
+            "He said “not wings.”                           | He said “not wings.”",
             "It's -3 degrees Celsius                     | It's -3 degrees Celsius.",
             "In Wellington, it's 17°C, high of 19 degrees | In Wellington, it's seventeen degrees, high of nineteen degrees.",
             "That's 15,000 steps                         | That's fifteen thousand steps.",

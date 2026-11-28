@@ -544,7 +544,7 @@ class NativeIntentHandler @Inject constructor(
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this alarm; the alert will appear as a high-priority notification."
+                            "Full-screen alerts are off for this alarm, so it will show as a notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
@@ -590,7 +590,7 @@ class NativeIntentHandler @Inject constructor(
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
                         SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this timer; the alert will appear as a high-priority notification."
+                            "Full-screen alerts are off for this timer, so it will show as a notification."
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
@@ -2584,12 +2584,11 @@ class NativeIntentHandler @Inject constructor(
                 insertedItem = persistedItem,
                 listId = listId,
                 listName = listName,
-                allItems = listItemDao.getByList(listId),
                 createdList = createdList,
             )
         } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
 
-        val (insertedItem, listId, persistedListName, allItems, createdList) = result
+        val (insertedItem, listId, persistedListName, createdList) = result
         var scheduleOk = false
         try {
             if (insertedItem != null) {
@@ -2628,7 +2627,11 @@ class NativeIntentHandler @Inject constructor(
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Reminder set: \"$item\" $dayPhrase at $timeDisplay.",
-            presentation = buildListPreview(persistedListName, allItems),
+            presentation = ToolPresentation.Status(
+                icon = "⏰",
+                title = item,
+                subtitle = "${dayPhrase.replaceFirstChar { it.uppercase() }} at $timeDisplay",
+            ),
         )
     }
 
@@ -2636,7 +2639,6 @@ class NativeIntentHandler @Inject constructor(
         val insertedItem: ListItemEntity?,
         val listId: Long,
         val listName: String,
-        val allItems: List<ListItemEntity>,
         val createdList: Boolean,
     )
 

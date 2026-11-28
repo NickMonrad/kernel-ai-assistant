@@ -284,7 +284,7 @@ object InflectMicroTextFrontend {
             .filter { it >= MIN_CLAUSE_SPLIT_CHARS && text.length - it - 1 >= MIN_CLAUSE_SPLIT_CHARS }
             .minByOrNull { abs(it - middle) }
             ?: return listOf(text)
-        val before = text.substring(0, join).trimEnd(',').let { if (it.last() in ".!?;:") it else "$it." }
+        val before = text.substring(0, join).trimEnd(',').let { if (SpeechTerminalPunctuation.endsWith(it, ".!?;:")) it else "$it." }
         val after = text.substring(join + 1)
         return splitAtAndClauses(before, softLength, phonemize) + splitAtAndClauses(after, softLength, phonemize)
     }

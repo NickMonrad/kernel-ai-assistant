@@ -497,4 +497,17 @@ class TranscriptNormaliserTest {
         )
         assertEquals("Wake me at 6:30 A.M.", TranscriptNormaliser.stripTrailingSentencePunctuation("Wake me at 6:30 A.M."))
     }
+
+    @Test
+    fun `US spellings become NZ spellings as whole words`() {
+        assertEquals("call mum", TranscriptNormaliser.normalise("call mom"))
+        assertEquals("Mum said hi", TranscriptNormaliser.normalise("Mom said hi"))
+        assertEquals("my mums and mummy", TranscriptNormaliser.normalise("my moms and mommy"))
+        assertEquals("favourite colours", TranscriptNormaliser.normalise("favorite colors"))
+    }
+
+    @Test
+    fun `US spelling rules leave longer words that contain the pattern alone`() {
+        assertEquals("momentum and Colorado", TranscriptNormaliser.normalise("momentum and Colorado"))
+    }
 }

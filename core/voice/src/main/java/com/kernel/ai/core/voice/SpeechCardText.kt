@@ -36,8 +36,8 @@ object SpeechCardText {
         value = SpeechAbbreviationText.expand(value)
         val beforeBreaks = value
         value = lineBreak.replace(beforeBreaks) { m ->
-            val previous = if (m.range.first > 0) beforeBreaks[m.range.first - 1] else ' '
-            if (previous in CLAUSE_END) " " else ". "
+            // A closing quote or bracket after the mark ("wings.\"") does not hide it: no second full stop.
+            if (SpeechTerminalPunctuation.endsWith(beforeBreaks.substring(0, m.range.first), CLAUSE_END)) " " else ". "
         }
         value = cardSeparator.replace(value, ", ")
         value = emDash.replace(value, ", ")

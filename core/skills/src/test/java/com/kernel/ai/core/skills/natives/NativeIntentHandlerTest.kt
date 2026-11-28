@@ -2749,7 +2749,7 @@ class NativeIntentHandlerTest {
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
         assertTrue(success.content.contains("Alarm set for"))
-        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("show as a notification"))
         assertFalse(spoken.contains("notification"))
         assertTrue(success.content.startsWith(spoken))
     }
@@ -2809,7 +2809,7 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("show as a notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
@@ -2835,7 +2835,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("show as a notification"))
         assertFalse(spoken.contains("notification"))
         assertEquals("Timer set for 1 min 30 sec.", spoken)
         assertTrue(success.content.startsWith(spoken))
@@ -2887,7 +2887,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertTrue(success.content.contains("show as a notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
@@ -4730,6 +4730,20 @@ class NativeIntentHandlerTest {
                 "Reminder set: \"dentist\" tomorrow at 9:00 AM.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
+        }
+
+        @Test
+        fun `add_reminder card shows the reminder and its time, not a list preview`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val result = handleIntent("add_reminder", mapOf("item" to "call mum", "day" to "tomorrow", "time" to "19:00"))
+            val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            val card = assertInstanceOf(ToolPresentation.Status::class.java, reply.presentation)
+            assertEquals("call mum", card.title)
+            assertEquals("Tomorrow at 7:00 PM", card.subtitle)
         }
 
         @Test
