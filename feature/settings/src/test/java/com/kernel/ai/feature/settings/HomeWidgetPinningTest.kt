@@ -179,4 +179,15 @@ class HomeWidgetPinningTest {
         assertTrue(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
         assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
     }
+
+    @Test
+    fun `a new request supersedes an earlier pending request`() {
+        every { manager.isRequestPinAppWidgetSupported } returns true
+        every { manager.requestPinAppWidget(any(), any(), any()) } returns true
+        HomeWidgetPinning.requestWidgetPin(context, HomeItem.LISTS_WIDGET, provider, successCallback)
+        HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback)
+
+        assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.LISTS_WIDGET, widgetCount = 1))
+        assertTrue(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
+    }
 }

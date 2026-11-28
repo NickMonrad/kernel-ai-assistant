@@ -74,6 +74,8 @@ object HomeWidgetPinning {
     ): PinResult {
         val manager = context.getSystemService(AppWidgetManager::class.java) ?: return PinResult.Unsupported
         if (!manager.isRequestPinAppWidgetSupported) return PinResult.Unsupported
+        // The launcher shows one pin dialog at a time, so a new request supersedes earlier pending ones.
+        pendingWidgetPins.clear()
         pendingWidgetPins[item] = manager.getAppWidgetIds(provider).size
         val accepted = runCatching { manager.requestPinAppWidget(provider, null, successCallback) }
             .getOrDefault(false)
