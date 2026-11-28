@@ -16,6 +16,7 @@ import com.kernel.ai.core.memory.usecase.ChatModelLoadResult
 import com.kernel.ai.core.memory.usecase.ChatModelLoader
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
+import com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF
 import java.util.Locale
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -830,7 +831,12 @@ class VoiceViewModel @Inject constructor(
                 }
             }
             else -> _uiState.update {
-                it.copy(kokoroSpeed = KokoroSpeedUiState.Failed(stayingOn = VoiceOutputCopy.title(current)))
+                it.copy(
+                    kokoroSpeed = KokoroSpeedUiState.Failed(
+                        stayingOn = VoiceOutputCopy.title(current),
+                        details = (result as? KokoroSpeedResult.Measured)?.let(::speedCheckDetails),
+                    ),
+                )
             }
         }
     }
@@ -841,6 +847,12 @@ class VoiceViewModel @Inject constructor(
             kokoroVoiceOutputController.unloadEngine()
         }
     }
+
+    /** The numbers behind a speed fail: the memory the check read, and the median real-time factor it measured. */
+    private fun speedCheckDetails(result: KokoroSpeedResult.Measured): String = listOfNotNull(
+        result.memoryDetails,
+        "Speed: ${"%.2f".format(Locale.ROOT, result.realTimeFactor)}x real time; needs ${"%.2f".format(Locale.ROOT, KOKORO_SELECT_MAX_MEDIAN_RTF)} or less.",
+    ).joinToString("\n")
 
     /** Lets this voice pack download over mobile data. Other downloads keep the global network choice (#1868). */
     fun useMobileDataForVoice(voice: SherpaPiperVoice) {

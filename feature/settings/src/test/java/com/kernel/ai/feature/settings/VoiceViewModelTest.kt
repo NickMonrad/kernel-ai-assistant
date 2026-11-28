@@ -560,7 +560,13 @@ class VoiceViewModelTest {
 
     private fun fastKokoro() = KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 2.0, firstChunkSeconds = 0.8, peakMemoryMb = 1_300L)
 
-    private fun slowKokoro() = KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 4.4, firstChunkSeconds = 1.2, peakMemoryMb = 1_300L)
+    private fun slowKokoro() = KokoroSpeedResult.Measured(
+        audioSeconds = 4.0,
+        synthesisSeconds = 4.4,
+        firstChunkSeconds = 1.2,
+        peakMemoryMb = 1_300L,
+        memoryDetails = "MemAvailable=1200 MiB availMem=1300 MiB threshold=1280 MiB lowMemory=false",
+    )
 
     @Test
     fun `kokoro check that passes loads the chat model, selects kokoro and plays the sample`() = runTest {
@@ -590,7 +596,10 @@ class VoiceViewModelTest {
 
         assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
         assertEquals(
-            KokoroSpeedUiState.Failed(stayingOn = com.kernel.ai.core.voice.VoiceOutputCopy.title(previous)),
+            KokoroSpeedUiState.Failed(
+                stayingOn = com.kernel.ai.core.voice.VoiceOutputCopy.title(previous),
+                details = "MemAvailable=1200 MiB availMem=1300 MiB threshold=1280 MiB lowMemory=false\nSpeed: 1.10x real time; needs 0.70 or less.",
+            ),
             viewModel.uiState.value.kokoroSpeed,
         )
         verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }

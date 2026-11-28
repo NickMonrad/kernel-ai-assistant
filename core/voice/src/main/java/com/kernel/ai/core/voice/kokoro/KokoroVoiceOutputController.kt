@@ -89,25 +89,24 @@ class KokoroVoiceOutputController @Inject constructor(
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
-            if (engine == null || engineVoice != voice) {
-                // A load needs memory headroom; a check that needs no load is not blocked by it.
-                val snapshot = memoryGate.snapshot()
-                val details = snapshot.describe(KOKORO_LOAD_MIN_AVAILABLE_BYTES)
-                Log.i(TAG, "Kokoro check memory: $details")
-                if (!kokoroHasHeadroom(snapshot, KOKORO_LOAD_MIN_AVAILABLE_BYTES)) {
-                    return@withLock KokoroSpeedResult.Unavailable(
-                        message = KOKORO_LOW_MEMORY_MESSAGE,
-                        details = details,
-                        memoryShort = true,
-                    )
-                }
+            // Read before any load: the speed-fail details carry these figures whether or not a load is needed.
+            val snapshot = memoryGate.snapshot()
+            val details = snapshot.describe(KOKORO_LOAD_MIN_AVAILABLE_BYTES)
+            Log.i(TAG, "Kokoro check memory: $details")
+            // A load needs memory headroom; a check that needs no load is not blocked by it.
+            if ((engine == null || engineVoice != voice) && !kokoroHasHeadroom(snapshot, KOKORO_LOAD_MIN_AVAILABLE_BYTES)) {
+                return@withLock KokoroSpeedResult.Unavailable(
+                    message = KOKORO_LOW_MEMORY_MESSAGE,
+                    details = details,
+                    memoryShort = true,
+                )
             }
             val preparation = prepare(voice)
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
                 ?: return@withLock KokoroSpeedResult.Unavailable(
                     (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
                 )
-            measureKokoroSpeed(
+            val result = measureKokoroSpeed(
                 sentences = KOKORO_SPEED_TEST_SENTENCES,
                 splitText = { sentence -> loaded.splitText(KokoroTextFrontend.phonemizerInput(sentence, voice.locale)) },
                 synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
@@ -115,6 +114,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 peakMemoryMb = ::readPeakMemoryMb,
                 ensureActive = { cancellation.ensureActive() },
             )
+            if (result is KokoroSpeedResult.Measured) result.copy(memoryDetails = details) else result
         }
     }
 

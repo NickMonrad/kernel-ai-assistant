@@ -145,6 +145,7 @@ internal fun SpeakingSection(
                         val voice = option.row.voice
                         val downloadState = option.row.downloadState
                         val downloaded = downloadState is VoicePackDownloadState.Downloaded
+                        val packBusy = downloadState is VoicePackDownloadState.Downloading
                         val isCori = voice == SherpaPiperVoice.CoriHigh
                         val isMultiSpeaker = voice == SherpaPiperVoice.VctkMedium ||
                             voice == SherpaPiperVoice.SemaineMedium
@@ -157,7 +158,7 @@ internal fun SpeakingSection(
                         // Wi-Fi waiting and Cancel show under any engine for the selected voice, unless Inflect owns it.
                         val cardActionsVisible = (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
                         ChoiceCard(
-                            enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                            enabled = !packBusy && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                             title = if (isCori) {
                                 VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
                             } else {
@@ -299,7 +300,7 @@ internal fun SpeakingSection(
                         val state = uiState.inflectMicroAvailability
                         val selected = engine == VoiceOutputEngine.InflectMicroExperimental
                         ChoiceCard(
-                            enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                            enabled = state !is ModelAvailabilityState.Preparing && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                             title = VoiceOutputCopy.title(VoiceOutputEngine.InflectMicroExperimental),
                             description = "${VoiceOutputCopy.body(VoiceOutputEngine.InflectMicroExperimental)} " +
                                 "Also needs the ${uiState.selectedSherpaVoice.displayName} voice pack.",
