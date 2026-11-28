@@ -383,17 +383,17 @@ class SetupWizardViewModelTest {
     // ── Speech options by device capability (#1855 part 2) ──────────────────────
 
     @Test
-    fun `release offers Automatic and platform speech input, never Sherpa STT, with Piper and Android TTS output`() {
+    fun `release offers Automatic and asr4all input, never Sherpa STT, with Piper, Kokoro and Android TTS output`() {
         every { setupVoiceDevice.isReleaseBuild() } returns true
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.Asr4all, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
         assertEquals(VoiceInputEngine.Auto, vm.uiState.value.inputEngine)
         assertTrue(VoiceOutputEngine.SherpaExperimental in vm.uiState.value.outputOptions)
         assertTrue(VoiceOutputEngine.AndroidTts in vm.uiState.value.outputOptions)
-        assertFalse(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
+        assertTrue(VoiceOutputEngine.KokoroExperimental in vm.uiState.value.outputOptions)
         assertEquals(listOf(SherpaPiperVoice.CoriHigh), vm.uiState.value.plannedVoices)
         assertEquals(verifierBytes, vm.uiState.value.heyJandalExtraBytes)
         val coriBytes = SherpaPiperVoice.CoriHigh.approxDownloadBytes
@@ -417,9 +417,9 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.Auto), vm.uiState.value.inputOptions)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.Asr4all), vm.uiState.value.inputOptions)
         assertEquals(
-            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.KokoroExperimental),
             vm.uiState.value.outputOptions,
         )
         assertTrue(vm.uiState.value.inputReason != null)
@@ -430,12 +430,13 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.Asr4all, VoiceInputEngine.AndroidNative), vm.uiState.value.inputOptions)
         assertEquals(null, vm.uiState.value.inputReason)
         assertEquals(
             listOf(
                 VoiceOutputEngine.SherpaExperimental,
                 VoiceOutputEngine.InflectMicroExperimental,
+                VoiceOutputEngine.KokoroExperimental,
                 VoiceOutputEngine.AndroidTts,
             ),
             vm.uiState.value.outputOptions,
@@ -476,7 +477,7 @@ class SetupWizardViewModelTest {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf(VoiceInputEngine.Auto), vm.uiState.value.inputOptions)
+        assertEquals(listOf(VoiceInputEngine.Auto, VoiceInputEngine.Asr4all), vm.uiState.value.inputOptions)
         assertNull(vm.uiState.value.inputEngine)
     }
 
@@ -489,6 +490,111 @@ class SetupWizardViewModelTest {
         vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
 
         assertEquals(emptyList<SherpaPiperVoice>(), vm.uiState.value.plannedVoices)
+    }
+
+    // ── Current engines, asr4all state and Kokoro pick (#2173) ───────────────────
+
+    @Test
+    fun `a stored input setup does not list gets its own Current card and no listed input is selected`() {
+        device(nativeReady = false, hasTts = true, tier = HardwareTier.FLAGSHIP)
+        storedInput(VoiceInputEngine.AndroidNative)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceInputEngine.AndroidNative, vm.uiState.value.extraInputEngine)
+        assertNull(vm.uiState.value.inputEngine)
+    }
+
+    @Test
+    fun `a stored output setup does not list gets its own Current card`() {
+        every { setupVoiceDevice.isReleaseBuild() } returns true
+        storedOutput(VoiceOutputEngine.InflectMicroExperimental)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(VoiceOutputEngine.InflectMicroExperimental, vm.uiState.value.extraOutputEngine)
+        assertNull(vm.uiState.value.outputEngine)
+    }
+
+    @Test
+    fun `a stored output setup lists has no Current card`() {
+        storedOutput(VoiceOutputEngine.SherpaExperimental)
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.uiState.value.extraOutputEngine)
+        assertEquals(VoiceOutputEngine.SherpaExperimental, vm.uiState.value.outputEngine)
+    }
+
+    @Test
+    fun `the asr4all card shows its size and Not downloaded when no file is on disk`() {
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(Asr4AllSize.M, vm.uiState.value.asr4allSize)
+        assertEquals(Asr4AllInstall.models(Asr4AllSize.M).sumOf { it.approxSizeBytes }, vm.uiState.value.asr4allBytes)
+        assertFalse(vm.uiState.value.asr4allDownloaded)
+    }
+
+    @Test
+    fun `the asr4all card shows Downloaded when every file of its size is on disk`() {
+        every { downloadManager.downloadStates } returns MutableStateFlow(
+            Asr4AllInstall.models(Asr4AllSize.M).associateWith { DownloadState.Downloaded("/models/asr4all") },
+        )
+
+        val vm = viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.asr4allDownloaded)
+    }
+
+    @Test
+    fun `picking Kokoro keeps the stored voice, sets the pending check and queues the pack`() {
+        storedOutput(VoiceOutputEngine.AndroidTts)
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.finishFromDownloadStep()
+
+        coVerify(exactly = 1) { voiceOutputPreferences.setPendingKokoroCheck(true) }
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(any()) }
+        verify(atLeast = 1) { downloadManager.startDownload(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `picking Kokoro on a fresh install saves the tier default until the check passes`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.finishFromDownloadStep()
+
+        coVerify(exactly = 1) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.SherpaExperimental) }
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental) }
+        coVerify(exactly = 1) { voiceOutputPreferences.setPendingKokoroCheck(true) }
+    }
+
+    @Test
+    fun `choosing Cori after Kokoro clears the pending check`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onOutputSelected(VoiceOutputEngine.SherpaExperimental)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.finishFromDownloadStep()
+
+        coVerify(exactly = 1) { voiceOutputPreferences.setPendingKokoroCheck(false) }
+        coVerify(exactly = 0) { voiceOutputPreferences.setPendingKokoroCheck(true) }
     }
 
     // ── Online speech switch and Inflect Micro (#1936) ───────────────────────────
@@ -559,14 +665,14 @@ class SetupWizardViewModelTest {
     }
 
     @Test
-    fun `debug builds offer Inflect Micro on any phone, and never Kokoro`() {
+    fun `debug builds offer Inflect Micro and Kokoro on any phone`() {
         every { setupVoiceDevice.isReleaseBuild() } returns false
 
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.AndroidTts),
+            listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental, VoiceOutputEngine.KokoroExperimental, VoiceOutputEngine.AndroidTts),
             vm.uiState.value.outputOptions,
         )
     }

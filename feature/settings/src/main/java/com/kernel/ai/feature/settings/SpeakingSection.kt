@@ -2,12 +2,14 @@ package com.kernel.ai.feature.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
@@ -15,6 +17,8 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +48,7 @@ import com.kernel.ai.core.ui.InfoTagStyle
 import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.StatusChip
 import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
+import com.kernel.ai.core.ui.voice.VoiceSampleButton
 import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
@@ -102,7 +107,8 @@ internal fun SpeakingSection(
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit,
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit,
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit,
-    onPlaySherpaSample: (SherpaPiperVoice) -> Unit,
+    onTogglePiperSample: (SherpaPiperVoice) -> Unit,
+    onToggleVoiceSample: (VoiceSampleCard) -> Unit,
     onUseMobileDataForVoice: (SherpaPiperVoice) -> Unit,
     onDownloadKokoroPack: () -> Unit,
     onCancelKokoroPack: () -> Unit,
@@ -158,7 +164,7 @@ internal fun SpeakingSection(
                         // Wi-Fi waiting and Cancel show under any engine for the selected voice, unless Inflect owns it.
                         val cardActionsVisible = (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
                         ChoiceCard(
-                            enabled = !packBusy && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                            enabled = !packBusy && uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                             title = if (isCori) {
                                 VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
                             } else {
@@ -200,26 +206,13 @@ internal fun SpeakingSection(
                                             },
                                         ) { Text("Download") }
                                         is VoicePackDownloadState.Downloading -> Unit // Wi-Fi waiting shows below.
-                                        is VoicePackDownloadState.Downloaded -> Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            if (isSelectedVoice) {
-                                                Button(
-                                                    onClick = { onPlaySherpaSample(voice) },
-                                                    modifier = Modifier.semantics {
-                                                        contentDescription = "Play ${voice.displayName} sample"
-                                                    },
-                                                ) { Text("Play sample") }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                            }
-                                            OutlinedButton(
-                                                onClick = { onDeleteSherpaVoice(voice) },
-                                                colors = accentOutlinedColors,
-                                                modifier = Modifier.semantics {
-                                                    contentDescription = "Delete ${voice.displayName}"
-                                                },
-                                            ) { Text("Delete") }
-                                        }
+                                        is VoicePackDownloadState.Downloaded -> OutlinedButton(
+                                            onClick = { onDeleteSherpaVoice(voice) },
+                                            colors = accentOutlinedColors,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Delete ${voice.displayName}"
+                                            },
+                                        ) { Text("Delete") }
                                         is VoicePackDownloadState.Error -> OutlinedButton(
                                             onClick = { onDownloadSherpaVoice(voice) },
                                             colors = accentOutlinedColors,
@@ -228,6 +221,12 @@ internal fun SpeakingSection(
                                             },
                                         ) { Text("Retry") }
                                     }
+                                }
+                                if (downloaded) {
+                                    VoiceSampleButton(
+                                        playing = uiState.activeVoiceSample == VoiceSampleCard.PIPER && isSelectedVoice,
+                                        onClick = { onTogglePiperSample(voice) },
+                                    )
                                 }
                                 // Wi-Fi waiting and Cancel show under any engine for the selected voice, as the old status line did.
                                 if (downloadState is VoicePackDownloadState.Downloading && downloadState.waitingForWifi && cardActionsVisible) {
@@ -300,7 +299,8 @@ internal fun SpeakingSection(
                         val state = uiState.inflectMicroAvailability
                         val selected = engine == VoiceOutputEngine.InflectMicroExperimental
                         ChoiceCard(
-                            enabled = state !is ModelAvailabilityState.Preparing && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                            enabled = state !is ModelAvailabilityState.Preparing &&
+                                uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                             title = VoiceOutputCopy.title(VoiceOutputEngine.InflectMicroExperimental),
                             description = "${VoiceOutputCopy.body(VoiceOutputEngine.InflectMicroExperimental)} " +
                                 "Also needs the ${uiState.selectedSherpaVoice.displayName} voice pack.",
@@ -324,6 +324,12 @@ internal fun SpeakingSection(
                             },
                             subContent = {
                                 TermsOfUseLinkWithSheet()
+                                if (state is ModelAvailabilityState.Ready) {
+                                    VoiceSampleButton(
+                                        playing = uiState.activeVoiceSample == VoiceSampleCard.INFLECT,
+                                        onClick = { onToggleVoiceSample(VoiceSampleCard.INFLECT) },
+                                    )
+                                }
                                 when {
                                     state is ModelAvailabilityState.Preparing -> OutlinedButton(
                                         onClick = onCancelInflectMicro,
@@ -375,7 +381,8 @@ internal fun SpeakingSection(
                             title = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
                             description = VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental),
                             selected = kokoroSelected,
-                            enabled = !downloading && !uiState.kokoroWaitingForWifi && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                            enabled = !downloading && !uiState.kokoroWaitingForWifi &&
+                                uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                             onSelect = {
                                 onOutputEngineSelected(VoiceOutputEngine.KokoroExperimental)
                                 // A tap starts a missing pack, as the Download button does.
@@ -388,8 +395,6 @@ internal fun SpeakingSection(
                                 uiState.kokoroWaitingForWifi -> "Waiting for Wi-Fi"
                                 downloading -> "Downloading ${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
                                 failed -> "Download failed. Tap Retry."
-                                uiState.kokoroSpeed == KokoroSpeedUiState.Checking ->
-                                    "Checking this phone can speak Kokoro smoothly… (about 30 s)"
                                 kokoroSelected && !ready -> "Selected. Download the pack first; other voices speak until then."
                                 ready && !kokoroSelected && uiState.kokoroSpeed == KokoroSpeedUiState.Idle ->
                                     "Tap to check this phone can use Kokoro"
@@ -399,6 +404,7 @@ internal fun SpeakingSection(
                                 TermsOfUseLinkWithSheet()
                                 if (ready) {
                                     when (val check = uiState.kokoroSpeed) {
+                                        is KokoroSpeedUiState.Checking -> KokoroCheckProgress(check)
                                         is KokoroSpeedUiState.Failed -> {
                                             Text(
                                                 text = if (check.memoryShort) {
@@ -427,6 +433,10 @@ internal fun SpeakingSection(
                                     uiState.kokoroSampleError?.let {
                                         Text(text = it, style = MaterialTheme.typography.bodySmall)
                                     }
+                                    VoiceSampleButton(
+                                        playing = uiState.activeVoiceSample == VoiceSampleCard.KOKORO,
+                                        onClick = { onToggleVoiceSample(VoiceSampleCard.KOKORO) },
+                                    )
                                 }
                                 when {
                                     downloading -> OutlinedButton(
@@ -436,7 +446,7 @@ internal fun SpeakingSection(
                                     ) { Text("Cancel") }
                                     ready -> OutlinedButton(
                                         onClick = onDeleteKokoroPack,
-                                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                                        enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                                         colors = accentOutlinedColors,
                                         modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
                                     ) { Text("Delete") }
@@ -474,19 +484,25 @@ internal fun SpeakingSection(
                     }
 
                     SpeakingOption.PhoneVoice -> ChoiceCard(
-                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
+                        enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                         title = VoiceOutputCopy.title(VoiceOutputEngine.AndroidTts),
                         description = VoiceOutputCopy.body(VoiceOutputEngine.AndroidTts),
                         selected = engine == VoiceOutputEngine.AndroidTts,
                         onSelect = { onOutputEngineSelected(VoiceOutputEngine.AndroidTts) },
                         index = index,
                         modifier = Modifier.testTag(speakingCardTestTag(option)),
+                        subContent = {
+                            VoiceSampleButton(
+                                playing = uiState.activeVoiceSample == VoiceSampleCard.PHONE,
+                                onClick = { onToggleVoiceSample(VoiceSampleCard.PHONE) },
+                            )
+                        },
                     )
                 }
             }
         }
 
-        uiState.sherpaSampleError?.let { message ->
+        uiState.voiceSampleError?.let { message ->
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodySmall,
@@ -539,6 +555,35 @@ internal fun SpeakingSection(
 
 private fun downloadedChip(): @Composable () -> Unit = {
     StatusChip(status = ChipStatus.On, label = "Downloaded")
+}
+
+/**
+ * The Kokoro speed check while it runs (#2173): the phone is timed on three passes, so the card names the pass in progress.
+ */
+@Composable
+private fun KokoroCheckProgress(check: KokoroSpeedUiState.Checking) {
+    val run = check.run.coerceIn(1, check.runs)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = "Checking this phone can speak Kokoro smoothly",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    text = "Run $run of ${check.runs}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        LinearProgressIndicator(
+            progress = { run.toFloat() / check.runs },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+    }
 }
 
 @Composable

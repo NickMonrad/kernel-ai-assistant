@@ -436,7 +436,7 @@ class SpeakingSectionTest {
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 sherpaVoices = emptyList(),
                 kokoroStates = kokoroStates(DownloadState.Downloaded("")),
-                kokoroSpeed = KokoroSpeedUiState.Checking,
+                kokoroSpeed = KokoroSpeedUiState.Checking(),
             ),
         )
 
@@ -467,7 +467,7 @@ class SpeakingSectionTest {
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 sherpaVoices = emptyList(),
                 kokoroStates = kokoroStates(DownloadState.Downloaded("")),
-                kokoroSpeed = KokoroSpeedUiState.Checking,
+                kokoroSpeed = KokoroSpeedUiState.Checking(),
             ),
         )
 
@@ -499,7 +499,7 @@ class SpeakingSectionTest {
                     SherpaVoiceRowUiState(SherpaPiperVoice.CoriHigh, VoicePackDownloadState.NotDownloaded),
                 ),
                 kokoroStates = kokoroStates(DownloadState.Downloaded("")),
-                kokoroSpeed = KokoroSpeedUiState.Checking,
+                kokoroSpeed = KokoroSpeedUiState.Checking(),
             ),
         )
 
@@ -514,7 +514,7 @@ class SpeakingSectionTest {
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 sherpaVoices = emptyList(),
                 kokoroStates = kokoroStates(DownloadState.Downloaded("")),
-                kokoroSpeed = KokoroSpeedUiState.Checking,
+                kokoroSpeed = KokoroSpeedUiState.Checking(),
             ),
         )
 
@@ -919,7 +919,8 @@ class SpeakingSectionTest {
                         onDownloadSherpaVoice = { calls += "download(${it.name})" },
                         onCancelSherpaVoice = { calls += "cancel(${it.name})" },
                         onDeleteSherpaVoice = { calls += "delete(${it.name})" },
-                        onPlaySherpaSample = { calls += "sample(${it.name})" },
+                        onTogglePiperSample = { calls += "sample(${it.name})" },
+                        onToggleVoiceSample = { calls += "card(${it.name})" },
                         onUseMobileDataForVoice = { calls += "mobileData(${it.name})" },
                         onDownloadKokoroPack = { calls += "downloadKokoro" },
                         onCancelKokoroPack = { calls += "cancelKokoro" },

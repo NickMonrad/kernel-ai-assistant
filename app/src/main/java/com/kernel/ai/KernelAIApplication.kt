@@ -26,6 +26,14 @@ import dagger.hilt.android.HiltAndroidApp
 import com.kernel.ai.assistant.WakeWordService
 import com.kernel.ai.core.inference.diagnostics.JANDAL_EVENTS_FILE_NAME
 import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.inference.download.ModelDownloadManager
+import com.kernel.ai.core.memory.usecase.ChatModelLoadResult
+import com.kernel.ai.core.memory.usecase.ChatModelLoader
+import com.kernel.ai.core.voice.kokoro.KokoroAutoCheck
+import com.kernel.ai.core.voice.kokoro.KokoroChatModelState
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +43,12 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Provider
+
+private fun ChatModelLoadResult.toKokoroChatModelState(): KokoroChatModelState = when (this) {
+    ChatModelLoadResult.Loaded -> KokoroChatModelState.READY
+    ChatModelLoadResult.NoModelDownloaded -> KokoroChatModelState.NO_MODEL
+    is ChatModelLoadResult.Failed -> KokoroChatModelState.FAILED
+}
 
 /**
  * Application entry point.
@@ -57,6 +71,9 @@ class KernelAIApplication : Application(), Configuration.Provider {
     @Inject lateinit var voiceDefaultsProvisioner: Provider<com.kernel.ai.core.voice.VoiceDefaultsProvisioner>
     @Inject lateinit var kokoroBackgroundWarmUp: com.kernel.ai.core.voice.kokoro.KokoroBackgroundWarmUp
     @Inject lateinit var kokoroVoiceOutputController: KokoroVoiceOutputController
+    @Inject lateinit var kokoroAutoCheck: KokoroAutoCheck
+    @Inject lateinit var chatModelLoader: ChatModelLoader
+    @Inject lateinit var modelDownloadManager: ModelDownloadManager
 
     /** Process-lifetime scope for the Kokoro warm-up. A failure in it is logged; the app keeps running. */
     private val kokoroWarmUpScope = CoroutineScope(
@@ -150,6 +167,15 @@ class KernelAIApplication : Application(), Configuration.Provider {
         asr4allSizeSwitcher.get().start()
         // Loads the Kokoro engine ahead of the first reply when Kokoro is the active voice, once the chat model is ready.
         kokoroBackgroundWarmUp.start(kokoroWarmUpScope, inferenceEngine.isReady)
+        // Runs the Kokoro speed check a setup pick left pending, once the chat model and the Kokoro pack are ready (#2173).
+        kokoroAutoCheck.start(
+            scope = kokoroWarmUpScope,
+            chatModelReady = inferenceEngine.isReady,
+            packReady = modelDownloadManager.downloadStates.map { states ->
+                KokoroSetup.kernelModels().all { states[it] is DownloadState.Downloaded }
+            },
+            loadChatModel = { chatModelLoader.ensureLoaded().toKokoroChatModelState() },
+        )
     }
 
     /**

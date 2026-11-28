@@ -59,6 +59,8 @@ class VoiceOutputPreferences @Inject constructor(
     private val maxSpokenSentencesKey = intPreferencesKey("voice_max_spoken_sentences")
     private val activeSpeakerIdKey = intPreferencesKey("voice_active_speaker_id")
     private val placeDidYouMeanKey = booleanPreferencesKey("place_did_you_mean_enabled")
+    private val pendingKokoroCheckKey = booleanPreferencesKey("pending_kokoro_check")
+    private val kokoroSpeedPassKey = stringPreferencesKey("kokoro_speed_pass")
 
     val spokenResponsesEnabled: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
         .catch { e ->
@@ -174,6 +176,42 @@ class VoiceOutputPreferences @Inject constructor(
     suspend fun setSelectedKokoroVoice(voice: KokoroVoice) {
         context.voiceOutputPrefsDataStore.edit { prefs ->
             prefs[selectedKokoroVoiceKey] = voice.name
+        }
+    }
+
+    /** Set when Kokoro is picked in setup: the once-only speed check runs when the pack and chat model are ready (#2173). */
+    val pendingKokoroCheck: Flow<Boolean> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[pendingKokoroCheckKey] ?: false }
+
+    suspend fun setPendingKokoroCheck(pending: Boolean) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            prefs[pendingKokoroCheckKey] = pending
+        }
+    }
+
+    /** The last Kokoro speed-check pass, keyed by app version, pack version and threshold; null when the last check did not pass (#2174). */
+    val kokoroSpeedPass: Flow<String?> = context.voiceOutputPrefsDataStore.data
+        .catch { e ->
+            if (e is IOException) {
+                Log.e(TAG, "Failed reading voice output preferences; using defaults", e)
+                emit(emptyPreferences())
+            } else {
+                throw e
+            }
+        }
+        .map { prefs -> prefs[kokoroSpeedPassKey] }
+
+    suspend fun setKokoroSpeedPass(key: String?) {
+        context.voiceOutputPrefsDataStore.edit { prefs ->
+            if (key == null) prefs.remove(kokoroSpeedPassKey) else prefs[kokoroSpeedPassKey] = key
         }
     }
 
