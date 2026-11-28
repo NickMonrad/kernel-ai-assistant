@@ -57,4 +57,17 @@ class KokoroTextFrontendTest {
             ),
         )
     }
+
+    @Test
+    fun macron_vowels_reach_phonemis_as_plain_vowels_in_both_normal_forms() {
+        // phonemis drops macron words, and its lexicon knows the plain spellings (Māori, whānau, kākāpō, Whangārei).
+        // A decomposed macron (a + U+0304) must fold the same way as the precomposed letter.
+        assertEquals(
+            "Maori whanau kakapo Whangarei Maori",
+            KokoroTextFrontend.phonemizerInput(
+                "Māori whānau kākāpō Whangārei Ma\u0304ori",
+                NativeKokoroPhonemizer.LOCALE_EN_GB,
+            ),
+        )
+    }
 }

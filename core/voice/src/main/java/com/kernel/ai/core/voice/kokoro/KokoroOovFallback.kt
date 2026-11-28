@@ -23,6 +23,8 @@ internal object KokoroOovFallback {
     private val WHITESPACE = Regex("\\s+")
     private val NON_ALNUM = Regex("[^a-z0-9]+")
     private val POSSESSIVE = Regex("['\u2019]s$")
+    private val QUOTES = Regex("[\"'\u2018\u2019\u201C\u201D]")
+    private val CAMEL_CASE = Regex("(\\p{Ll})(\\p{Lu})")
 
     /** Digraphs and trigraphs, longest first; matched at each position before single letters. */
     private val MULTI = listOf(
@@ -57,13 +59,18 @@ internal object KokoroOovFallback {
         onFallback: (wordLength: Int) -> Unit = ::logFallback,
     ): String {
         val raw = phonemizer.phonemize(text)
-        if (raw.wordSpans.isNotEmpty()) return fillLocated(text, raw, onFallback)
+        if (raw.wordSpans.isNotEmpty()) return fillLocated(text, raw, { retryPhonemes(phonemizer, it) }, onFallback)
         return text.split(WHITESPACE).filter { it.isNotEmpty() }.joinToString(" ") { word ->
-            fillWord(word, phonemizer.phonemize(word).phonemes, onFallback)
+            fillWord(word, phonemizer.phonemize(word).phonemes, { retryPhonemes(phonemizer, it) }, onFallback)
         }
     }
 
-    private fun fillLocated(text: String, raw: PhonemizedText, onFallback: (Int) -> Unit): String {
+    private fun fillLocated(
+        text: String,
+        raw: PhonemizedText,
+        retry: (String) -> String?,
+        onFallback: (Int) -> Unit,
+    ): String {
         val input = text.codePoints().toArray()
         val phonemes = raw.phonemes.codePoints().toArray()
         val out = StringBuilder(raw.phonemes.length + 16)
@@ -75,20 +82,39 @@ internal object KokoroOovFallback {
             val wordStart = raw.wordSpans[base].coerceIn(0, input.size)
             val wordEnd = (wordStart + raw.wordSpans[base + 1]).coerceIn(wordStart, input.size)
             val word = String(input, wordStart, wordEnd - wordStart)
-            out.append(fillWord(word, String(phonemes, start, end - start), onFallback))
+            out.append(fillWord(word, String(phonemes, start, end - start), retry, onFallback))
             cursor = end
         }
         out.append(String(phonemes, cursor, phonemes.size - cursor))
         return out.toString()
     }
 
-    /** [segment] unchanged when it already has a vowel or the word has nothing speakable; otherwise the fallback. */
-    private fun fillWord(word: String, segment: String, onFallback: (Int) -> Unit): String {
+    /**
+     * [segment] unchanged when it already has a vowel or the word has nothing speakable. Otherwise phonemis is retried
+     * on the word with quotes stripped and CamelCase split, then letter-to-sound. A word whose spelled form is blank
+     * keeps phonemis's segment, so a standalone "'s" still says "s".
+     */
+    private fun fillWord(
+        word: String,
+        segment: String,
+        retry: (String) -> String?,
+        onFallback: (Int) -> Unit,
+    ): String {
         if (!hasSpeakableCharacter(word) || segment.any { it in VOWEL_PHONEMES }) return segment
-        onFallback(word.length)
         // Keep the punctuation phonemis emitted for this word, so pauses at sentence ends survive.
         val punctuation = segment.filter { !it.isLetter() && !it.isWhitespace() }
-        return spokenForm(word) + punctuation
+        retry(word)?.let { return it.trim() + punctuation }
+        val spoken = spokenForm(word)
+        if (spoken.isBlank()) return segment
+        onFallback(word.length)
+        return spoken + punctuation
+    }
+
+    /** phonemis's phonemes for [word] after quote removal and CamelCase splitting; null if that changes nothing or has no vowel. */
+    private fun retryPhonemes(phonemizer: KokoroPhonemizer, word: String): String? {
+        val cleaned = word.replace(QUOTES, "").replace(CAMEL_CASE, "$1 $2")
+        if (cleaned.isBlank() || cleaned == word) return null
+        return phonemizer.phonemize(cleaned).phonemes.takeIf { phonemes -> phonemes.any { it in VOWEL_PHONEMES } }
     }
 
     private fun hasSpeakableCharacter(word: String): Boolean =

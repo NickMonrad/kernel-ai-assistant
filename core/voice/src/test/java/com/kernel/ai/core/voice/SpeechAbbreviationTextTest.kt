@@ -112,4 +112,10 @@ class SpeechAbbreviationTextTest {
     fun `bullet separators from cards are not spoken`() {
         assertEquals("High 27 degrees, sunrise 04:46", SpeechCardText.speakable("High 27°C • sunrise 04:46"))
     }
+
+    @Test
+    fun `Mt before a capitalised name is spoken as Mount, but other uses of Mt are left alone`() {
+        assertEquals("Mount Eden and Mount Maunganui", SpeechAbbreviationText.expand("Mt Eden and Mt. Maunganui"))
+        assertEquals("on mt Ruapehu, Mt", SpeechAbbreviationText.expand("on mt Ruapehu, Mt"))
+    }
 }

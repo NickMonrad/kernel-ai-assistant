@@ -125,4 +125,34 @@ class KokoroOovFallbackTest {
         assertEquals("ɹˈQd tˈWn", phonemize("road town", known = known, fallbacks = fallbacks))
         assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
     }
+
+    @Test
+    fun standalone_possessive_keeps_the_segment_phonemis_gave() {
+        // "’s" on its own has no stem, so the spelled form is blank; phonemis's "s" must survive, not vanish.
+        val fallbacks = mutableListOf<Int>()
+        val known = mapOf("road" to road, "’s" to "s")
+
+        assertEquals("$road s", phonemize("road ’s", known = known, fallbacks = fallbacks))
+        assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
+    }
+
+    @Test
+    fun camel_case_brand_is_retried_as_two_words_before_letter_to_sound() {
+        // phonemis drops "KiwiSaver" but knows the two words; the retry must use them, not letter-to-sound.
+        val fallbacks = mutableListOf<Int>()
+        val known = mapOf("road" to road, "kiwi" to "kˈɪwi", "saver" to "sˈeɪvə")
+
+        assertEquals("kˈɪwi sˈeɪvə $road", phonemize("KiwiSaver road", known = known, fallbacks = fallbacks))
+        assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
+    }
+
+    @Test
+    fun single_quoted_word_is_retried_without_its_quotes() {
+        // phonemis drops "'hello'" but knows "hello"; the quotes must not block the retry.
+        val fallbacks = mutableListOf<Int>()
+        val known = mapOf("road" to road, "hello" to "hɛlˈoʊ")
+
+        assertEquals("hɛlˈoʊ $road", phonemize("'hello' road", known = known, fallbacks = fallbacks))
+        assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
+    }
 }
