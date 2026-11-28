@@ -2,6 +2,7 @@ package com.kernel.ai.core.voice.kokoro
 
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 
 /** Result of Settings "Test voice speed" (#2117). Measured runs never play audio. */
 sealed interface KokoroSpeedResult {
@@ -59,42 +60,68 @@ internal fun aggregateKokoroSpeedRuns(
     )
 }
 
-/** Fixed passage with two sentences so the run covers the sentence chunking a normal reply uses. */
-internal const val KOKORO_SPEED_TEST_TEXT =
-    "Jandal reads replies aloud on this phone. Speech should keep pace with the words, so the first sentence " +
-        "starts quickly and the rest follows without a gap. Longer replies are split into sentences, and each " +
-        "sentence is made while the previous one plays."
+/** Fixed passage, one sentence per entry: a reply is phonemised one sentence at a time, so the test is too. */
+internal val KOKORO_SPEED_TEST_SENTENCES: List<String> = listOf(
+    "Jandal reads replies aloud on this phone.",
+    "Speech should keep pace with the words, so the first sentence starts quickly and the rest follows without a gap.",
+    "Longer replies are split into sentences, and each sentence is made while the previous one plays.",
+)
 
 /**
- * Times the text frontend and every synthesis chunk for [text]. Phonemising is part of making audio, so it counts.
+ * Makes [KOKORO_SPEED_TEST_RUNS] passes over [sentences], phonemising and synthesising each sentence on its own as a
+ * reply does; phonemising counts as making audio. [ensureActive] runs before every chunk, so leaving Settings stops the
+ * test after the chunk in progress. A failure of any kind, including a native OutOfMemoryError, becomes Unavailable.
  * Clock and engine calls are injected so the timing logic is testable without ExecuTorch.
  */
 internal fun measureKokoroSpeed(
-    text: String,
+    sentences: List<String>,
     splitText: (String) -> List<String>,
     synthesizeChunk: (String) -> FloatArray,
     sampleRate: Int,
     peakMemoryMb: () -> Long?,
+    ensureActive: () -> Unit = {},
+    runs: Int = KOKORO_SPEED_TEST_RUNS,
     nanoTime: () -> Long = System::nanoTime,
 ): KokoroSpeedResult {
+    val measured = ArrayList<KokoroSpeedResult.Measured.Run>(runs)
+    try {
+        repeat(runs) {
+            measured += timeOneSpeedRun(sentences, splitText, synthesizeChunk, sampleRate, ensureActive, nanoTime)
+                ?: return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        return KokoroSpeedResult.Unavailable("Kokoro speed test failed: ${error.message}")
+    }
+    return aggregateKokoroSpeedRuns(measured, peakMemoryMb())
+}
+
+/** One pass over [sentences]; null when the pass produced no samples. */
+private fun timeOneSpeedRun(
+    sentences: List<String>,
+    splitText: (String) -> List<String>,
+    synthesizeChunk: (String) -> FloatArray,
+    sampleRate: Int,
+    ensureActive: () -> Unit,
+    nanoTime: () -> Long,
+): KokoroSpeedResult.Measured.Run? {
     val start = nanoTime()
     var firstChunkNanos = -1L
     var samples = 0L
-    splitText(text).forEach { chunk ->
-        samples += synthesizeChunk(chunk).size
-        if (firstChunkNanos < 0L) firstChunkNanos = nanoTime() - start
+    sentences.forEach { sentence ->
+        splitText(sentence).forEach { chunk ->
+            ensureActive()
+            samples += synthesizeChunk(chunk).size
+            if (firstChunkNanos < 0L) firstChunkNanos = nanoTime() - start
+        }
     }
     val elapsedNanos = nanoTime() - start
-    if (samples == 0L) return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
-    val audioSeconds = samples.toDouble() / sampleRate
-    val synthesisSeconds = elapsedNanos / NANOS_PER_SECOND
-    val firstChunkSeconds = firstChunkNanos / NANOS_PER_SECOND
-    return KokoroSpeedResult.Measured(
-        audioSeconds = audioSeconds,
-        synthesisSeconds = synthesisSeconds,
-        firstChunkSeconds = firstChunkSeconds,
-        peakMemoryMb = peakMemoryMb(),
-        runs = listOf(KokoroSpeedResult.Measured.Run(audioSeconds, synthesisSeconds, firstChunkSeconds)),
+    if (samples == 0L) return null
+    return KokoroSpeedResult.Measured.Run(
+        audioSeconds = samples.toDouble() / sampleRate,
+        synthesisSeconds = elapsedNanos / NANOS_PER_SECOND,
+        firstChunkSeconds = firstChunkNanos / NANOS_PER_SECOND,
     )
 }
 

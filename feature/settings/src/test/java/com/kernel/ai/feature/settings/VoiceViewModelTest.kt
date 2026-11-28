@@ -110,7 +110,6 @@ class VoiceViewModelTest {
         )
     private lateinit var viewModel: VoiceViewModel
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController = mockk(relaxed = true)
-    private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
     private val piperVoiceSetup: PiperVoiceSetup = mockk(relaxed = true)
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
     private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
@@ -164,7 +163,6 @@ class VoiceViewModelTest {
         hardwareProfileDetector,
         context,
         sherpaVoiceOutputController,
-        kokoroVoiceOutputController,
         piperVoiceSetup,
         asr4allSizeSwitcher,
         termsAcceptancePreferences,
@@ -320,7 +318,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -356,7 +353,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -392,7 +388,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             context,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -501,7 +496,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -538,7 +532,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -604,6 +597,60 @@ class VoiceViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(VoiceOutputEngine.KokoroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        verify(exactly = 0) { kokoroVoiceOutputController.unloadEngine() }
+    }
+
+    @Test
+    fun `a tap on kokoro without the pack only waits for the download and never skips the speed gate`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.NotDownloaded }
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        coVerify(exactly = 0) { kokoroVoiceOutputController.measureSpeed() }
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental) }
+    }
+
+    @Test
+    fun `a failed speed gate unloads kokoro and keeps the previous engine`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
+            audioSeconds = 4.0,
+            synthesisSeconds = 4.4,
+            firstChunkSeconds = 1.2,
+            peakMemoryMb = 1_300L,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
+    }
+
+    @Test
+    fun `testing voice speed without selecting kokoro unloads the engine it loaded`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
+            audioSeconds = 4.0,
+            synthesisSeconds = 2.0,
+            firstChunkSeconds = 0.8,
+            peakMemoryMb = 1_300L,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.testKokoroSpeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        assertTrue(viewModel.uiState.value.kokoroSpeed is KokoroSpeedUiState.Done)
+        verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
     }
 
     @Test
@@ -621,7 +668,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -982,7 +1028,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
@@ -1035,7 +1080,6 @@ class VoiceViewModelTest {
             hardwareProfileDetector,
             releaseContext,
             sherpaVoiceOutputController,
-            kokoroVoiceOutputController,
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,

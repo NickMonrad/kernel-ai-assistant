@@ -1,8 +1,10 @@
 package com.kernel.ai.core.voice.kokoro
 
+import kotlinx.coroutines.CancellationException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -14,14 +16,15 @@ class KokoroSpeedTestTest {
         // Each chunk is one second of audio and takes half a second to make, so the factor is 0.5.
         var now = 0L
         val result = measureKokoroSpeed(
-            text = "one. two.",
-            splitText = { listOf("one.", "two.") },
+            sentences = listOf("one.", "two."),
+            splitText = { listOf(it) },
             synthesizeChunk = {
                 now += 500_000_000L
                 FloatArray(sampleRate)
             },
             sampleRate = sampleRate,
             peakMemoryMb = { 1_300L },
+            runs = 1,
             nanoTime = { now },
         ) as KokoroSpeedResult.Measured
 
@@ -31,6 +34,71 @@ class KokoroSpeedTestTest {
         assertEquals(0.5, result.firstChunkSeconds, 1e-9)
         assertEquals(1_300L, result.peakMemoryMb)
         assertTrue(result.allowsKokoro)
+    }
+
+    @Test
+    fun each_sentence_is_phonemised_on_its_own_for_every_pass() {
+        val phonemised = mutableListOf<String>()
+        measureKokoroSpeed(
+            sentences = listOf("a.", "b.", "c."),
+            splitText = { phonemised += it; listOf(it) },
+            synthesizeChunk = { FloatArray(sampleRate) },
+            sampleRate = sampleRate,
+            peakMemoryMb = { null },
+            nanoTime = { 0L },
+        )
+
+        assertEquals(List(KOKORO_SPEED_TEST_RUNS) { listOf("a.", "b.", "c.") }.flatten(), phonemised)
+    }
+
+    @Test
+    fun the_default_pass_count_is_fixed_and_the_fixed_passage_is_three_sentences() {
+        var chunks = 0
+        measureKokoroSpeed(
+            sentences = KOKORO_SPEED_TEST_SENTENCES,
+            splitText = { listOf(it) },
+            synthesizeChunk = { chunks++; FloatArray(sampleRate) },
+            sampleRate = sampleRate,
+            peakMemoryMb = { null },
+            nanoTime = { 0L },
+        )
+
+        assertEquals(3, KOKORO_SPEED_TEST_SENTENCES.size)
+        assertEquals(KOKORO_SPEED_TEST_SENTENCES.size * KOKORO_SPEED_TEST_RUNS, chunks)
+    }
+
+    @Test
+    fun a_cancelled_test_stops_before_the_next_chunk_and_propagates_cancellation() {
+        var chunks = 0
+        var checks = 0
+        assertThrows(CancellationException::class.java) {
+            measureKokoroSpeed(
+                sentences = KOKORO_SPEED_TEST_SENTENCES,
+                splitText = { listOf(it) },
+                synthesizeChunk = { chunks++; FloatArray(sampleRate) },
+                sampleRate = sampleRate,
+                peakMemoryMb = { null },
+                ensureActive = {
+                    checks++
+                    if (checks > 1) throw CancellationException("left Settings")
+                },
+                nanoTime = { 0L },
+            )
+        }
+        assertEquals(1, chunks)
+    }
+
+    @Test
+    fun a_native_failure_during_synthesis_becomes_unavailable_not_a_crash() {
+        val result = measureKokoroSpeed(
+            sentences = listOf("one."),
+            splitText = { listOf(it) },
+            synthesizeChunk = { throw OutOfMemoryError("reshape buffer") },
+            sampleRate = sampleRate,
+            peakMemoryMb = { null },
+            nanoTime = { 0L },
+        )
+        assertTrue(result is KokoroSpeedResult.Unavailable)
     }
 
     @Test
@@ -66,7 +134,7 @@ class KokoroSpeedTestTest {
     @Test
     fun a_run_that_makes_no_audio_is_unavailable_not_a_zero_speed() {
         val result = measureKokoroSpeed(
-            text = "",
+            sentences = listOf("x."),
             splitText = { emptyList() },
             synthesizeChunk = { FloatArray(0) },
             sampleRate = sampleRate,

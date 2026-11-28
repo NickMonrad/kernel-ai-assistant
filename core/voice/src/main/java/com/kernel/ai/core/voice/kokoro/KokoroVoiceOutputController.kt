@@ -27,6 +27,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -84,32 +86,21 @@ class KokoroVoiceOutputController @Inject constructor(
             return@withContext KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
         }
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+        val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
             val preparation = prepare(voice)
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
                 ?: return@withLock KokoroSpeedResult.Unavailable(
                     (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
                 )
-            try {
-                val runs = ArrayList<KokoroSpeedResult.Measured.Run>(KOKORO_SPEED_TEST_RUNS)
-                repeat(KOKORO_SPEED_TEST_RUNS) {
-                    when (val result = measureKokoroSpeed(
-                        text = KOKORO_SPEED_TEST_TEXT,
-                        splitText = { text -> loaded.splitText(KokoroTextFrontend.phonemizerInput(text, voice.locale)) },
-                        synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
-                        sampleRate = KokoroTts.SAMPLE_RATE_HZ,
-                        peakMemoryMb = ::readPeakMemoryMb,
-                    )) {
-                        is KokoroSpeedResult.Measured -> runs += result.runs.single()
-                        is KokoroSpeedResult.Unavailable -> return@withLock result
-                    }
-                }
-                aggregateKokoroSpeedRuns(runs, readPeakMemoryMb())
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                KokoroSpeedResult.Unavailable("Kokoro speed test failed: ${error.message}")
-            }
+            measureKokoroSpeed(
+                sentences = KOKORO_SPEED_TEST_SENTENCES,
+                splitText = { sentence -> loaded.splitText(KokoroTextFrontend.phonemizerInput(sentence, voice.locale)) },
+                synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
+                sampleRate = KokoroTts.SAMPLE_RATE_HZ,
+                peakMemoryMb = ::readPeakMemoryMb,
+                ensureActive = { cancellation.ensureActive() },
+            )
         }
     }
 

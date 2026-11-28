@@ -14,7 +14,6 @@ import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
-import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import java.util.Locale
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -334,7 +333,6 @@ class VoiceViewModel @Inject constructor(
     private val hardwareProfileDetector: HardwareProfileDetector,
     @ApplicationContext private val context: Context,
     private val sherpaVoiceOutputController: SherpaOnnxVoiceOutputController,
-    private val kokoroVoiceOutputController: KokoroVoiceOutputController,
     private val piperVoiceSetup: PiperVoiceSetup,
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher,
     private val termsAcceptancePreferences: TermsAcceptancePreferences,
@@ -743,8 +741,12 @@ class VoiceViewModel @Inject constructor(
             )
         ) return
         val previous = _uiState.value.selectedOutputEngine
-        if (engine == VoiceOutputEngine.KokoroExperimental && engine != previous && kokoroPackReady()) {
-            selectKokoroIfItKeepsUp(previous)
+        if (engine == VoiceOutputEngine.KokoroExperimental && engine != previous) {
+            // Kokoro is chosen only through the speed gate, never straight from a tap (#2117). Without the pack, the tap
+            // only starts the download; choosing Kokoro again after the download runs the gate.
+            if (kokoroPackReady() && _uiState.value.kokoroSpeed != KokoroSpeedUiState.Running) {
+                selectKokoroIfItKeepsUp(previous)
+            }
             return
         }
         _uiState.update { it.copy(selectedOutputEngine = engine).withInflectAvailability() }
@@ -769,6 +771,10 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Running) }
         viewModelScope.launch {
             val result = kokoroVoiceOutputController.measureSpeed()
+            // Kokoro is loaded only for this measurement unless it is the selected engine.
+            if (_uiState.value.selectedOutputEngine != VoiceOutputEngine.KokoroExperimental) {
+                kokoroVoiceOutputController.unloadEngine()
+            }
             _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Done(result.summaryLines())) }
         }
     }
@@ -797,6 +803,8 @@ class VoiceViewModel @Inject constructor(
                 voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
                 piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
             } else {
+                // The gate loaded Kokoro only to measure it. Kokoro is not selected, so free its memory.
+                kokoroVoiceOutputController.unloadEngine()
                 val reason = if (result is KokoroSpeedResult.Measured) {
                     "speech would stutter on this phone (median RTF %.2f; threshold %.2f)"
                         .format(Locale.US, result.medianRealTimeFactor, com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF)
