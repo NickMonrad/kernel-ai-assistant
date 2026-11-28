@@ -154,7 +154,7 @@ class VoiceCommandActivity : ComponentActivity() {
     private var ownedCaptureSessionId: Long? = null
     /** Back closes a wake overlay as X does; enabled only while a wake overlay is shown. */
     private val wakeBackCallback = object : OnBackPressedCallback(false) {
-        override fun handleOnBackPressed() = dismissWakeOverlay()
+        override fun handleOnBackPressed() = dismissWakeOverlay("back")
     }
 
     private val requestMicPermission = registerForActivityResult(
@@ -289,7 +289,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     hintVisible = false,
                     inputLevel = voiceInputController.inputLevel.collectAsState(),
                     dismissEnabled = dismissEnabled,
-                    onDismiss = { dismissWakeOverlay() },
+                    onDismiss = { dismissWakeOverlay("dismiss") },
                 )
             }
         }
@@ -327,14 +327,16 @@ class VoiceCommandActivity : ComponentActivity() {
     /** #1930: Home or an app switch closes the wake overlay and cancels its live capture. */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (wakeOverlayJob?.isActive == true) dismissWakeOverlay()
+        if (wakeOverlayJob?.isActive == true) dismissWakeOverlay("user_leave_hint")
     }
 
     /**
      * #1930: X, backdrop, Back and Home cancel the live capture before finishing, so a transcript
      * that arrives before onDestroy runs cannot be routed. onDestroy stays as a backstop.
      */
-    private fun dismissWakeOverlay() {
+    private fun dismissWakeOverlay(reason: String) {
+        // #2178: records which path closed the overlay, so the event log shows the source of a cancel.
+        JandalEvents.record("wake", "overlay_dismiss", "reason" to reason)
         // A transcript offered but not yet routed must not run once the user closed the overlay (#2081).
         wakeTranscriptJob?.cancel()
         if (wakeIntentSeen) WakeOverlayChannel.requestCancel(wakeToken)

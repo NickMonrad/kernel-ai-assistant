@@ -597,6 +597,34 @@ class SelectableVoiceInputHandoffTest {
         }
 
     @Test
+    fun `a wedged hand-off retirement stops mic arbitration under the backend id that started the capture`() =
+        runTest(dispatcher) {
+            asr4allStartsAs(2L)
+            val c = controller()
+            val lifecycle = mutableListOf<VoiceInputEvent>()
+            backgroundScope.launch { c.micLifecycleEvents.collect { lifecycle += it } }
+            assertEquals(VoiceInputStartResult.Started(1L), c.startListening(mode))
+            nativeEvents.emit(VoiceInputEvent.ListeningStarted(mode, 1L))
+            nativeEvents.emit(stalled(1L))
+            nativeEvents.emit(VoiceInputEvent.ListeningStopped(mode, 1L))
+            advanceUntilIdle()
+            coEvery { native.startListening(any(), any(), any(), any()) } coAnswers {
+                thirdArg<(Long) -> Unit>().invoke(3L)
+                VoiceInputStartResult.Started(3L)
+            }
+
+            val second = async { c.startListening(mode) }
+            advanceTimeBy(BACKEND_TEARDOWN_TIMEOUT_MS)
+            runCurrent()
+            advanceUntilIdle()
+
+            assertTrue(second.isCompleted)
+            // The asr4all Started reported backend id 2, which is the id the wake gate holds as its owner.
+            // The synthetic stop must name id 2; owner id 1 would never release the gate.
+            assertEquals(VoiceInputEvent.ListeningStopped(mode, 2L, cancelled = true), lifecycle.last())
+        }
+
+    @Test
     fun `a retired wedged capture gets one synthetic cancelled stop and its late terminal is dropped`() =
         runTest(dispatcher) {
             val c = controller()
