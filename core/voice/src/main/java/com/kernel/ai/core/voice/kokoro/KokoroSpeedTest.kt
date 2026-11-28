@@ -39,7 +39,7 @@ sealed interface KokoroSpeedResult {
 }
 
 const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.70
-internal const val KOKORO_SPEED_TEST_RUNS = 3
+const val KOKORO_SPEED_TEST_RUNS = 3
 
 internal fun aggregateKokoroSpeedRuns(
     runs: List<KokoroSpeedResult.Measured.Run>,
@@ -86,12 +86,14 @@ internal fun measureKokoroSpeed(
     ensureActive: () -> Unit = {},
     runs: Int = KOKORO_SPEED_TEST_RUNS,
     selectMaxRtf: Double = KOKORO_SELECT_MAX_MEDIAN_RTF,
+    onRun: (run: Int, runs: Int) -> Unit = { _, _ -> },
     nanoTime: () -> Long = System::nanoTime,
 ): KokoroSpeedResult {
     val measured = ArrayList<KokoroSpeedResult.Measured.Run>(runs)
     var stoppedEarly = false
     try {
         for (pass in 1..runs) {
+            onRun(pass, runs)
             measured += timeOneSpeedRun(sentences, splitText, synthesizeChunk, sampleRate, ensureActive, nanoTime)
                 ?: return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
             // Two runs both over the limit put the median of three over it too, so a third pass cannot change the verdict.

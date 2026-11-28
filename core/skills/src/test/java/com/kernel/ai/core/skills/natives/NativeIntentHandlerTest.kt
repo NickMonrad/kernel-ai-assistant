@@ -2648,6 +2648,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `unexpected handler failure speaks a friendly reply and keeps the raw detail`() {
+        every { clockRepository.observeStopwatch() } returns kotlinx.coroutines.flow.flow<ClockStopwatch> {
+            throw IllegalStateException("clock store closed")
+        }
+
+        val result = handleIntent("get_stopwatch_status", emptyMap())
+
+        assertEquals(
+            SkillResult.Failure(
+                "run_intent",
+                "Sorry, that didn't work. Please try again.",
+                technicalDetail = "clock store closed",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `lap_stopwatch fails truthfully when stopwatch is not running`() {
         every { clockRepository.observeStopwatch() } returns flowOf(
             ClockStopwatch(
@@ -2726,7 +2744,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_alarm keeps full-screen warning visible but excludes it from spoken summary`() {
+    fun `set_alarm omits the full-screen warning from model text and spoken summary`() {
         val alarm = ClockAlarm(
             id = "alarm-1",
             label = "Wake",
@@ -2749,7 +2767,7 @@ class NativeIntentHandlerTest {
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
         assertTrue(success.content.contains("Alarm set for"))
-        assertTrue(success.content.contains("high-priority notification"))
+        assertEquals(spoken, success.content)
         assertFalse(spoken.contains("notification"))
         assertTrue(success.content.startsWith(spoken))
     }
@@ -2786,7 +2804,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_alarm keeps multiple warnings visible but none are spoken`() {
+    fun `set_alarm keeps the boot-restore warning and omits the full-screen one`() {
         val alarm = ClockAlarm(
             id = "alarm-1",
             label = "Wake",
@@ -2809,7 +2827,7 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertFalse(success.content.contains("notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
@@ -2817,7 +2835,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_timer keeps full-screen warning visible but excludes it from spoken summary`() {
+    fun `set_timer omits the full-screen warning from model text and spoken summary`() {
         coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
             com.kernel.ai.core.memory.clock.ClockTimer(
                 id = "timer-1",
@@ -2835,7 +2853,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertEquals("Timer set for 1 min 30 sec.", success.content)
         assertFalse(spoken.contains("notification"))
         assertEquals("Timer set for 1 min 30 sec.", spoken)
         assertTrue(success.content.startsWith(spoken))
@@ -2866,7 +2884,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_timer keeps multiple warnings visible but none are spoken`() {
+    fun `set_timer keeps the boot-restore warning and omits the full-screen one`() {
         coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
             com.kernel.ai.core.memory.clock.ClockTimer(
                 id = "timer-1",
@@ -2887,7 +2905,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("high-priority notification"))
+        assertFalse(success.content.contains("notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
@@ -3786,7 +3804,11 @@ class NativeIntentHandlerTest {
         val result = handleIntent("calculate_arithmetic", mapOf("expression" to "2 + )"))
 
         assertEquals(
-            SkillResult.Failure("calculate_arithmetic", "Unexpected token ')'"),
+            SkillResult.Failure(
+                "calculate_arithmetic",
+                "I didn't expect ')' in that calculation.",
+                technicalDetail = "Unexpected token ')'",
+            ),
             result,
         )
     }
@@ -3897,7 +3919,93 @@ class NativeIntentHandlerTest {
         val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "parsecs"))
 
         assertEquals(
-            SkillResult.Failure("convert_units", "Unsupported unit 'parsecs'"),
+            SkillResult.Failure(
+                "convert_units",
+                "I don't know the unit 'parsecs'.",
+                technicalDetail = "Unsupported unit 'parsecs'",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains units that measure different things`() {
+        val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "kg", "to_unit" to "km"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "I can't convert kilograms to kilometers; they measure different things.",
+                technicalDetail = "Cannot convert kilograms to kilometers",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains temperatures below absolute zero`() {
+        val result = handleIntent(
+            "convert_units",
+            mapOf("value" to "-500", "from_unit" to "celsius", "to_unit" to "fahrenheit"),
+        )
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "That temperature is below absolute zero, the lowest possible temperature.",
+                technicalDetail = "Temperature cannot be below absolute zero",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains negative values`() {
+        val result = handleIntent("convert_units", mapOf("value" to "-5", "from_unit" to "miles", "to_unit" to "km"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "I can't convert a negative value.",
+                technicalDetail = "Conversion value must be non-negative",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `calculate_arithmetic explains division by zero`() {
+        val result = handleIntent("calculate_arithmetic", mapOf("expression" to "5 / 0"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "calculate_arithmetic",
+                "I can't divide by zero.",
+                technicalDetail = "Division by zero is undefined",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units accepts from-to, source-target and unit_from-unit_to aliases`() {
+        val canonical = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "miles", "to_unit" to "km"))
+        for ((fromKey, toKey) in listOf("from" to "to", "source" to "target", "source_unit" to "target_unit", "unit_from" to "unit_to")) {
+            val result = handleIntent("convert_units", mapOf("value" to "5", fromKey to "miles", toKey to "km"))
+            assertEquals(canonical, result, "aliases $fromKey/$toKey")
+        }
+    }
+
+    @Test
+    fun `convert_units missing source unit gives a friendly reply and keeps the raw detail`() {
+        val result = handleIntent("convert_units", mapOf("value" to "3.75", "to_unit" to "ml"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'.",
+                technicalDetail = "No source unit provided",
+            ),
             result,
         )
     }
@@ -4166,15 +4274,27 @@ class NativeIntentHandlerTest {
     @Test
     fun `convert_cooking_measure validates required params`() {
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking conversion amount provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking conversion amount provided",
+            ),
             handleIntent("convert_cooking_measure", emptyMap()),
         )
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking source unit provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking source unit provided",
+            ),
             handleIntent("convert_cooking_measure", mapOf("amount" to "3", "ingredient" to "butter")),
         )
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking ingredient provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking ingredient provided",
+            ),
             handleIntent("convert_cooking_measure", mapOf("amount" to "3", "from_unit" to "tbsp")),
         )
     }
@@ -4191,7 +4311,11 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "Unsupported cooking ingredient 'unicorn dust'."),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                "I don't have a built-in cooking conversion for 'unicorn dust'.",
+                technicalDetail = "Unsupported cooking ingredient 'unicorn dust'.",
+            ),
             result,
         )
     }
@@ -4233,7 +4357,8 @@ class NativeIntentHandlerTest {
         assertEquals(
             SkillResult.Failure(
                 "convert_currency",
-                "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
+                "The latest AUD to NZD rate I can get is from 2026-05-01, which is too old to use.",
+                technicalDetail = "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
             ),
             result,
         )
@@ -4254,6 +4379,25 @@ class NativeIntentHandlerTest {
             SkillResult.Failure(
                 "convert_currency",
                 "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+                technicalDetail = "socket timeout",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_currency explains a rate it could not get for the pair`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } throws IllegalArgumentException("Could not find a AUD to NZD exchange rate.")
+
+        val result = handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_currency",
+                "I couldn't get a AUD to NZD rate right now.",
+                technicalDetail = "Could not find a AUD to NZD exchange rate.",
             ),
             result,
         )
@@ -4278,15 +4422,27 @@ class NativeIntentHandlerTest {
     @Test
     fun `convert_currency validates required params`() {
         assertEquals(
-            SkillResult.Failure("convert_currency", "No currency amount provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No currency amount provided",
+            ),
             handleIntent("convert_currency", emptyMap()),
         )
         assertEquals(
-            SkillResult.Failure("convert_currency", "No source currency provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No source currency provided",
+            ),
             handleIntent("convert_currency", mapOf("amount" to "100", "to_currency" to "NZD")),
         )
         assertEquals(
-            SkillResult.Failure("convert_currency", "No target currency provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No target currency provided",
+            ),
             handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD")),
         )
     }
@@ -4730,6 +4886,20 @@ class NativeIntentHandlerTest {
                 "Reminder set: \"dentist\" tomorrow at 9:00 AM.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
+        }
+
+        @Test
+        fun `add_reminder card shows the reminder and its time, not a list preview`() {
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(1L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val result = handleIntent("add_reminder", mapOf("item" to "call mum", "day" to "tomorrow", "time" to "19:00"))
+            val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
+            val card = assertInstanceOf(ToolPresentation.Status::class.java, reply.presentation)
+            assertEquals("call mum", card.title)
+            assertEquals("Tomorrow at 7:00 PM", card.subtitle)
         }
 
         @Test

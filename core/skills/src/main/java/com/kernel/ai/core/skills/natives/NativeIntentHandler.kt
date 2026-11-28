@@ -271,11 +271,18 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.Failure(normalizedName, e.message ?: "This Nextcloud list is read-only.")
         } catch (e: Exception) {
             Log.e(TAG, "NativeIntentHandler.handle(${UnknownIntentReplies.loggableName(normalizedName)}) failed", e)
-            SkillResult.Failure("run_intent", e.message ?: "Unknown error")
+            SkillResult.Failure(
+                skillName = "run_intent",
+                error = GENERIC_INTENT_FAILURE_REPLY,
+                technicalDetail = e.message ?: "Unknown error",
+            )
         }
         recordIntentOutcome(normalizedName, route, result)
         return result
     }
+
+    // Unexpected failures are logged above with the raw exception; the user hears only this sentence (#2176).
+    private val GENERIC_INTENT_FAILURE_REPLY = "Sorry, that didn't work. Please try again."
 
     /** Outcome only: registered intent names, never params or result text (#1870). */
     private fun recordIntentOutcome(normalizedName: String, route: IntentRoute, result: SkillResult) {
@@ -539,16 +546,15 @@ class NativeIntentHandler @Inject constructor(
                 val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
                     .withZone(ZoneId.systemDefault())
                 val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
-                val warningText = result.warnings.joinToString(" ") { warning ->
+                val warningText = result.warnings.mapNotNull { warning ->
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this alarm; the alert will appear as a high-priority notification."
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
-                }
+                }.joinToString(" ")
                 val confirmation = "Alarm set for $formattedTime${if (label != null) " — $label" else ""}."
                 val message = buildString {
                     append(confirmation)
@@ -585,16 +591,15 @@ class NativeIntentHandler @Inject constructor(
                     mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
                     else -> "${scheduled.durationMs / 1000} seconds"
                 }
-                val warningText = result.warnings.joinToString(" ") { warning ->
+                val warningText = result.warnings.mapNotNull { warning ->
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are unavailable for this timer; the alert will appear as a high-priority notification."
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
-                }
+                }.joinToString(" ")
                 val confirmation = "Timer set for $durationStr."
                 val message = buildString {
                     append(confirmation)
@@ -2584,12 +2589,11 @@ class NativeIntentHandler @Inject constructor(
                 insertedItem = persistedItem,
                 listId = listId,
                 listName = listName,
-                allItems = listItemDao.getByList(listId),
                 createdList = createdList,
             )
         } ?: return SkillResult.Failure("add_reminder", "Could not create reminder list")
 
-        val (insertedItem, listId, persistedListName, allItems, createdList) = result
+        val (insertedItem, listId, persistedListName, createdList) = result
         var scheduleOk = false
         try {
             if (insertedItem != null) {
@@ -2628,7 +2632,11 @@ class NativeIntentHandler @Inject constructor(
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
             "Reminder set: \"$item\" $dayPhrase at $timeDisplay.",
-            presentation = buildListPreview(persistedListName, allItems),
+            presentation = ToolPresentation.Status(
+                icon = "⏰",
+                title = item,
+                subtitle = "${dayPhrase.replaceFirstChar { it.uppercase() }} at $timeDisplay",
+            ),
         )
     }
 
@@ -2636,7 +2644,6 @@ class NativeIntentHandler @Inject constructor(
         val insertedItem: ListItemEntity?,
         val listId: Long,
         val listName: String,
-        val allItems: List<ListItemEntity>,
         val createdList: Boolean,
     )
 
@@ -2876,7 +2883,7 @@ class NativeIntentHandler @Inject constructor(
 
     private fun calculateArithmetic(params: Map<String, String>): SkillResult {
         val expression = params["expression"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("calculate_arithmetic", "No expression provided")
+            ?: return friendlyFailure("calculate_arithmetic", "No expression provided", FriendlyFailureReplies::arithmetic)
 
         return try {
             val result = ArithmeticExpressionEvaluator.evaluate(expression)
@@ -2893,17 +2900,40 @@ class NativeIntentHandler @Inject constructor(
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
-            SkillResult.Failure("calculate_arithmetic", e.message ?: "Could not evaluate expression")
+            friendlyFailure("calculate_arithmetic", e.message ?: "Could not evaluate expression", FriendlyFailureReplies::arithmetic)
         }
     }
 
+    // The model sends from_unit/to_unit as the tool describes, but has also sent from/to and
+    // source/target keys (#2176). The first non-blank alias wins.
+    private val CONVERT_UNITS_FROM_KEYS = listOf("from_unit", "from", "source_unit", "source", "unit_from")
+    private val CONVERT_UNITS_TO_KEYS = listOf("to_unit", "to", "target_unit", "target", "unit_to")
+
+    private fun firstNonBlankParam(params: Map<String, String>, keys: List<String>): String? =
+        keys.firstNotNullOfOrNull { key -> params[key]?.trim()?.takeIf { it.isNotBlank() } }
+
+    // The spoken reply is the friendly sentence from FriendlyFailureReplies. The raw message goes to the tool
+    // chip and logs (SkillResult.Failure contract, #2176).
+    private fun friendlyFailure(
+        skillName: String,
+        technicalDetail: String,
+        friendly: (String) -> String,
+    ): SkillResult.Failure = SkillResult.Failure(
+        skillName = skillName,
+        error = friendly(technicalDetail),
+        technicalDetail = technicalDetail,
+    )
+
+    private fun convertUnitsFailure(technicalDetail: String): SkillResult.Failure =
+        friendlyFailure("convert_units", technicalDetail, FriendlyFailureReplies::unitConversion)
+
     private fun convertUnits(params: Map<String, String>): SkillResult {
         val value = params["value"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No conversion value provided")
-        val fromUnit = params["from_unit"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No source unit provided")
-        val toUnit = params["to_unit"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_units", "No target unit provided")
+            ?: return convertUnitsFailure("No conversion value provided")
+        val fromUnit = firstNonBlankParam(params, CONVERT_UNITS_FROM_KEYS)
+            ?: return convertUnitsFailure("No source unit provided")
+        val toUnit = firstNonBlankParam(params, CONVERT_UNITS_TO_KEYS)
+            ?: return convertUnitsFailure("No target unit provided")
 
         return try {
             val result = UnitConversionEvaluator.convert(value, fromUnit, toUnit)
@@ -2936,17 +2966,17 @@ class NativeIntentHandler @Inject constructor(
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
-            SkillResult.Failure("convert_units", e.message ?: "Could not convert units")
+            convertUnitsFailure(e.message ?: "Could not convert units")
         }
     }
 
     private fun convertCookingMeasure(params: Map<String, String>): SkillResult {
         val amount = params["amount"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking conversion amount provided")
+            ?: return friendlyFailure("convert_cooking_measure", "No cooking conversion amount provided", FriendlyFailureReplies::cookingConversion)
         val fromUnit = params["from_unit"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking source unit provided")
+            ?: return friendlyFailure("convert_cooking_measure", "No cooking source unit provided", FriendlyFailureReplies::cookingConversion)
         val ingredient = params["ingredient"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_cooking_measure", "No cooking ingredient provided")
+            ?: return friendlyFailure("convert_cooking_measure", "No cooking ingredient provided", FriendlyFailureReplies::cookingConversion)
         val toUnit = params["to_unit"]?.trim()?.takeIf { it.isNotBlank() } ?: "g"
 
         return try {
@@ -3010,17 +3040,17 @@ class NativeIntentHandler @Inject constructor(
             }
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: IllegalArgumentException) {
-            SkillResult.Failure("convert_cooking_measure", e.message ?: "Could not convert cooking measure")
+            friendlyFailure("convert_cooking_measure", e.message ?: "Could not convert cooking measure", FriendlyFailureReplies::cookingConversion)
         }
     }
 
     private suspend fun convertCurrency(params: Map<String, String>): SkillResult {
         val amount = params["amount"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_currency", "No currency amount provided")
+            ?: return friendlyFailure("convert_currency", "No currency amount provided", FriendlyFailureReplies::currencyConversion)
         val fromCurrency = params["from_currency"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_currency", "No source currency provided")
+            ?: return friendlyFailure("convert_currency", "No source currency provided", FriendlyFailureReplies::currencyConversion)
         val toCurrency = params["to_currency"]?.trim()?.takeIf { it.isNotBlank() }
-            ?: return SkillResult.Failure("convert_currency", "No target currency provided")
+            ?: return friendlyFailure("convert_currency", "No target currency provided", FriendlyFailureReplies::currencyConversion)
 
         return try {
             val result = currencyConversionService.convert(
@@ -3042,12 +3072,11 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: IllegalArgumentException) {
+            friendlyFailure("convert_currency", e.message ?: "Could not convert currency", FriendlyFailureReplies::currencyConversion)
         } catch (e: Exception) {
-            val errorMessage = when (e) {
-                is IllegalArgumentException -> e.message
-                else -> "Currency rates are unavailable right now. I can't do a truthful conversion offline."
-            }
-            SkillResult.Failure("convert_currency", errorMessage ?: "Could not convert currency")
+            // Non-IAE failures are network or IO errors, so the rates really are unavailable.
+            friendlyFailure("convert_currency", e.message ?: "Could not convert currency") { FriendlyFailureReplies.CURRENCY_UNAVAILABLE }
         }
     }
     private fun buildListPreview(
