@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice.kokoro
 
 import android.content.Context
+import com.kernel.ai.core.inference.InferenceEngine
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -26,6 +27,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -47,6 +50,8 @@ class KokoroVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val loadMarker: KokoroLoadMarker,
+    private val memoryGate: KokoroWarmUpMemoryGate,
+    private val inferenceEngine: InferenceEngine,
 ) : VoiceOutputController {
     private val eventsFlow = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
     override val events: Flow<VoiceOutputEvent> = eventsFlow.asSharedFlow()
@@ -74,6 +79,38 @@ class KokoroVoiceOutputController @Inject constructor(
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         synthesisLock.withLock { prepare(voice) }
+    }
+
+    /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
+    suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
+        if (!inferenceEngine.isReady.value) {
+            return@withContext KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
+        }
+        val voice = voiceOutputPreferences.selectedKokoroVoice.first()
+        val cancellation = currentCoroutineContext()
+        synthesisLock.withLock {
+            if (engine == null || engineVoice != voice) {
+                // A load needs memory headroom; a test that needs no load is not blocked by it.
+                if (!memoryGate.hasHeadroom()) {
+                    return@withLock KokoroSpeedResult.Unavailable(
+                        "Not enough free memory to load Kokoro. Close other apps and test again.",
+                    )
+                }
+            }
+            val preparation = prepare(voice)
+            val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
+                ?: return@withLock KokoroSpeedResult.Unavailable(
+                    (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
+                )
+            measureKokoroSpeed(
+                sentences = KOKORO_SPEED_TEST_SENTENCES,
+                splitText = { sentence -> loaded.splitText(KokoroTextFrontend.phonemizerInput(sentence, voice.locale)) },
+                synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
+                sampleRate = KokoroTts.SAMPLE_RATE_HZ,
+                peakMemoryMb = ::readPeakMemoryMb,
+                ensureActive = { cancellation.ensureActive() },
+            )
+        }
     }
 
     override suspend fun openStreamingSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession =

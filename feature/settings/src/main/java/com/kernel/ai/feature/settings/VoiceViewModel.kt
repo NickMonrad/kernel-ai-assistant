@@ -12,6 +12,9 @@ import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.VoiceOutputCopy
+import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
+import java.util.Locale
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
 import com.kernel.ai.core.voice.InflectMicroSetup
@@ -125,6 +128,7 @@ data class VoiceUiState(
     val kokoroStates: Map<KernelModel, DownloadState> = emptyMap(),
     val kokoroWaitingForWifi: Boolean = false,
     val selectedKokoroVoice: KokoroVoice = KokoroVoice.DEFAULT,
+    val kokoroSpeed: KokoroSpeedUiState = KokoroSpeedUiState.Idle,
     // ── Hey Jandal / Default Assistant ───────────────────────────────────────
     /** True when Jandal is the system's Default Digital Assistant (RoleManager.ROLE_ASSISTANT). */
     val isDefaultAssistant: Boolean = false,
@@ -737,6 +741,14 @@ class VoiceViewModel @Inject constructor(
             )
         ) return
         val previous = _uiState.value.selectedOutputEngine
+        if (engine == VoiceOutputEngine.KokoroExperimental && engine != previous) {
+            // Kokoro is chosen only through the speed gate, never straight from a tap (#2117). Without the pack, the tap
+            // only starts the download; choosing Kokoro again after the download runs the gate.
+            if (kokoroPackReady() && _uiState.value.kokoroSpeed != KokoroSpeedUiState.Running) {
+                selectKokoroIfItKeepsUp(previous)
+            }
+            return
+        }
         _uiState.update { it.copy(selectedOutputEngine = engine).withInflectAvailability() }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedEngine(engine)
@@ -752,6 +764,81 @@ class VoiceViewModel @Inject constructor(
             .forEach { modelDownloadManager.startDownload(it, restartRunning = true, allowMobileData = true) }
     }
 
+
+    /** Settings "Test voice speed" button (#2117): measures without changing the selected engine. */
+    fun testKokoroSpeed() {
+        if (_uiState.value.kokoroSpeed == KokoroSpeedUiState.Running) return
+        _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Running) }
+        viewModelScope.launch {
+            try {
+                val result = kokoroVoiceOutputController.measureSpeed()
+                _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Done(result.summaryLines())) }
+            } finally {
+                // Also runs when leaving Settings cancels the test, so a loaded engine is not kept in memory.
+                releaseKokoroUnlessSelected()
+            }
+        }
+    }
+
+    private fun kokoroPackReady(): Boolean {
+        val states = _uiState.value.kokoroStates.values
+        return states.isNotEmpty() && states.all { it is DownloadState.Downloaded }
+    }
+
+    /**
+     * Selecting Kokoro with the pack on disk runs the speed test first. Kokoro is chosen only when the phone keeps up;
+     * otherwise the previous engine stays selected and the card says why (#2117).
+     */
+    private fun selectKokoroIfItKeepsUp(previous: VoiceOutputEngine) {
+        _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Running) }
+        viewModelScope.launch {
+            try {
+                val result = kokoroVoiceOutputController.measureSpeed()
+                val lines = result.summaryLines()
+                // The user may pick another engine while the gate runs. Their choice stands, so a pass is not applied.
+                val selectionUnchanged = _uiState.value.selectedOutputEngine == previous
+                if (selectionUnchanged && result is KokoroSpeedResult.Measured && result.allowsKokoro) {
+                    _uiState.update {
+                        it.copy(
+                            selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                            kokoroSpeed = KokoroSpeedUiState.Done(lines),
+                        ).withInflectAvailability()
+                    }
+                    voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
+                    piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
+                } else {
+                    val reason = when {
+                        !selectionUnchanged -> ": you chose another voice during the test"
+                        result is KokoroSpeedResult.Measured -> ": speech would stutter on this phone " +
+                            "(median RTF %.2f; threshold %.2f)".format(
+                                Locale.US,
+                                result.medianRealTimeFactor,
+                                com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF,
+                            )
+                        // Unavailable: its message is already the first line of the panel.
+                        else -> ""
+                    }
+                    val current = _uiState.value.selectedOutputEngine
+                    _uiState.update {
+                        it.copy(
+                            kokoroSpeed = KokoroSpeedUiState.Done(
+                                lines + "Kokoro not selected$reason. Staying on ${VoiceOutputCopy.title(current)}.",
+                            ),
+                        )
+                    }
+                }
+            } finally {
+                releaseKokoroUnlessSelected()
+            }
+        }
+    }
+
+    /** Frees the engine a speed test or gate loaded, unless Kokoro is the selected engine. Safe during cancellation. */
+    private fun releaseKokoroUnlessSelected() {
+        if (_uiState.value.selectedOutputEngine != VoiceOutputEngine.KokoroExperimental) {
+            kokoroVoiceOutputController.unloadEngine()
+        }
+    }
 
     /** Lets this voice pack download over mobile data. Other downloads keep the global network choice (#1868). */
     fun useMobileDataForVoice(voice: SherpaPiperVoice) {
@@ -941,3 +1028,25 @@ private const val SHERPA_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voi
 
 internal const val SAMPLE_FAILED_MESSAGE =
     "Couldn't play the sample. Delete the voice and download it again, then retry."
+
+/** Settings "Test voice speed" state (#2117). */
+sealed interface KokoroSpeedUiState {
+    data object Idle : KokoroSpeedUiState
+    data object Running : KokoroSpeedUiState
+    data class Done(val lines: List<String>) : KokoroSpeedUiState
+}
+
+/** Human-readable result for the speed panel. Kept here, next to the state that holds it. */
+internal fun KokoroSpeedResult.summaryLines(): List<String> = when (this) {
+    is KokoroSpeedResult.Measured -> listOfNotNull(
+        "Median RTF: %.2f (Honor target: <= 0.5; selection limit: <= %.2f)."
+            .format(Locale.US, medianRealTimeFactor, com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF),
+        "Median time to first chunk ready: %.1f s (engine already loaded, no audio track; not a first-sound figure)."
+            .format(Locale.US, medianFirstChunkSeconds),
+        "Per-run RTF: ${runs.joinToString { "%.2f".format(Locale.US, it.realTimeFactor) }}.",
+        peakMemoryMb?.let { "Peak memory: $it MB." } ?: "Peak memory: not reported.",
+        if (stoppedEarly) "Stopped after ${runs.size} runs: two runs were over the selection limit." else null,
+        if (allowsKokoro) "Verdict: keeps up with playback." else "Verdict: speech would stutter on this phone.",
+    )
+    is KokoroSpeedResult.Unavailable -> listOf(message)
+}

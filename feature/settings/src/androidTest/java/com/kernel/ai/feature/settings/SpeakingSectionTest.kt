@@ -398,7 +398,7 @@ class SpeakingSectionTest {
     }
 
     @Test
-    fun tappingNotDownloadedKokoroCardSelectsEngineAndStartsDownload() {
+    fun tappingNotDownloadedKokoroCardRequestsGateAndStartsDownload() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
@@ -515,7 +515,7 @@ class SpeakingSectionTest {
     }
 
     @Test
-    fun kokoroDownloadHiddenWhilePiperSelected() {
+    fun kokoroDownloadShownWhilePiperSelected() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
@@ -524,11 +524,11 @@ class SpeakingSectionTest {
             ),
         )
 
-        cardButton(kokoroCardTag, "Download").assertDoesNotExist()
+        cardButton(kokoroCardTag, "Download").assertExists()
     }
 
     @Test
-    fun kokoroDeleteHiddenWhilePiperSelected() {
+    fun kokoroDeleteShownWhilePiperSelectedAndPackDownloaded() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
@@ -538,7 +538,50 @@ class SpeakingSectionTest {
             ),
         )
 
-        cardButton(kokoroCardTag, "Delete").assertDoesNotExist()
+        cardButton(kokoroCardTag, "Delete").assertExists()
+    }
+
+    @Test
+    fun kokoroCancelShownWhilePiperSelectedAndPackDownloading() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                kokoroStates = kokoroStates(DownloadState.Downloading(progress = 0.3f)),
+            ),
+        )
+
+        cardButton(kokoroCardTag, "Cancel").assertExists()
+    }
+
+    @Test
+    fun kokoroRetryShownWhilePiperSelectedAfterFailure() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                kokoroStates = kokoroStates(DownloadState.Error("network")),
+            ),
+        )
+
+        cardButton(kokoroCardTag, "Retry").assertExists()
+    }
+
+    @Test
+    fun kokoroMobileDataOfferedWhilePiperSelected() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                kokoroWaitingForWifi = true,
+            ),
+        )
+
+        cardButton(kokoroCardTag, "Use mobile data").performScrollTo().performClick()
+        assertEquals(listOf("mobileDataKokoro"), calls)
     }
 
     @Test
