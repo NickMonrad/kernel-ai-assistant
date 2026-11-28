@@ -131,6 +131,11 @@ class ListsViewModel @Inject constructor(
         listNameDao.observeArchivedLists()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** Whether the Enter-to-add hint is retired on this device; drives the add sheet's hint strip. */
+    val quickEntryHintRetired: StateFlow<Boolean> =
+        listsUiPreferences.observeQuickEntryHintRetired()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     /** When true the UI shows the archived lists view instead of the active lists. */
     var showArchived by mutableStateOf(false)
 
@@ -928,6 +933,16 @@ class ListsViewModel @Inject constructor(
             } ?: return@launch
             applyCheckedStateReminderTransitions(mutation)
         }
+    }
+
+    /** Records one Enter-add; after enough of them the quick-entry hint retires. */
+    fun recordQuickEntryEnterAdd() {
+        viewModelScope.launch { listsUiPreferences.recordQuickEntryEnterAdd() }
+    }
+
+    /** Retires the quick-entry hint for good on this device. */
+    fun dismissQuickEntryHint() {
+        viewModelScope.launch { listsUiPreferences.dismissQuickEntryHint() }
     }
 
     fun addItem(

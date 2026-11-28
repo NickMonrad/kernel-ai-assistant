@@ -3,14 +3,18 @@ package com.kernel.ai.feature.settings
 import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
@@ -96,6 +100,38 @@ class ListsUiPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Whether the Enter-to-add hint is retired on this device: dismissed, or Enter used on enough
+     * adds. Shared across lists, because the hint is taught once per device.
+     */
+    fun observeQuickEntryHintRetired(): Flow<Boolean> = dataStore.data
+        .catch { error ->
+            if (error is IOException) {
+                Log.e(TAG, "Lists preferences read failed, falling back to defaults", error)
+                emit(emptyPreferences())
+            } else throw error
+        }
+        .map { preferences ->
+            quickEntryHintRetired(
+                enterAdds = preferences[QUICK_ENTRY_ENTER_ADDS_KEY] ?: 0,
+                dismissed = preferences[QUICK_ENTRY_HINT_DISMISSED_KEY] == true,
+            )
+        }
+
+    /** Counts one Enter-add toward hint retirement. */
+    suspend fun recordQuickEntryEnterAdd() {
+        withContext(ioDispatcher) {
+            dataStore.edit { it[QUICK_ENTRY_ENTER_ADDS_KEY] = (it[QUICK_ENTRY_ENTER_ADDS_KEY] ?: 0) + 1 }
+        }
+    }
+
+    /** Retires the Enter hint for good on this device. */
+    suspend fun dismissQuickEntryHint() {
+        withContext(ioDispatcher) {
+            dataStore.edit { it[QUICK_ENTRY_HINT_DISMISSED_KEY] = true }
+        }
+    }
+
     private suspend fun preferences(): Preferences = dataStore.data
         .catch { error ->
             if (error is IOException) {
@@ -114,3 +150,9 @@ internal fun collapsedParentItemIdsKeyOf(listId: Long) =
 internal fun itemSortKeyOf(listId: Long) = stringPreferencesKey("item_sort_$listId")
 private fun decodeItemSort(value: String): ItemSort =
     ItemSort.entries.firstOrNull { it.name == value } ?: DEFAULT_ITEM_SORT
+
+/** Preference key: how many Enter-adds have happened on this device. */
+private val QUICK_ENTRY_ENTER_ADDS_KEY = intPreferencesKey("quick_entry_enter_adds")
+
+/** Preference key: whether the Enter hint was dismissed on this device. */
+private val QUICK_ENTRY_HINT_DISMISSED_KEY = booleanPreferencesKey("quick_entry_hint_dismissed")
