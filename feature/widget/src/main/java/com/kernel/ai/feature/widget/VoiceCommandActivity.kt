@@ -3,6 +3,7 @@ package com.kernel.ai.feature.widget
 import android.Manifest
 import android.content.Intent
 import android.app.Activity
+import android.app.KeyguardManager
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.pm.PackageManager
@@ -112,6 +113,16 @@ const val EXTRA_WAKE_TOKEN = "wake_token"
 /** #2081: set on a notification-held wake transcript delivered by tap; see [WakeWordHandoff.takeHeld]. */
 const val EXTRA_WAKE_HELD = "wake_held"
 
+/** #2178: set by the assistant session when it opens the wake overlay (see JandalVoiceInteractionSession). */
+const val EXTRA_WAKE_ASSISTANT_LAUNCH = "wake_assistant_launch"
+
+/** #2178: a leave hint this soon after an assistant- or keyguard-launched wake overlay does not cancel it. */
+internal const val WAKE_LEAVE_HINT_GRACE_MS = 1_500L
+
+/** #2178 policy: whether a leave hint cancels the wake overlay. Pure, so the grace window is unit-testable. */
+internal fun shouldCancelWakeOverlayOnLeaveHint(elapsedSinceStartMs: Long, startedByAssistantOrKeyguard: Boolean): Boolean =
+    !(startedByAssistantOrKeyguard && elapsedSinceStartMs < WAKE_LEAVE_HINT_GRACE_MS)
+
 
 @AndroidEntryPoint
 class VoiceCommandActivity : ComponentActivity() {
@@ -150,6 +161,9 @@ class VoiceCommandActivity : ComponentActivity() {
     private var cancelledVoiceStart = false
     /** Token of the wake capture this overlay belongs to (#1930). */
     private var wakeToken = 0L
+    /** #2178: when the wake overlay opened, and whether it opened from an assistant session or over the keyguard. */
+    private var wakeStartedAtMs = 0L
+    private var wakeStartedByAssistantOrKeyguard = false
     private var voiceStartAttemptId = 0L
     private var ownedCaptureSessionId: Long? = null
     /** Back closes a wake overlay as X does; enabled only while a wake overlay is shown. */
@@ -221,6 +235,9 @@ class VoiceCommandActivity : ComponentActivity() {
         if (!WakeOverlayChannel.isLive(token)) return false
         wakeIntentSeen = true
         wakeToken = token
+        wakeStartedAtMs = SystemClock.elapsedRealtime()
+        wakeStartedByAssistantOrKeyguard = intent.getBooleanExtra(EXTRA_WAKE_ASSISTANT_LAUNCH, false) ||
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
         // #1930: a wake-launched overlay turns the screen on so it is visible with the screen off.
         setTurnScreenOn(true)
         WakeOverlayChannel.attachOverlay(token)
@@ -327,7 +344,15 @@ class VoiceCommandActivity : ComponentActivity() {
     /** #1930: Home or an app switch closes the wake overlay and cancels its live capture. */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (wakeOverlayJob?.isActive == true) dismissWakeOverlay("user_leave_hint")
+        if (wakeOverlayJob?.isActive != true) return
+        val elapsedMs = SystemClock.elapsedRealtime() - wakeStartedAtMs
+        if (shouldCancelWakeOverlayOnLeaveHint(elapsedMs, wakeStartedByAssistantOrKeyguard)) {
+            dismissWakeOverlay("user_leave_hint")
+        } else {
+            // #2178: a leave hint during an assistant- or keyguard-launched overlay's own start does not close it.
+            JandalEvents.record("wake", "overlay_dismiss_ignored", "reason" to "user_leave_hint_early")
+            Log.i(TAG, "VoiceCommandActivity: ignored leave hint ${elapsedMs}ms after wake overlay start (reason=user_leave_hint_early)")
+        }
     }
 
     /**

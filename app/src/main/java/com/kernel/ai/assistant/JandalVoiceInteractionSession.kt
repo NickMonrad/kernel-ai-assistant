@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import com.kernel.ai.feature.widget.EXTRA_WAKE_OVERLAY
+import com.kernel.ai.feature.widget.EXTRA_WAKE_ASSISTANT_LAUNCH
 import com.kernel.ai.feature.widget.EXTRA_WAKE_TOKEN
 import com.kernel.ai.feature.widget.VoiceCommandActivity
 
@@ -46,6 +47,7 @@ class JandalVoiceInteractionSession(
             startAssistantActivity(
                 Intent(ctx, VoiceCommandActivity::class.java).apply {
                     putExtra(EXTRA_WAKE_OVERLAY, true)
+                    putExtra(EXTRA_WAKE_ASSISTANT_LAUNCH, true)
                     putExtra(EXTRA_WAKE_TOKEN, token)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
