@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.kernel.ai.core.inference.setup.SetupStep
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -27,9 +28,9 @@ class SetupWizardKokoroCardTest {
     fun pickerAndSampleShowWhenKokoroIsDownloadedAndPicked() {
         setCard(outputEngine = VoiceOutputEngine.KokoroExperimental, kokoroReady = true)
 
-        composeRule.onNodeWithText(EMMA_ROW).assertIsSelected()
-        composeRule.onNodeWithText(HEART_ROW).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription(SAMPLE).assertIsDisplayed()
+        composeRule.onNodeWithText(EMMA_ROW).performScrollTo().assertIsSelected()
+        composeRule.onNodeWithText(HEART_ROW).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(SAMPLE).performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -45,7 +46,7 @@ class SetupWizardKokoroCardTest {
         setCard(outputEngine = VoiceOutputEngine.SherpaExperimental, kokoroReady = true)
 
         composeRule.onAllNodesWithText(EMMA_ROW).assertCountEquals(0)
-        composeRule.onNodeWithContentDescription(SAMPLE).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription(SAMPLE).performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -57,7 +58,7 @@ class SetupWizardKokoroCardTest {
             onKokoroVoiceSelected = { picked = it },
         )
 
-        composeRule.onNodeWithText(HEART_ROW).performClick()
+        composeRule.onNodeWithText(HEART_ROW).performScrollTo().performClick()
 
         assertEquals(KokoroVoice.HEART, picked)
     }
@@ -71,7 +72,7 @@ class SetupWizardKokoroCardTest {
             onKokoroSampleToggled = { taps++ },
         )
 
-        composeRule.onNodeWithContentDescription(SAMPLE).performClick()
+        composeRule.onNodeWithContentDescription(SAMPLE).performScrollTo().performClick()
 
         assertEquals(1, taps)
     }
@@ -80,7 +81,7 @@ class SetupWizardKokoroCardTest {
     fun stayLineShowsWhileKokoroIsPickedWithoutACachedPass() {
         setCard(outputEngine = VoiceOutputEngine.KokoroExperimental, kokoroCheckPassed = false)
 
-        composeRule.onNodeWithText(STAYS_LINE, substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText(STAYS_LINE, substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test
