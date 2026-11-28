@@ -5,6 +5,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
@@ -715,6 +717,36 @@ class SpeakingSectionTest {
         KokoroVoice.entries.forEach { voice ->
             composeTestRule.onNodeWithText(voice.displayName, substring = true).assertExists()
         }
+    }
+
+    @Test
+    fun kokoroVoicePickerTicksTheStoredVoice() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+                selectedKokoroVoice = KokoroVoice.HEART,
+            ),
+        )
+
+        composeTestRule.onNodeWithText(KokoroVoice.HEART.displayName, substring = true).assertIsSelected()
+        composeTestRule.onNodeWithText(KokoroVoice.EMMA.displayName, substring = true).assertIsNotSelected()
+    }
+
+    @Test
+    fun kokoroVoicePickerDefaultsToEmmaWhenNoVoiceChosen() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+            ),
+        )
+
+        composeTestRule.onNodeWithText(KokoroVoice.EMMA.displayName, substring = true).assertIsSelected()
     }
 
     @Test
