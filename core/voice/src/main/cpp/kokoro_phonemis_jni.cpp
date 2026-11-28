@@ -4,6 +4,7 @@
 #include <jni.h>
 
 #include <cstdint>
+#include <vector>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -131,14 +132,39 @@ Java_com_kernel_ai_core_voice_kokoro_NativeKokoroPhonemizer_nativeCreate(
   }
 }
 
-extern "C" JNIEXPORT jstring JNICALL
+jobject to_java_phonemized(JNIEnv* env, const phonemis::PhonemizedText& result) {
+  std::vector<jint> spans;
+  spans.reserve(result.words.size() * 4);
+  for (const auto& word : result.words) {
+    spans.push_back(static_cast<jint>(word.offset));
+    spans.push_back(static_cast<jint>(word.length));
+    spans.push_back(static_cast<jint>(word.phoneme_offset));
+    spans.push_back(static_cast<jint>(word.phoneme_length));
+  }
+  const auto span_count = static_cast<jsize>(spans.size());
+  jintArray span_array = env->NewIntArray(span_count);
+  if (span_array == nullptr) throw std::runtime_error("Could not allocate word spans");
+  env->SetIntArrayRegion(span_array, 0, span_count, spans.data());
+  jstring phonemes = to_java_string(env, result.phonemes);
+  jclass cls = env->FindClass("com/kernel/ai/core/voice/kokoro/PhonemizedText");
+  if (cls == nullptr) throw std::runtime_error("PhonemizedText class not found");
+  jmethodID ctor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;[I)V");
+  if (ctor == nullptr) throw std::runtime_error("PhonemizedText constructor not found");
+  jobject value = env->NewObject(cls, ctor, phonemes, span_array);
+  env->DeleteLocalRef(phonemes);
+  env->DeleteLocalRef(span_array);
+  env->DeleteLocalRef(cls);
+  return value;
+}
+
+extern "C" JNIEXPORT jobject JNICALL
 Java_com_kernel_ai_core_voice_kokoro_NativeKokoroPhonemizer_nativePhonemize(
     JNIEnv* env, jobject, jlong handle, jstring input) {
   try {
     if (input == nullptr) throw std::invalid_argument("Input text must not be null");
     const std::string input_utf8 = to_utf8(env, input);
     const auto result = from_handle(handle)->pipeline.phonemize_words(input_utf8);
-    return to_java_string(env, result.phonemes);
+    return to_java_phonemized(env, result);
   } catch (const std::exception& error) {
     throw_java(env, "java/lang/IllegalArgumentException", error.what());
     return nullptr;

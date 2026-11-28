@@ -1,20 +1,31 @@
 package com.kernel.ai.core.voice.kokoro
 
 import com.kernel.ai.core.voice.EnglishSpeechTextNormaliser
+import com.kernel.ai.core.voice.PronunciationLexicon
 import com.kernel.ai.core.voice.SpeechCardText
 
 /** Text preparation for the Kokoro phonemiser, applied after [SpeechCardText.speakable] and number normalisation. */
 internal object KokoroTextFrontend {
     /**
-     * Normalised text for [locale]'s phonemiser. en-gb expands contractions because the en-gb lexicon reads
+     * Normalised text for [locale]'s phonemiser. The pronunciation lexicon's respellings apply before number
+     * normalisation, as they do for Sherpa (#2175). en-gb expands contractions because the en-gb lexicon reads
      * "I'll" as "ˌIl" (ill), so British voices said "I remind you" for "I'll remind you" (#2116, #2117). en-us
      * keeps its lexicon's reading, which the owner judged correct, so its text is unchanged.
      */
     fun phonemizerInput(text: String, locale: String): String {
-        val normalised = EnglishSpeechTextNormaliser.normalize(SpeechCardText.speakable(text))
+        val spoken = PronunciationLexicon.apply(SpeechCardText.speakable(text))
+        val normalised = separateJoinedWords(EnglishSpeechTextNormaliser.normalize(spoken))
         return if (locale == NativeKokoroPhonemizer.LOCALE_EN_GB) expandContractions(normalised) else normalised
     }
 
+    /**
+     * Makes each piece of a hyphen- or slash-joined token its own word. phonemis drops the pieces it does not
+     * know, such as "ee" in the respelling "Pore-ee-roo-uh", and keeps the rest, so only a word boundary lets the
+     * fallback see each piece (#2175).
+     */
+    internal fun separateJoinedWords(text: String): String = text.replace(JOINED_PIECES, " ")
+
+    private val JOINED_PIECES = Regex("(?<=\\p{L})[-\u2013/](?=\\p{L})")
     private val WILL = Regex("\\b([A-Za-z]+)['\u2019]ll\\b")
     private val HAVE = Regex("\\b([A-Za-z]+)['\u2019]ve\\b")
     private val ARE = Regex("\\b([A-Za-z]+)['\u2019]re\\b")
