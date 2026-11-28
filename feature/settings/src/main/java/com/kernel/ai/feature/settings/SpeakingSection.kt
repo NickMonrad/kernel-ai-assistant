@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
@@ -23,7 +21,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -50,6 +46,7 @@ import com.kernel.ai.core.ui.InfoTagStyle
 import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.StatusChip
 import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
+import com.kernel.ai.core.ui.voice.KokoroVoicePicker
 import com.kernel.ai.core.ui.voice.VoiceSampleButton
 import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
@@ -594,39 +591,6 @@ private fun KokoroCheckProgress(check: KokoroSpeedUiState.Checking) {
             progress = { run.toFloat() / check.runs },
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-    }
-}
-
-@Composable
-private fun KokoroVoicePicker(
-    selected: KokoroVoice,
-    onSelected: (KokoroVoice) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Voice",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        KokoroVoice.entries.forEach { voice ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .selectable(
-                        selected = voice == selected,
-                        onClick = { onSelected(voice) },
-                        role = Role.RadioButton,
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                RadioButton(selected = voice == selected, onClick = null)
-                Text(
-                    text = "${voice.displayName}: ${voice.description}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        }
     }
 }
 

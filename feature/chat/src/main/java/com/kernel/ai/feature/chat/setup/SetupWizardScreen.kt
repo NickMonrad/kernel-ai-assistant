@@ -97,12 +97,14 @@ import com.kernel.ai.core.ui.terms.TermsAcceptRow
 import com.kernel.ai.core.ui.terms.TermsOfUseLink
 import com.kernel.ai.core.ui.terms.TermsSheet
 import com.kernel.ai.core.ui.terms.rememberBundledTerms
+import com.kernel.ai.core.ui.voice.KokoroVoicePicker
 import com.kernel.ai.core.ui.voice.VoiceSampleButton
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceInputEngine
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.onlineSpeechToggleVisible
 import com.kernel.ai.feature.chat.R
 import com.kernel.ai.feature.chat.formatBytesShort
@@ -259,6 +261,8 @@ fun SetupWizardScreen(
                 requestWizardAction(SKIP_ID)
             }
         },
+        onKokoroVoiceSelected = viewModel::onKokoroVoiceSelected,
+        onKokoroSampleToggled = viewModel::toggleKokoroSample,
     )
 }
 
@@ -304,10 +308,13 @@ internal fun SetupWizardContent(
     onOnlineSpeechChanged: (Boolean) -> Unit = {},
     termsText: String? = null,
     onTermsAcceptedChanged: (Boolean) -> Unit = {},
+    onKokoroVoiceSelected: (KokoroVoice) -> Unit = {},
+    onKokoroSampleToggled: () -> Unit = {},
 ) {
     val stepNumber = state.step.ordinal + 1
     val primaryLabel = if (state.step == SetupStep.entries.last()) "Finish" else "Continue"
     val skipLabel = if (state.step == SetupStep.MAKE_JANDAL_YOURS) "Skip these" else "Skip setup"
+    val backLabel = if (state.step == SetupStep.HOW_IT_WORKS) "Exit" else "Back"
     var termsOpen by rememberSaveable { mutableStateOf(false) }
     val openTerms: () -> Unit = { termsOpen = true }
     val scrollState = rememberSaveable(state.step, saver = ScrollState.Saver) { ScrollState(0) }
@@ -330,8 +337,12 @@ internal fun SetupWizardContent(
                 StepContent(
                     state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours,
                     onOpenTerms = openTerms, onTermsAcceptedChanged = onTermsAcceptedChanged,
+                    onKokoroVoiceSelected = onKokoroVoiceSelected, onKokoroSampleToggled = onKokoroSampleToggled,
                 )
-                SetupFooterButtons(primaryLabel, skipLabel, onPrimary, onBack, onSkip, actionsEnabled = state.termsAccepted)
+                SetupFooterButtons(
+                    primaryLabel, skipLabel, onPrimary, onBack, onSkip,
+                    backLabel = backLabel, actionsEnabled = state.termsAccepted,
+                )
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -352,6 +363,7 @@ internal fun SetupWizardContent(
                     StepContent(
                         state, onInputSelected, onOutputSelected, onChoiceSelected, onOnlineSpeechChanged, makeYours,
                         onOpenTerms = openTerms, onTermsAcceptedChanged = onTermsAcceptedChanged,
+                        onKokoroVoiceSelected = onKokoroVoiceSelected, onKokoroSampleToggled = onKokoroSampleToggled,
                     )
                 }
                 SetupFooter(
@@ -360,6 +372,7 @@ internal fun SetupWizardContent(
                     onPrimary = onPrimary,
                     onBack = onBack,
                     onSkip = onSkip,
+                    backLabel = backLabel,
                     actionsEnabled = state.termsAccepted,
                 )
             }
@@ -380,6 +393,8 @@ private fun StepContent(
     makeYours: MakeYoursActions,
     onOpenTerms: () -> Unit,
     onTermsAcceptedChanged: (Boolean) -> Unit,
+    onKokoroVoiceSelected: (KokoroVoice) -> Unit,
+    onKokoroSampleToggled: () -> Unit,
 ) {
     when (state.step) {
         SetupStep.HOW_IT_WORKS -> WelcomeStep(
@@ -393,6 +408,8 @@ private fun StepContent(
             onInputSelected = onInputSelected,
             onOutputSelected = onOutputSelected,
             onOnlineSpeechChanged = onOnlineSpeechChanged,
+            onKokoroVoiceSelected = onKokoroVoiceSelected,
+            onKokoroSampleToggled = onKokoroSampleToggled,
         )
         SetupStep.DOWNLOAD -> DownloadStep(state = state, onChoiceSelected = onChoiceSelected, onOpenTerms = onOpenTerms)
         SetupStep.MAKE_JANDAL_YOURS -> MakeYoursStep(state, makeYours)
@@ -541,6 +558,8 @@ private fun VoiceStep(
     onInputSelected: (VoiceInputEngine) -> Unit,
     onOutputSelected: (VoiceOutputEngine) -> Unit,
     onOnlineSpeechChanged: (Boolean) -> Unit,
+    onKokoroVoiceSelected: (KokoroVoice) -> Unit,
+    onKokoroSampleToggled: () -> Unit,
 ) {
     val inputEngine = state.inputEngine
     val outputEngine = state.outputEngine
@@ -592,15 +611,39 @@ private fun VoiceStep(
     ChoiceGroup(count = outputCards.size) {
         outputCards.forEachIndexed { index, engine ->
             val clip = sampleClipFor(engine)
+            val kokoroCard = engine == VoiceOutputEngine.KokoroExperimental && state.kokoroReady
             ChoiceCard(
                 title = if (engine == state.extraOutputEngine) "Current: ${VoiceOutputCopy.title(engine)}" else VoiceOutputCopy.title(engine),
-                description = outputBody(engine),
+                description = outputBody(engine, state),
                 selected = selectedOutput == engine,
                 onSelect = { onOutputSelected(engine) },
                 index = index,
                 tag = outputTag(state.outputSizes[engine]),
-                subContent = clip?.let { res ->
-                    { VoiceSampleButton(voiceName = VoiceOutputCopy.title(engine), playing = player.playing == res, onClick = { player.toggle(res) }) }
+                subContent = if (kokoroCard) {
+                    {
+                        KokoroDetails(
+                            state = state,
+                            showPicker = selectedOutput == engine,
+                            onVoiceSelected = onKokoroVoiceSelected,
+                            onSampleToggled = {
+                                player.release()
+                                onKokoroSampleToggled()
+                            },
+                        )
+                    }
+                } else {
+                    clip?.let { res ->
+                        {
+                            VoiceSampleButton(
+                                voiceName = VoiceOutputCopy.title(engine),
+                                playing = player.playing == res,
+                                onClick = {
+                                    if (state.kokoroSamplePlaying) onKokoroSampleToggled()
+                                    player.toggle(res)
+                                },
+                            )
+                        }
+                    }
                 },
             )
         }
@@ -663,10 +706,40 @@ private fun inputBody(engine: VoiceInputEngine, state: SetupWizardUiState): Stri
     else -> engine.description
 }
 
-private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
-    VoiceOutputEngine.KokoroExperimental ->
-        "${VoiceOutputCopy.body(engine)} British and American voices. Your current voice stays until the check passes."
+private fun outputBody(engine: VoiceOutputEngine, state: SetupWizardUiState): String = when (engine) {
+    VoiceOutputEngine.KokoroExperimental -> {
+        val base = "${VoiceOutputCopy.body(engine)} British and American voices."
+        // The stays sentence is about the current voice, so it shows only while Kokoro is the chosen output with no pass.
+        if (state.outputEngine == VoiceOutputEngine.KokoroExperimental && !state.kokoroCheckPassed) {
+            "$base Your current voice stays until the check passes."
+        } else {
+            base
+        }
+    }
     else -> VoiceOutputCopy.body(engine)
+}
+
+/** Kokoro's sample, and its voice picker while Kokoro is the selected speaking voice (#2191). */
+@Composable
+private fun KokoroDetails(
+    state: SetupWizardUiState,
+    showPicker: Boolean,
+    onVoiceSelected: (KokoroVoice) -> Unit,
+    onSampleToggled: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showPicker) {
+            KokoroVoicePicker(selected = state.kokoroVoice, onSelected = onVoiceSelected)
+        }
+        VoiceSampleButton(
+            voiceName = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
+            playing = state.kokoroSamplePlaying,
+            onClick = onSampleToggled,
+        )
+        state.kokoroSampleError?.let { message ->
+            Text(text = message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
 }
 
 private fun recommendedTag(): (@Composable () -> Unit) = { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }

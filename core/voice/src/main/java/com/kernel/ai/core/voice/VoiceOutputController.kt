@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice
 
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -10,6 +11,8 @@ data class VoiceSpeakRequest(
     val utteranceId: String? = null,
     /** The Piper voice a sample speaks with, instead of the saved one; null for the saved voice (#2173). */
     val sherpaVoice: SherpaPiperVoice? = null,
+    /** The Kokoro voice a sample speaks with, instead of the saved one; null for the saved voice (#2191). */
+    val kokoroVoice: KokoroVoice? = null,
 )
 
 interface VoiceOutputStreamingSession {
