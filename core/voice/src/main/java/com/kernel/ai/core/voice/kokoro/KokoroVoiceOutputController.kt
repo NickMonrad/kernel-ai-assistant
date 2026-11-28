@@ -90,13 +90,7 @@ class KokoroVoiceOutputController @Inject constructor(
         val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
             if (engine == null || engineVoice != voice) {
-                // A load is the step a native abort cannot be caught in, so it waits for the same checks as the
-                // background warm-up. A test that needs no load is not blocked by them.
-                if (loadMarker.unfinishedAtLaunch) {
-                    return@withLock KokoroSpeedResult.Unavailable(
-                        "Kokoro's last load did not finish, so it is not loaded again for this test.",
-                    )
-                }
+                // A load needs memory headroom; a test that needs no load is not blocked by it.
                 if (!memoryGate.hasHeadroom()) {
                     return@withLock KokoroSpeedResult.Unavailable(
                         "Not enough free memory to load Kokoro. Close other apps and test again.",

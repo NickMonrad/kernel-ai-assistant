@@ -167,8 +167,8 @@ class KokoroSpeedTestTest {
 
     @Test
     fun phone_at_the_selection_limit_is_allowed_but_above_it_is_blocked() {
-        assertTrue((aggregateKokoroSpeedRuns(listOf(run(0.9)), null) as KokoroSpeedResult.Measured).allowsKokoro)
-        assertFalse((aggregateKokoroSpeedRuns(listOf(run(0.91)), null) as KokoroSpeedResult.Measured).allowsKokoro)
+        assertTrue((aggregateKokoroSpeedRuns(listOf(run(0.70)), null) as KokoroSpeedResult.Measured).allowsKokoro)
+        assertFalse((aggregateKokoroSpeedRuns(listOf(run(0.71)), null) as KokoroSpeedResult.Measured).allowsKokoro)
     }
 
     private fun run(rtf: Double) = KokoroSpeedResult.Measured.Run(

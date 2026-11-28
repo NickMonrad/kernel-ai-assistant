@@ -35,7 +35,7 @@ sealed interface KokoroSpeedResult {
     data class Unavailable(val message: String) : KokoroSpeedResult
 }
 
-const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.90
+const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.70
 internal const val KOKORO_SPEED_TEST_RUNS = 3
 
 internal fun aggregateKokoroSpeedRuns(
