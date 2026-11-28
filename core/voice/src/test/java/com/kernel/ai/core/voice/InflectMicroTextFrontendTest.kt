@@ -37,6 +37,15 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun bare_in_after_spelled_feet_and_plural_fractions_read_the_same_through_inflect() {
+        assertEquals("She was five feet four in nine teen ninety.", InflectMicroTextFrontend.normalize("She was 5 feet 4 in 1990."))
+        assertEquals("He was six feet two in the photo.", InflectMicroTextFrontend.normalize("He was 6 feet 2 in the photo."))
+        assertEquals("Cut three quarters of a foot.", InflectMicroTextFrontend.normalize("Cut 3/4 feet."))
+        assertEquals("Buy half a yard.", InflectMicroTextFrontend.normalize("Buy 1/2 yards."))
+        assertEquals("Add half an ounce.", InflectMicroTextFrontend.normalize("Add 1/2 ounces."))
+    }
+
+    @Test
     fun normalize_preserves_non_ascii_letters_and_translates_smart_punctuation() {
         assertEquals("It's, café, ready. . .", InflectMicroTextFrontend.normalize("It’s (café) ready…"))
     }

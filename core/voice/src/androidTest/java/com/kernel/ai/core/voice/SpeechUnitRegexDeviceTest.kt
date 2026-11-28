@@ -33,6 +33,13 @@ class SpeechUnitRegexDeviceTest {
     }
 
     @Test
+    fun bare_in_and_plural_fraction_units_read_on_android_regex() {
+        assertEquals("She was five feet four in nineteen ninety.", EnglishSpeechTextNormaliser.normalize("She was 5 feet 4 in 1990."))
+        assertEquals("half a yard", EnglishSpeechTextNormaliser.normalize("1/2 yards"))
+        assertEquals("three quarters of a foot", EnglishSpeechTextNormaliser.normalize("3/4 feet"))
+    }
+
+    @Test
     fun bracketed_conversion_keeps_first_unit_on_android_regex() {
         assertEquals(
             "Mount Ruapehu is 23 km northeast of Ohakune.",
