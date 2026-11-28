@@ -771,6 +771,9 @@ class WakeWordService : Service() {
         rearmMic = { rearmDetectorLocked() },
         // The wake handoff owns the session and re-arms on its own terminal event.
         rearmAllowed = { !isHandlingDetection },
+        // #2178: the in-app capture's end drops any SILENCED back-off it caused, so the wake mic re-arms at once.
+        onOwnSessionEnded = { contentionGate.onOwnVoiceCaptureEnded() },
+        onStaleStop = { owner, stop -> JandalEvents.record("wake", "mic_stop_ignored", "owner" to owner, "stop" to stop) },
     )
 
     /** Serialises voice events and recording-client updates, since both start and stop the detector (#2108). */
@@ -803,6 +806,7 @@ class WakeWordService : Service() {
                     MicContention.SILENCED -> "WakeWordService: audio server silenced wake capture — releasing wake mic"
                 },
             )
+            JandalEvents.record("wake", "mic_contention_pause", "cause" to cause)
             // A silence probe repeats every 10 to 120 s, and a release while the user has paused is expected (#2109).
             if (cause == MicContention.OTHER_APP && !userPause.paused) {
                 recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
@@ -819,8 +823,12 @@ class WakeWordService : Service() {
         scheduleRecheck = { delayMs ->
             serviceScope.launch {
                 delay(delayMs)
-                micLock.withLock { contentionGate.onRecordingClients(currentMicClients()) }
+                micLock.withLock { contentionGate.onHoldRecheck(currentMicClients()) }
             }
+        },
+        // #2178: each resume names its cause, the source that ended the pause, and the hold it cost the wake mic.
+        onResumed = { cause, source, heldMs ->
+            JandalEvents.record("wake", "mic_contention_resume", "cause" to cause, "source" to source, "held_ms" to heldMs)
         },
     )
 

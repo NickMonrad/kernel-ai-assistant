@@ -14,6 +14,8 @@ class WakeMicYieldGateTest {
     private var rearmed = 0
     private var rearmAllowedNow = true
     private lateinit var gate: WakeMicYieldGate
+    private val trace = mutableListOf<String>()
+    private val staleStops = mutableListOf<Pair<Long, Long>>()
 
     private val mode = VoiceCaptureMode.AlertCommand
 
@@ -22,10 +24,14 @@ class WakeMicYieldGateTest {
         released = 0
         rearmed = 0
         rearmAllowedNow = true
+        trace.clear()
+        staleStops.clear()
         gate = WakeMicYieldGate(
-            releaseMic = { released++ },
-            rearmMic = { rearmed++ },
+            releaseMic = { released++; trace += "release" },
+            rearmMic = { rearmed++; trace += "rearm" },
             rearmAllowed = { rearmAllowedNow },
+            onOwnSessionEnded = { trace += "ended" },
+            onStaleStop = { owner, stop -> staleStops += owner to stop },
         )
     }
 
@@ -142,5 +148,23 @@ class WakeMicYieldGateTest {
 
         assertEquals(0, released)
         assertEquals(0, rearmed)
+    }
+
+    @Test
+    fun `a stop for a session that does not own the yield is reported with the owner and stop ids`() {
+        gate.onVoiceEvent(VoiceInputEvent.ListeningRequested(mode, 2L))
+        gate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, 1L))
+
+        assertEquals(listOf(2L to 1L), staleStops)
+        assertTrue(gate.voiceSessionActive)
+    }
+
+    @Test
+    fun `the owner's stop ends its own session before the re-arm`() {
+        gate.onVoiceEvent(VoiceInputEvent.ListeningRequested(mode, 1L))
+        trace.clear()
+        gate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, 1L))
+
+        assertEquals(listOf("ended", "rearm"), trace)
     }
 }

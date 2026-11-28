@@ -1,5 +1,6 @@
 package com.kernel.ai.feature.widget
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -44,5 +45,17 @@ class WakeOverlayLeaveHintPolicyTest {
     @Test
     fun `leave hint after the grace window cancels for an assistant-launched overlay`() {
         assertTrue(shouldCancelWakeOverlayOnLeaveHint(elapsedSinceStartMs = 5_000, startedByAssistantOrKeyguard = true))
+    }
+
+    @Test
+    fun `dismiss fields carry the reason, the elapsed time and the launch kind as allowlisted values`() {
+        assertEquals(
+            mapOf(
+                "reason" to WakeOverlayDismissReason.USER_LEAVE_HINT_EARLY,
+                "elapsed_ms" to 1_200L,
+                "assistant_or_keyguard" to true,
+            ),
+            wakeOverlayDismissFields(WakeOverlayDismissReason.USER_LEAVE_HINT_EARLY, elapsedMs = 1_200L, startedByAssistantOrKeyguard = true),
+        )
     }
 }

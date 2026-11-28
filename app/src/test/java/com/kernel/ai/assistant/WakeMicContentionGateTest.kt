@@ -26,6 +26,7 @@ class WakeMicContentionGateTest {
     private val scheduled = mutableListOf<Long>()
     private var ownIds: Set<Int> = setOf(own)
     private lateinit var gate: WakeMicContentionGate
+    private val resumes = mutableListOf<Triple<MicContention, ContentionResumeSource, Long>>()
 
     @BeforeEach
     fun setUp() {
@@ -36,6 +37,7 @@ class WakeMicContentionGateTest {
             ownSessionIds = { ownIds },
             clockMs = { now },
             scheduleRecheck = { scheduled += it },
+            onResumed = { cause, source, heldMs -> resumes += Triple(cause, source, heldMs) },
         )
     }
 
@@ -235,5 +237,29 @@ class WakeMicContentionGateTest {
         gate.onRecordingClients(listOf(otherClient(mic)))
         assertTrue(gate.paused)
         assertEquals(2, released)
+    }
+
+    @Test
+    fun `a SILENCED pause reports its cause, its hold and the source that resumed it`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onHoldRecheck(emptyList())
+
+        assertEquals(
+            listOf(Triple(MicContention.SILENCED, ContentionResumeSource.HOLD_EXPIRED, WakeMicContentionGate.SILENCE_BACKOFF_MS)),
+            resumes,
+        )
+    }
+
+    @Test
+    fun `an own in-app capture ending clears a SILENCED back-off so the next update re-arms at once`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 1_000L
+        gate.onOwnVoiceCaptureEnded()
+        gate.onRecordingClients(emptyList())
+
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
+        assertEquals(listOf(Triple(MicContention.SILENCED, ContentionResumeSource.RECORDING_CHANGED, 1_000L)), resumes)
     }
 }

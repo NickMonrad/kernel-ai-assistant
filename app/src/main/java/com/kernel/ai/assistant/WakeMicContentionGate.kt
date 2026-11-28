@@ -8,6 +8,9 @@ internal data class MicRecordingClient(val sessionId: Int, val source: Int, val 
 /** Why the gate released the wake mic: another app's recording, or the audio server silencing our capture (#2109). */
 internal enum class MicContention { OTHER_APP, SILENCED }
 
+/** The source that ended a contention pause, reported on resume (#2178 diagnostics). */
+internal enum class ContentionResumeSource { RECORDING_CHANGED, HOLD_EXPIRED, USER_RESUME }
+
 /**
  * Steps wake capture aside while another app records, and re-arms when that ends (#2108).
  *
@@ -35,10 +38,16 @@ internal class WakeMicContentionGate(
     private val clockMs: () -> Long,
     /** Asks for a later [onRecordingClients] with the current clients, so a time-based hold can end without a callback. */
     private val scheduleRecheck: (delayMs: Long) -> Unit,
+    /** Reports each resume: the pause's cause, the source that ended it, and how long the wake mic was held (#2178). */
+    private val onResumed: (cause: MicContention, source: ContentionResumeSource, heldMs: Long) -> Unit,
 ) {
     /** True while another app holds the microphone, so the wake detector must not capture. */
     @Volatile var paused: Boolean = false
         private set
+
+    /** Cause and start time of the current pause, for the resume report (#2178). */
+    private var pausedCause: MicContention = MicContention.OTHER_APP
+    private var pausedAtMs: Long = 0L
 
     /** Clock time of the release caused by the audio server silencing our capture; null for other pauses. */
     private var silencedAtMs: Long? = null
@@ -50,12 +59,25 @@ internal class WakeMicContentionGate(
     private var probeStartedAtMs: Long? = null
 
     /** Called with the full active-client list on every recording-configuration change, and on re-sync. */
-    fun onRecordingClients(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = false)
+    fun onRecordingClients(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.RECORDING_CHANGED)
+
+    /** A scheduled recheck ran, so a time-based hold may have ended. */
+    fun onHoldRecheck(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.HOLD_EXPIRED)
 
     /** The user pressed Resume: re-arm now unless another recorder holds the mic (#2109). */
-    fun onResumeRequested(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = true)
+    fun onResumeRequested(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.USER_RESUME)
 
-    private fun evaluate(clients: List<MicRecordingClient>, probeNow: Boolean) {
+    /**
+     * Our own in-app voice capture ended (#2178). A SILENCED hold taken while that capture held the mic is
+     * attributed to it, so the hold and its back-off are dropped. The next recording update then re-arms at once.
+     */
+    fun onOwnVoiceCaptureEnded() {
+        silencedAtMs = null
+        silenceHoldMs = SILENCE_BACKOFF_MS
+        probeStartedAtMs = null
+    }
+
+    private fun evaluate(clients: List<MicRecordingClient>, source: ContentionResumeSource) {
         val own = ownSessionIds()
         val ownClients = clients.filter { it.sessionId in own }
         val others = clients.filter { it.sessionId !in own }
@@ -64,9 +86,12 @@ internal class WakeMicContentionGate(
 
         if (!paused) {
             if (contended) {
+                val cause = if (silenced) MicContention.SILENCED else MicContention.OTHER_APP
                 paused = true
+                pausedCause = cause
+                pausedAtMs = clockMs()
                 if (silenced) holdAfterSilence() else silencedAtMs = null
-                releaseMic(if (silenced) MicContention.SILENCED else MicContention.OTHER_APP)
+                releaseMic(cause)
                 return
             }
             probeStartedAtMs?.let { started ->
@@ -80,7 +105,7 @@ internal class WakeMicContentionGate(
         if (contended) return
         silencedAtMs?.let { since ->
             val remainingMs = since + silenceHoldMs - clockMs()
-            if (remainingMs > 0 && !probeNow) {
+            if (remainingMs > 0 && source != ContentionResumeSource.USER_RESUME) {
                 scheduleRecheck(remainingMs)
                 return
             }
@@ -90,6 +115,7 @@ internal class WakeMicContentionGate(
         }
         paused = false
         silencedAtMs = null
+        onResumed(pausedCause, source, clockMs() - pausedAtMs)
         if (rearmAllowed()) rearmMic()
     }
 

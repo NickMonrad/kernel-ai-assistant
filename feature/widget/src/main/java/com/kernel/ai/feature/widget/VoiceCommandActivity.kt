@@ -123,6 +123,20 @@ internal const val WAKE_LEAVE_HINT_GRACE_MS = 1_500L
 internal fun shouldCancelWakeOverlayOnLeaveHint(elapsedSinceStartMs: Long, startedByAssistantOrKeyguard: Boolean): Boolean =
     !(startedByAssistantOrKeyguard && elapsedSinceStartMs < WAKE_LEAVE_HINT_GRACE_MS)
 
+/** #2178: why the wake overlay closed. Logged by enum name, which JandalEvents allows. */
+internal enum class WakeOverlayDismissReason { BACK, DISMISS, USER_LEAVE_HINT, USER_LEAVE_HINT_EARLY }
+
+/** #2178: event fields for a wake overlay dismiss or an ignored leave hint: an enum, a bounded number and a boolean. */
+internal fun wakeOverlayDismissFields(
+    reason: WakeOverlayDismissReason,
+    elapsedMs: Long,
+    startedByAssistantOrKeyguard: Boolean,
+): Map<String, Any> = mapOf(
+    "reason" to reason,
+    "elapsed_ms" to elapsedMs,
+    "assistant_or_keyguard" to startedByAssistantOrKeyguard,
+)
+
 
 @AndroidEntryPoint
 class VoiceCommandActivity : ComponentActivity() {
@@ -168,7 +182,7 @@ class VoiceCommandActivity : ComponentActivity() {
     private var ownedCaptureSessionId: Long? = null
     /** Back closes a wake overlay as X does; enabled only while a wake overlay is shown. */
     private val wakeBackCallback = object : OnBackPressedCallback(false) {
-        override fun handleOnBackPressed() = dismissWakeOverlay("back")
+        override fun handleOnBackPressed() = dismissWakeOverlay(WakeOverlayDismissReason.BACK)
     }
 
     private val requestMicPermission = registerForActivityResult(
@@ -306,7 +320,7 @@ class VoiceCommandActivity : ComponentActivity() {
                     hintVisible = false,
                     inputLevel = voiceInputController.inputLevel.collectAsState(),
                     dismissEnabled = dismissEnabled,
-                    onDismiss = { dismissWakeOverlay("dismiss") },
+                    onDismiss = { dismissWakeOverlay(WakeOverlayDismissReason.DISMISS) },
                 )
             }
         }
@@ -347,11 +361,15 @@ class VoiceCommandActivity : ComponentActivity() {
         if (wakeOverlayJob?.isActive != true) return
         val elapsedMs = SystemClock.elapsedRealtime() - wakeStartedAtMs
         if (shouldCancelWakeOverlayOnLeaveHint(elapsedMs, wakeStartedByAssistantOrKeyguard)) {
-            dismissWakeOverlay("user_leave_hint")
+            dismissWakeOverlay(WakeOverlayDismissReason.USER_LEAVE_HINT)
         } else {
             // #2178: a leave hint during an assistant- or keyguard-launched overlay's own start does not close it.
-            JandalEvents.record("wake", "overlay_dismiss_ignored", "reason" to "user_leave_hint_early")
-            Log.i(TAG, "VoiceCommandActivity: ignored leave hint ${elapsedMs}ms after wake overlay start (reason=user_leave_hint_early)")
+            JandalEvents.record(
+                "wake",
+                "overlay_dismiss_ignored",
+                wakeOverlayDismissFields(WakeOverlayDismissReason.USER_LEAVE_HINT_EARLY, elapsedMs, wakeStartedByAssistantOrKeyguard),
+            )
+            Log.i(TAG, "VoiceCommandActivity: ignored leave hint ${elapsedMs}ms after wake overlay start (reason=USER_LEAVE_HINT_EARLY)")
         }
     }
 
@@ -359,9 +377,13 @@ class VoiceCommandActivity : ComponentActivity() {
      * #1930: X, backdrop, Back and Home cancel the live capture before finishing, so a transcript
      * that arrives before onDestroy runs cannot be routed. onDestroy stays as a backstop.
      */
-    private fun dismissWakeOverlay(reason: String) {
-        // #2178: records which path closed the overlay, so the event log shows the source of a cancel.
-        JandalEvents.record("wake", "overlay_dismiss", "reason" to reason)
+    private fun dismissWakeOverlay(reason: WakeOverlayDismissReason) {
+        // #2178: records which path closed the overlay and how long after its start (see wakeOverlayDismissFields).
+        JandalEvents.record(
+            "wake",
+            "overlay_dismiss",
+            wakeOverlayDismissFields(reason, SystemClock.elapsedRealtime() - wakeStartedAtMs, wakeStartedByAssistantOrKeyguard),
+        )
         // A transcript offered but not yet routed must not run once the user closed the overlay (#2081).
         wakeTranscriptJob?.cancel()
         if (wakeIntentSeen) WakeOverlayChannel.requestCancel(wakeToken)
