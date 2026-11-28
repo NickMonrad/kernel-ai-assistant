@@ -30,6 +30,13 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun feet_inches_and_fraction_miles_read_the_same_through_inflect() {
+        assertEquals("He is five feet ten inches tall.", InflectMicroTextFrontend.normalize("He is 5 ft 10 in tall."))
+        assertEquals("Walk half a mile.", InflectMicroTextFrontend.normalize("Walk 1/2 mi."))
+        assertEquals("Walk one and a half miles.", InflectMicroTextFrontend.normalize("Walk 1 1/2 mi."))
+    }
+
+    @Test
     fun normalize_preserves_non_ascii_letters_and_translates_smart_punctuation() {
         assertEquals("It's, café, ready. . .", InflectMicroTextFrontend.normalize("It’s (café) ready…"))
     }

@@ -6,6 +6,7 @@ package com.kernel.ai.core.voice
  * (a sentence pause), em dashes as pauses, "H:17°C" / "L:10°C" / "Humidity: 92%" labels, and the
  * day/month abbreviations and units that [SpeechAbbreviationText] spells out ("Mon 23 Nov", "11°C", "92%").
  * Page links are removed first ([SpeechLinkText], #2041).
+ * A bracketed unit conversion speaks only its first unit: "23 km (14 mi)" is spoken as "23 km" (#2192). The screen keeps both.
  *
  * Plain numbers, times and money are deliberately NOT expanded here. Each engine's own preparation owns
  * that (SherpaSpeechText for Piper, EnglishSpeechTextNormaliser for the Kokoro ExecuTorch lane and, through
@@ -24,10 +25,21 @@ object SpeechCardText {
     private val runOfSpaces = Regex("""[ \t]+""")
     /** Characters that already end a clause, so a line break after them needs no extra full stop. */
     private const val CLAUSE_END = ".!?:;,"
+    /**
+     * Unit words for a bracketed conversion, singular or plural. "in" is left out: "12 in (30 cm)" would read as a word.
+     */
+    private const val CONVERSION_UNIT =
+        "km/h|mph|km|cm|mm|mg|mL|ml|kg|g|L|lbs?|oz|ft|yds?|mi|m|miles?|kilometres?|kilometers?|metres?|meters?|" +
+            "feet|foot|yards?|pounds?|ounces?|inches|inch"
+    /** "23 km (14 mi)", "6 ft (1.8 m)": group 1 is the first unit, which is all speech keeps (#2192). */
+    private val bracketedConversion = Regex(
+        """((?<![\p{L}\p{N}.,:/$])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:$CONVERSION_UNIT)(?!\p{L}))\s*\(\s*(?:(?:about|approximately|roughly)\s+)?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:$CONVERSION_UNIT)(?!\p{L})\s*\)""",
+    )
 
     fun speakable(text: String): String {
         var value = emoji.replace(SpeechLinkText.strip(text), "")
         value = arrow.replace(value, " to ")
+        value = bracketedConversion.replace(value) { match -> match.groupValues[1] }
         value = highLow.replace(value) { m ->
             val unit = if (m.groupValues[3].isNotEmpty()) " Fahrenheit" else ""
             (if (m.groupValues[1] == "H") "high " else "low ") + m.groupValues[2] + unit
