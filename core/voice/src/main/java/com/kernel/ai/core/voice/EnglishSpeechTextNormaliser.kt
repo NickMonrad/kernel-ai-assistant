@@ -32,6 +32,12 @@ import java.util.Locale
  * - Glued units and mixed tokens: "5km" → "five kilometres", "1.5km" → "one point five kilometres", "2.4GHz" → "two point
  *   four gigahertz", "0.75x" → "zero point seven five times", "4B" → "four bee", "5G" → "five gee", "NZ123" → "en zed one
  *   two three", "1080p" → "ten eighty p", "Qwen2.5" → "Qwen two point five", "Llama3.1" → "Llama three point one".
+ * - Imperial units after a number: "14 mi" → "fourteen miles", "1 ft" → "one foot", "2 lb" → "two pounds", "8 oz" → "eight
+ *   ounces", "100 yd" → "one hundred yards", "60 mph" → "sixty miles per hour". "in" is glued only: "12in" → "twelve inches".
+ *   A spaced "in" stays a word: "They let 4 in." → "They let four in.". Feet and inches: "5 ft 10 in tall" → "five feet ten inches tall".
+ * - Fractions with an imperial unit: "1/2 mi" → "half a mile", "1 1/2 mi" → "one and a half miles" ("mi", "ft", "lb", "oz", "yd").
+ * - Bracketed conversions: [SpeechCardText] drops the bracketed unit, so "23 km (14 mi)" is spoken as "twenty three
+ *   kilometres" (#2192). The screen keeps both.
  * - Decades: "the 90s" and "'90s" → "the nineties", "the 1990s" → "the nineteen nineties".
  * - Phone numbers: NZ groups are read digit by digit with "oh" for every zero, in groups: "021-123-4567" → "oh two one,
  *   one two three, four five six seven", "+64 21 123 4567" → "plus six four, two one, one two three, four five six
@@ -118,10 +124,19 @@ object EnglishSpeechTextNormaliser {
         "sec" to ("second" to "seconds"),
         "secs" to ("second" to "seconds"),
         "x" to ("time" to "times"),
+        "mi" to ("mile" to "miles"),
+        "ft" to ("foot" to "feet"),
+        "in" to ("inch" to "inches"),
+        "yd" to ("yard" to "yards"),
+        "yds" to ("yard" to "yards"),
+        "lb" to ("pound" to "pounds"),
+        "lbs" to ("pound" to "pounds"),
+        "oz" to ("ounce" to "ounces"),
     )
     private val unitAlternatives = units.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
     private val spacedUnitAlternatives = listOf(
         "km/h", "mph", "km", "kms", "cm", "mm", "kg", "mg", "ml", "mL", "kW", "GB", "MB", "TB",
+        "mi", "ft", "lb", "lbs", "oz", "yd", "yds",
         "kHz", "MHz", "GHz", "Hz", "hPa", "min", "mins", "hr", "hrs", "sec", "secs",
     ).sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
 
@@ -150,6 +165,10 @@ object EnglishSpeechTextNormaliser {
 
     /** "1 1/2 cups" → "one and a half cups"; "2 1/4 tsp" → "two and a quarter tsp". Runs before [slashDayMonth]. */
     private val mixedFraction = Regex("""(?<![\p{L}\p{N}.,:/$])([1-9][0-9]{0,2})\s+([0-9]{1,2})/([0-9]{1,2})(?![\p{N}/])""")
+    /** "1/2 mi" and "1 1/2 mi": an imperial abbreviation after a fraction, spelled out with it (#2192). Runs before [mixedFraction]. */
+    private val fractionUnit = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(?:([1-9][0-9]{0,2})\s+)?([0-9]{1,2})/([0-9]{1,2})\s+(mi|ft|lbs|lb|oz|yds|yd)(?!\p{L})""",
+    )
     private val flatAddress = Regex("""\b(?i:(flat|unit|apartment|suite|room)|(apt)\.?)\s+(\d+)/(\d+)\b""")
 
     /** NZ street address: "3/45 Queen Street" reads "three, forty five Queen Street", as "Flat 3/45" does. */
@@ -190,6 +209,10 @@ object EnglishSpeechTextNormaliser {
     private val spacedUnit = Regex(
         """(?<![\p{L}\p{N}.,:/$])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+($spacedUnitAlternatives)(?![\p{L}\p{N}/])""",
     )
+    /** "5 ft 10 in tall" → "five feet ten inches tall": a height in feet and inches. Runs before the glued and spaced units, which would split it (#2192). */
+    private val feetInches = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(\d{1,2})\s*(?:ft|feet|foot)\s*(\d{1,2})\s*(?:in|inches|inch)(?!\p{L})""",
+    )
     private val yearBeforeVerb = Regex("""(?<![\p{L}\p{N}.,:/$])((?:10|1[1-9]|20)\d{2})(?=\s+(?:was|were|is)\b)""")
     /** "a", "an" or "the" as a whole word right before a number, or before an "N to " range: "Japan 5 km" has no article. */
     private val articleBefore = Regex("""(?i)(?<!\p{L})(a|an|the)\s+(?:\d+\s+to\s+)?\z""")
@@ -207,6 +230,7 @@ object EnglishSpeechTextNormaliser {
         "litre", "litres", "liter", "liters", "ml", "kg", "g", "gram", "grams", "kilo", "kilos", "lb", "pound", "pounds",
         "hour", "hours", "mile", "miles", "km", "kilometre", "kilometres", "metre", "metres", "inch", "inches",
         "pizza", "glass", "bottle", "tank",
+        "foot", "feet", "yard", "yards", "ounce", "ounces",
     )
     /** Fraction measure words as a regex alternation, see [fractionMeasures]. */
     private val fractionMeasureWords = fractionMeasures.joinToString("|") { Regex.escape(it) }
@@ -374,6 +398,7 @@ object EnglishSpeechTextNormaliser {
         }
         value = fiftyFifty.replace(value, "fifty fifty")
         value = nineEleven.replace(value, "nine eleven")
+        value = fractionUnit.replace(value) { match -> expandFractionUnit(match) }
         value = mixedFraction.replace(value) { match -> expandMixedFraction(match) }
         value = slashDayMonth.replace(value) { match -> expandSlashFraction(match) }
         value = digitGroups.replace(value) { match ->
@@ -389,6 +414,7 @@ object EnglishSpeechTextNormaliser {
         value = timesPair.replace(value) { match ->
             "${dimensionWords(match.groupValues[1])} by ${dimensionWords(match.groupValues[2])}"
         }
+        value = feetInches.replace(value) { match -> expandFeetInches(match) }
         val glued = value
         value = gluedUnit.replace(glued) { match -> expandUnit(glued, match) }
         val spaced = value
@@ -415,8 +441,12 @@ object EnglishSpeechTextNormaliser {
     private fun expandSlashFraction(match: MatchResult): String {
         val first = match.groupValues[1].toInt()
         val second = match.groupValues[2].toInt()
-        val following = match.groupValues[3]
         if (first > 12) spokenDayMonth(first, second)?.let { return it }
+        return spokenFraction(first, second, match.groupValues[3])
+    }
+
+    /** The words for a fraction. "of a/an" comes only before a [fractionMeasures] word; see [expandSlashFraction]. */
+    private fun spokenFraction(first: Int, second: Int, following: String): String {
         val names = fractionNames[second]
         if (names == null || first == 0 || first >= second) {
             return "${cardinal(first.toLong())} out of ${cardinal(second.toLong())}"
@@ -446,6 +476,29 @@ object EnglishSpeechTextNormaliser {
             else -> "${cardinal(numerator.toLong())} $plural"
         }
         return "${cardinal(whole)} and $fraction"
+    }
+
+    /** "1/2 mi" → "half a mile", "1 1/2 mi" → "one and a half miles": the unit abbreviation is spelled out here (see [fractionUnit]). */
+    private fun expandFractionUnit(match: MatchResult): String {
+        val (singular, plural) = units.getValue(match.groupValues[4])
+        if (match.groupValues[1].isNotEmpty()) {
+            val mixed = expandMixedFraction(match)
+            return if (mixed == match.value) match.value else "$mixed $plural"
+        }
+        val first = match.groupValues[2].toInt()
+        val second = match.groupValues[3].toInt()
+        if (first == 0 || first >= second || fractionNames[second] == null) return match.value
+        return "${spokenFraction(first, second, singular)} $singular"
+    }
+
+    /** "5 ft 10 in" → "five feet ten inches"; "1 ft 1 in" → "one foot one inch". Inches of twelve or more are left as written. */
+    private fun expandFeetInches(match: MatchResult): String {
+        val feet = match.groupValues[1].toInt()
+        val inches = match.groupValues[2].toInt()
+        if (inches >= 12) return match.value
+        val feetWord = if (feet == 1) "foot" else "feet"
+        val inchWord = if (inches == 1) "inch" else "inches"
+        return "${cardinal(feet.toLong())} $feetWord ${cardinal(inches.toLong())} $inchWord"
     }
 
     /** Text after a date-looking slash pair that makes it a fraction, see [fractionContext]. Checks the next 60 characters. */

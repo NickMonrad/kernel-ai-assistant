@@ -62,6 +62,58 @@ class EnglishSpeechTextNormaliserTest {
     }
 
     @Test
+    fun miles_after_a_number_read_as_miles_not_my() {
+        assertEquals("Walk fourteen miles north.", kokoroText("Walk 14 mi north."))
+        assertEquals("one mile", kokoroText("1 mi"))
+        assertEquals("twenty three miles.", kokoroText("23mi."))
+        assertEquals("Walk five miles.", kokoroText("Walk 5 mi."))
+        assertEquals("Mi amigo is here.", kokoroText("Mi amigo is here."))
+    }
+
+    @Test
+    fun imperial_units_read_as_words_after_a_number() {
+        assertEquals("three feet", kokoroText("3 ft"))
+        assertEquals("one foot", kokoroText("1 ft"))
+        assertEquals("two pounds", kokoroText("2 lb"))
+        assertEquals("eight ounces", kokoroText("8 oz"))
+        assertEquals("one hundred yards", kokoroText("100 yd"))
+        assertEquals("sixty miles per hour", kokoroText("60 mph"))
+    }
+
+    @Test
+    fun inches_read_as_words_unless_glued() {
+        assertEquals("twelve inches", kokoroText("12in"))
+        assertEquals("They let four in.", kokoroText("They let 4 in."))
+        assertEquals("The team won three in.", kokoroText("The team won 3 in."))
+        assertEquals("Score: three in, two out.", kokoroText("Score: 3 in, 2 out."))
+        assertEquals("Born in nineteen ninety in Auckland", kokoroText("Born in 1990 in Auckland"))
+        assertEquals("Pick three in a row", kokoroText("Pick 3 in a row"))
+        assertEquals("one in three chance", kokoroText("1 in 3 chance"))
+    }
+
+    @Test
+    fun feet_and_inches_read_as_one_height() {
+        assertEquals("five feet ten inches tall", kokoroText("5 ft 10 in tall"))
+        assertEquals("five feet ten inches tall", kokoroText("5 feet 10 inches tall"))
+        assertEquals("one foot one inch", kokoroText("1 ft 1 in"))
+    }
+
+    @Test
+    fun fractions_of_imperial_units_spell_the_unit() {
+        assertEquals("half a mile", kokoroText("1/2 mi"))
+        assertEquals("three quarters of a mile", kokoroText("3/4 mi"))
+        assertEquals("one and a half miles", kokoroText("1 1/2 mi"))
+        assertEquals("half a pound", kokoroText("1/2 lb"))
+    }
+
+    @Test
+    fun bracketed_conversion_speaks_only_the_first_unit() {
+        assertEquals("twenty three kilometres northeast of Ohakune.", kokoroText("23 km (14 mi) northeast of Ohakune."))
+        assertEquals("six feet tall", kokoroText("6 ft (1.8 m) tall"))
+        assertEquals("five kilometres", kokoroText("5 km (3.1 mi)"))
+    }
+
+    @Test
     fun ranges_read_to() {
         assertEquals("three to five days", kokoroText("3-5 days"))
         assertEquals("five to ten kilometres", kokoroText("5–10 km"))
