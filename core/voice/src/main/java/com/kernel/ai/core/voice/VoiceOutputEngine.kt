@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
 
 enum class VoiceOutputEngine(
     val displayName: String,
@@ -18,7 +19,7 @@ enum class VoiceOutputEngine(
     ),
     KokoroExperimental(
         displayName = "Kokoro (experimental)",
-        description = "Experimental Kokoro-82M speech on this device. Optional download of about 351 MB; falls back to Inflect Micro, then Android TTS.",
+        description = "Experimental Kokoro-82M speech on this device. Optional download of about ${KokoroSetup.approxSizeText()}; falls back to Inflect Micro, then Android TTS.",
         debugOnly = false,
     ),
     InflectMicroExperimental(

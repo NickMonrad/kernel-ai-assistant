@@ -429,7 +429,7 @@ class SpeakingSectionTest {
     }
 
     @Test
-    fun tappingDownloadingKokoroCardOnlySelectsEngine() {
+    fun tappingDownloadingKokoroCardDoesNothing() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
@@ -441,7 +441,98 @@ class SpeakingSectionTest {
 
         tapCard(kokoroCardTag)
 
-        assertEquals(listOf("engine(KokoroExperimental)"), calls)
+        assertEquals(emptyList<String>(), calls)
+    }
+
+    @Test
+    fun tappingKokoroCardWhileCheckingDoesNothing() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+                kokoroSpeed = KokoroSpeedUiState.Checking,
+            ),
+        )
+
+        tapCard(kokoroCardTag)
+
+        assertEquals(emptyList<String>(), calls)
+    }
+
+    @Test
+    fun checkingKokoroShowsProgressLine() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+                kokoroSpeed = KokoroSpeedUiState.Checking,
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Checking this phone can speak Kokoro smoothly… (about 30 s)").assertExists()
+    }
+
+    @Test
+    fun kokoroNotSelectedAndDownloadedOffersTapToCheck() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Tap to check this phone can use Kokoro").assertExists()
+    }
+
+    @Test
+    fun failedKokoroCheckNamesTheVoiceAndOffersCheckAgain() {
+        val staying = com.kernel.ai.core.voice.VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+                kokoroSpeed = KokoroSpeedUiState.Failed(stayingOn = staying),
+            ),
+        )
+
+        composeTestRule.onNodeWithText(
+            "This phone isn't fast enough for Kokoro; replies would stutter. Staying on $staying.",
+        ).assertExists()
+        cardButton(kokoroCardTag, "Check again").performScrollTo().performClick()
+
+        assertEquals(listOf("checkKokoro"), calls)
+    }
+
+    @Test
+    fun memoryShortKokoroCheckShowsFiguresWithoutCloseAppsAdvice() {
+        val staying = com.kernel.ai.core.voice.VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
+                kokoroSpeed = KokoroSpeedUiState.Failed(
+                    stayingOn = staying,
+                    memoryShort = true,
+                    details = "MemAvailable=900 MiB availMem=950 MiB threshold=1280 MiB lowMemory=false",
+                ),
+            ),
+        )
+
+        composeTestRule.onNodeWithText(
+            "This phone doesn't have enough free memory for Kokoro right now. Staying on $staying.",
+        ).assertExists()
+        composeTestRule.onNodeWithText("MemAvailable=900 MiB", substring = true).assertExists()
+        composeTestRule.onNodeWithText("Close other apps", substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -756,6 +847,7 @@ class SpeakingSectionTest {
                         onCancelKokoroPack = { calls += "cancelKokoro" },
                         onDeleteKokoroPack = { calls += "deleteKokoro" },
                         onUseMobileDataForKokoro = { calls += "mobileDataKokoro" },
+                        onCheckKokoroSpeed = { calls += "checkKokoro" },
                         onDownloadInflectMicro = { calls += "downloadInflect" },
                         onCancelInflectMicro = { calls += "cancelInflect" },
                         onDeleteInflectMicro = { calls += "deleteInflect" },

@@ -16,6 +16,9 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 class KokoroMeasureSpeedTest {
+    private companion object {
+        const val GIB = 1024L * 1024 * 1024
+    }
 
     @TempDir
     lateinit var modelsDir: File
@@ -32,7 +35,7 @@ class KokoroMeasureSpeedTest {
         every { context.getExternalFilesDir("models") } returns modelsDir
         every { inferenceEngine.isReady } returns MutableStateFlow(true)
         every { voiceOutputPreferences.selectedKokoroVoice } returns flowOf(KokoroVoice.EMMA)
-        every { memoryGate.hasHeadroom() } returns true
+        every { memoryGate.snapshot() } returns KokoroMemorySnapshot(false, 4L * GIB, 4L * GIB)
     }
 
     private fun controller() = KokoroVoiceOutputController(
@@ -58,13 +61,13 @@ class KokoroMeasureSpeedTest {
     @Test
     fun `low memory still stops a speed test before any load`() = runBlocking {
         every { loadMarker.unfinishedAtLaunch } returns false
-        every { memoryGate.hasHeadroom() } returns false
+        every { memoryGate.snapshot() } returns KokoroMemorySnapshot(false, 1L * GIB, 1L * GIB)
 
         val result = controller().measureSpeed()
 
-        assertEquals(
-            KokoroSpeedResult.Unavailable("Not enough free memory to load Kokoro. Close other apps and test again."),
-            result,
+        assertTrue(
+            result is KokoroSpeedResult.Unavailable && result.memoryShort && result.message == KOKORO_LOW_MEMORY_MESSAGE,
+            "expected the low-memory answer, got $result",
         )
     }
 }

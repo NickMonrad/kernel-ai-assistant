@@ -32,7 +32,8 @@ sealed interface KokoroSpeedResult {
         val realTimeFactor: Double get() = medianRealTimeFactor
         val allowsKokoro: Boolean get() = medianRealTimeFactor <= KOKORO_SELECT_MAX_MEDIAN_RTF
     }
-    data class Unavailable(val message: String) : KokoroSpeedResult
+    /** [memoryShort]: no load was attempted because of free memory; [details] are the numbers the gate read. */
+    data class Unavailable(val message: String, val details: String? = null, val memoryShort: Boolean = false) : KokoroSpeedResult
 }
 
 const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.70

@@ -84,16 +84,21 @@ class KokoroVoiceOutputController @Inject constructor(
     /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
     suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
         if (!inferenceEngine.isReady.value) {
-            return@withContext KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
+            return@withContext KokoroSpeedResult.Unavailable("Couldn't prepare the check on this phone. Check again.")
         }
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
             if (engine == null || engineVoice != voice) {
-                // A load needs memory headroom; a test that needs no load is not blocked by it.
-                if (!memoryGate.hasHeadroom()) {
+                // A load needs memory headroom; a check that needs no load is not blocked by it.
+                val snapshot = memoryGate.snapshot()
+                val details = snapshot.describe(KOKORO_LOAD_MIN_AVAILABLE_BYTES)
+                Log.i(TAG, "Kokoro check memory: $details")
+                if (!kokoroHasHeadroom(snapshot, KOKORO_LOAD_MIN_AVAILABLE_BYTES)) {
                     return@withLock KokoroSpeedResult.Unavailable(
-                        "Not enough free memory to load Kokoro. Close other apps and test again.",
+                        message = KOKORO_LOW_MEMORY_MESSAGE,
+                        details = details,
+                        memoryShort = true,
                     )
                 }
             }

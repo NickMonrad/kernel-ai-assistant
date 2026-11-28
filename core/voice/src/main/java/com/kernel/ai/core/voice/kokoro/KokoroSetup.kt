@@ -17,6 +17,12 @@ object KokoroSetup {
     /** Total download size in bytes, for the size chip. */
     fun approxSizeBytes(): Long = kernelModels().sumOf { it.approxSizeBytes }
 
+    /** Pack size text shared by the Settings chip and the Kokoro card description, so both agree (#2170). */
+    fun approxSizeText(): String = formatSizeMb(approxSizeBytes())
+
+    /** Decimal MB, the same rule as Settings' formatBytes, so the chip and the description round alike. */
+    internal fun formatSizeMb(bytes: Long): String = "%.0f MB".format(bytes / 1_000_000.0)
+
     fun isDownloaded(context: Context): Boolean = KokoroModelFiles.allFiles().all { model ->
         model.localFile(context).let { it.isFile && it.length() > 0L }
     }

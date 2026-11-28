@@ -19,6 +19,8 @@ import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
+import com.kernel.ai.core.memory.usecase.ChatModelLoadResult
+import com.kernel.ai.core.memory.usecase.ChatModelLoader
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.Asr4allSwitchFailure
@@ -115,6 +117,9 @@ class VoiceViewModelTest {
     private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
     private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
     private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
+    private val chatModelLoader: ChatModelLoader = mockk<ChatModelLoader> {
+        coEvery { ensureLoaded() } returns ChatModelLoadResult.Loaded
+    }
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
     }
@@ -167,6 +172,7 @@ class VoiceViewModelTest {
         asr4allSizeSwitcher,
         termsAcceptancePreferences,
         kokoroVoiceOutputController,
+        chatModelLoader,
     )
 
     @BeforeEach
@@ -322,6 +328,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -357,6 +364,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -392,6 +400,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -500,6 +509,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -536,6 +546,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -545,63 +556,89 @@ class VoiceViewModelTest {
         )
     }
 
-    @Test
-    fun `kokoro stays on the previous engine and reports median stutter performance`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 4.4,
-            firstChunkSeconds = 1.2,
-            peakMemoryMb = 1_300L,
-        )
-        testDispatcher.scheduler.advanceUntilIdle()
-        val previous = viewModel.uiState.value.selectedOutputEngine
+    private fun kokoroDownloaded() = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
 
-        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
-        testDispatcher.scheduler.advanceUntilIdle()
+    private fun fastKokoro() = KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 2.0, firstChunkSeconds = 0.8, peakMemoryMb = 1_300L)
 
-        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
-        val done = viewModel.uiState.value.kokoroSpeed as KokoroSpeedUiState.Done
-        assertTrue(done.lines.last().contains("speech would stutter on this phone"))
-        assertTrue(done.lines.last().contains("median RTF 1.10"))
-    }
+    private fun slowKokoro() = KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 4.4, firstChunkSeconds = 1.2, peakMemoryMb = 1_300L)
 
     @Test
-    fun `kokoro is not selected when chat model is unavailable`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } returns
-            KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        val previous = viewModel.uiState.value.selectedOutputEngine
-        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
-        assertTrue((viewModel.uiState.value.kokoroSpeed as KokoroSpeedUiState.Done).lines.first()
-            .contains("Load the chat model first"))
-    }
-
-    @Test
-    fun `kokoro is selected once the phone keeps up with playback`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 2.0,
-            firstChunkSeconds = 0.8,
-            peakMemoryMb = 1_300L,
-        )
+    fun `kokoro check that passes loads the chat model, selects kokoro and plays the sample`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns fastKokoro()
         testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
+        coVerify(exactly = 1) { chatModelLoader.ensureLoaded() }
         assertEquals(VoiceOutputEngine.KokoroExperimental, viewModel.uiState.value.selectedOutputEngine)
+        assertEquals(KokoroSpeedUiState.Idle, viewModel.uiState.value.kokoroSpeed)
+        coVerify(exactly = 1) { kokoroVoiceOutputController.speak(any()) }
         verify(exactly = 0) { kokoroVoiceOutputController.unloadEngine() }
     }
 
     @Test
-    fun `a tap on kokoro without the pack only waits for the download and never skips the speed gate`() = runTest {
+    fun `a check that is too slow keeps the engine and names it on the card`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns slowKokoro()
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        assertEquals(
+            KokoroSpeedUiState.Failed(stayingOn = com.kernel.ai.core.voice.VoiceOutputCopy.title(previous)),
+            viewModel.uiState.value.kokoroSpeed,
+        )
+        verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
+    }
+
+    @Test
+    fun `a memory-short check shows the memory figures and keeps the current voice`() = runTest {
+        val details = "MemAvailable=900 MiB availMem=950 MiB threshold=1280 MiB lowMemory=false"
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Unavailable(
+            message = "This phone doesn't have enough free memory for Kokoro right now.",
+            details = details,
+            memoryShort = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        assertEquals(
+            KokoroSpeedUiState.Failed(
+                stayingOn = com.kernel.ai.core.voice.VoiceOutputCopy.title(previous),
+                memoryShort = true,
+                details = details,
+            ),
+            viewModel.uiState.value.kokoroSpeed,
+        )
+    }
+
+    @Test
+    fun `without a chat model the check cannot run and measures nothing`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { chatModelLoader.ensureLoaded() } returns ChatModelLoadResult.NoModelDownloaded
+        testDispatcher.scheduler.advanceUntilIdle()
+        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
+        assertEquals(KokoroSpeedUiState.CannotRun(KOKORO_NO_CHAT_MODEL_MESSAGE), viewModel.uiState.value.kokoroSpeed)
+        coVerify(exactly = 0) { kokoroVoiceOutputController.measureSpeed() }
+    }
+
+    @Test
+    fun `a tap on kokoro without the pack only waits for the download and never measures`() = runTest {
         modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.NotDownloaded }
         testDispatcher.scheduler.advanceUntilIdle()
         val previous = viewModel.uiState.value.selectedOutputEngine
@@ -615,60 +652,72 @@ class VoiceViewModelTest {
     }
 
     @Test
-    fun `a failed speed gate unloads kokoro and keeps the previous engine`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 4.4,
-            firstChunkSeconds = 1.2,
-            peakMemoryMb = 1_300L,
-        )
+    fun `a finished download runs the check once, and a screen open with the pack present does not`() = runTest {
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.NotDownloaded }
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns fastKokoro()
         testDispatcher.scheduler.advanceUntilIdle()
-        val previous = viewModel.uiState.value.selectedOutputEngine
+
+        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloading(progress = 0.5f) }
+        testDispatcher.scheduler.advanceUntilIdle()
+        modelDownloadStates.value = kokoroDownloaded()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { kokoroVoiceOutputController.measureSpeed() }
+        assertEquals(VoiceOutputEngine.KokoroExperimental, viewModel.uiState.value.selectedOutputEngine)
+    }
+
+    @Test
+    fun `opening the screen with the pack already downloaded does not run the check`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { kokoroVoiceOutputController.measureSpeed() }
+        coVerify(exactly = 0) { chatModelLoader.ensureLoaded() }
+        assertEquals(KokoroSpeedUiState.Idle, viewModel.uiState.value.kokoroSpeed)
+    }
+
+    @Test
+    fun `a tap on kokoro with the pack downloaded starts the check`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns fastKokoro()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
-        verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
+        coVerify(exactly = 1) { kokoroVoiceOutputController.measureSpeed() }
     }
 
     @Test
-    fun `testing voice speed without selecting kokoro unloads the engine it loaded`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } returns KokoroSpeedResult.Measured(
-            audioSeconds = 4.0,
-            synthesisSeconds = 2.0,
-            firstChunkSeconds = 0.8,
-            peakMemoryMb = 1_300L,
-        )
+    fun `check again after a failed check runs the check again`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
+        coEvery { kokoroVoiceOutputController.measureSpeed() } returns slowKokoro()
         testDispatcher.scheduler.advanceUntilIdle()
-        val previous = viewModel.uiState.value.selectedOutputEngine
-
-        viewModel.testKokoroSpeed()
+        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(previous, viewModel.uiState.value.selectedOutputEngine)
-        assertTrue(viewModel.uiState.value.kokoroSpeed is KokoroSpeedUiState.Done)
-        verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
+        viewModel.checkKokoroSpeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 2) { kokoroVoiceOutputController.measureSpeed() }
     }
 
     @Test
-    fun `cancelling the voice speed test still unloads kokoro`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+    fun `leaving the screen mid-check still unloads kokoro`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
         coEvery { kokoroVoiceOutputController.measureSpeed() } throws
             kotlinx.coroutines.CancellationException("left settings")
         testDispatcher.scheduler.advanceUntilIdle()
 
-        viewModel.testKokoroSpeed()
+        viewModel.checkKokoroSpeed()
         testDispatcher.scheduler.advanceUntilIdle()
 
         verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
     }
 
     @Test
-    fun `a pick of another engine during the speed gate wins over a kokoro pass`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
+    fun `a pick of another engine during the check wins over a kokoro pass`() = runTest {
+        modelDownloadStates.value = kokoroDownloaded()
         testDispatcher.scheduler.advanceUntilIdle()
         val previous = viewModel.uiState.value.selectedOutputEngine
         val other = viewModel.uiState.value.availableOutputEngines.first {
@@ -676,35 +725,15 @@ class VoiceViewModelTest {
         }
         coEvery { kokoroVoiceOutputController.measureSpeed() } coAnswers {
             viewModel.setVoiceOutputEngine(other)
-            KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 2.0, firstChunkSeconds = 0.8, peakMemoryMb = 1_300L)
+            fastKokoro()
         }
 
         viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(other, viewModel.uiState.value.selectedOutputEngine)
+        assertEquals(KokoroSpeedUiState.Idle, viewModel.uiState.value.kokoroSpeed)
         verify(exactly = 1) { kokoroVoiceOutputController.unloadEngine() }
-    }
-
-    @Test
-    fun `a failed gate keeps the engine picked during the test and says so`() = runTest {
-        modelDownloadStates.value = KokoroSetup.kernelModels().associateWith { DownloadState.Downloaded("/models/kokoro") }
-        testDispatcher.scheduler.advanceUntilIdle()
-        val previous = viewModel.uiState.value.selectedOutputEngine
-        val other = viewModel.uiState.value.availableOutputEngines.first {
-            it != previous && it != VoiceOutputEngine.KokoroExperimental
-        }
-        coEvery { kokoroVoiceOutputController.measureSpeed() } coAnswers {
-            viewModel.setVoiceOutputEngine(other)
-            KokoroSpeedResult.Measured(audioSeconds = 4.0, synthesisSeconds = 4.4, firstChunkSeconds = 1.2, peakMemoryMb = 1_300L)
-        }
-
-        viewModel.setVoiceOutputEngine(VoiceOutputEngine.KokoroExperimental)
-        testDispatcher.scheduler.advanceUntilIdle()
-
-        val lines = (viewModel.uiState.value.kokoroSpeed as KokoroSpeedUiState.Done).lines
-        assertTrue(lines.last().startsWith("Kokoro not selected"))
-        assertTrue(lines.last().endsWith("Staying on ${com.kernel.ai.core.voice.VoiceOutputCopy.title(other)}."))
     }
 
     @Test
@@ -726,6 +755,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1086,6 +1116,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1138,6 +1169,7 @@ class VoiceViewModelTest {
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
             kokoroVoiceOutputController,
+            chatModelLoader,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

@@ -3,6 +3,7 @@ package com.kernel.ai.feature.settings
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.SherpaSttModelSpec
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
 
 data class ReleaseAssetAttribution(
     val id: String,
@@ -201,7 +202,7 @@ object ReleaseAssetAttributionCatalog {
             sourceDisplay = "https://huggingface.co/software-mansion/Kokoro-82M-ExecuTorch/resolve/v0.11.0/",
             licenceDisplay = "Apache-2.0 (Software Mansion ExecuTorch Kokoro export and Kokoro-82M model); Apache-2.0 (misaki lexicons); MIT (phonemis and Verbalis); BSD-3-Clause (xsimd); MIT (nlohmann-json); Unicode-3.0 (Unicode table)",
             lineageDisplay = "hexgrad/Kokoro-82M, exported by Software Mansion at v0.11.0 (XNNPACK fp32 standard graphs). The optional KOKORO_TAGS part-of-speech tagger is derived from the Brown Corpus, for non-commercial use only and not cleared for commercial use; Phonemis treats the tagger as optional.",
-            releaseStatus = "Download on demand (~351 MB)",
+            releaseStatus = "Download on demand (~${KokoroSetup.approxSizeText()})",
         ),
     )
 
