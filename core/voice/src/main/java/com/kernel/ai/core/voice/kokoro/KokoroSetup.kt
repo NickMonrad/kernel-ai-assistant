@@ -5,6 +5,7 @@ import com.kernel.ai.core.inference.download.DownloadState
 import com.kernel.ai.core.inference.download.KernelModel
 import com.kernel.ai.core.inference.download.ModelDownloadManager
 import com.kernel.ai.core.inference.download.localFile
+import java.security.MessageDigest
 
 /**
  * The on-demand Kokoro pack (#2117): one download for every file the shipped voices need, so picking a voice never
@@ -16,6 +17,17 @@ object KokoroSetup {
 
     /** Total download size in bytes, for the size chip. */
     fun approxSizeBytes(): Long = kernelModels().sumOf { it.approxSizeBytes }
+
+    /**
+     * Fingerprint of the pack definition: every file's name, download URL and size. It changes when the shipped pack
+     * changes, so a cached speed-check pass for an older pack is not reused (#2174).
+     */
+    fun packVersion(): String {
+        val definition = kernelModels().joinToString("\n") { "${it.name}|${it.downloadUrl}|${it.approxSizeBytes}" }
+        return MessageDigest.getInstance("SHA-256").digest(definition.toByteArray())
+            .take(8)
+            .joinToString("") { "%02x".format(it) }
+    }
 
     /** Pack size text shared by the Settings chip and the Kokoro card description, so both agree (#2170). */
     fun approxSizeText(): String = formatSizeMb(approxSizeBytes())

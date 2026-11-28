@@ -82,7 +82,7 @@ class KokoroVoiceOutputController @Inject constructor(
     }
 
     /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
-    suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
+    suspend fun measureSpeed(onRun: (run: Int, runs: Int) -> Unit = { _, _ -> }): KokoroSpeedResult = withContext(Dispatchers.IO) {
         if (!inferenceEngine.isReady.value) {
             return@withContext KokoroSpeedResult.Unavailable("Couldn't prepare the check on this phone.")
         }
@@ -113,6 +113,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 sampleRate = KokoroTts.SAMPLE_RATE_HZ,
                 peakMemoryMb = ::readPeakMemoryMb,
                 ensureActive = { cancellation.ensureActive() },
+                onRun = onRun,
             )
             if (result is KokoroSpeedResult.Measured) result.copy(memoryDetails = details) else result
         }
