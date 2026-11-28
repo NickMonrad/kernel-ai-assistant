@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
@@ -89,25 +91,37 @@ class KokoroAutoCheck @Inject constructor(
     /** Returns the pending result and clears it, so only the first screen that shows it gets it. */
     fun takeResult(): KokoroAutoCheckResult? = _result.getAndUpdate { null }
 
-    /** Starts waiting for the pending check. [loadChatModel] is called once the conditions hold. */
+    /**
+     * Starts waiting for the pending check. [loadChatModel] is called once the conditions hold; the measurement waits
+     * for [inferenceIdle], so a reply being generated does not skew the timing.
+     */
     fun start(
         scope: CoroutineScope,
         chatModelReady: Flow<Boolean>,
         packReady: Flow<Boolean>,
+        inferenceIdle: Flow<Boolean>,
         loadChatModel: suspend () -> KokoroChatModelState,
     ) {
         scope.launch {
-            // Each pending pick runs once: runOnce clears the flag, so the next pick is a new true edge (#2173).
+            // A duplicate true (the pending flag written twice for one pick) runs once; a new pick comes after a false.
             combine(chatModelReady, packReady, voiceOutputPreferences.pendingKokoroCheck) { chat, pack, pending ->
                 chat && pack && pending
-            }.collect { ready -> if (ready) runOnce(loadChatModel) }
+            }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect { runOnce(loadChatModel, inferenceIdle) }
         }
     }
 
-    internal suspend fun runOnce(loadChatModel: suspend () -> KokoroChatModelState): KokoroAutoCheckResult? {
+    internal suspend fun runOnce(
+        loadChatModel: suspend () -> KokoroChatModelState,
+        inferenceIdle: Flow<Boolean>,
+    ): KokoroAutoCheckResult? {
+        // Read again here: a Settings check or a plain engine choice clears the flag, and a stale pick must not measure (#2173).
+        if (!voiceOutputPreferences.pendingKokoroCheck.first()) return null
         val engineAtStart = voiceOutputPreferences.selectedEngine.first()
         // A pass cached on this build, pack and threshold stands: no measurement, straight to Kokoro (#2174).
-        val measured = if (cache.hasValidPass()) null else measureWithProgress(loadChatModel)
+        val measured = if (cache.hasValidPass()) null else measureWithProgress(loadChatModel, inferenceIdle)
         // A measured result is a fact even if the user changed the voice meanwhile, so it is recorded regardless.
         when (measured) {
             null -> Unit
@@ -128,11 +142,19 @@ class KokoroAutoCheck @Inject constructor(
         return decision.result
     }
 
-    private suspend fun measureWithProgress(loadChatModel: suspend () -> KokoroChatModelState): KokoroSpeedResult =
+    private suspend fun measureWithProgress(
+        loadChatModel: suspend () -> KokoroChatModelState,
+        inferenceIdle: Flow<Boolean>,
+    ): KokoroSpeedResult =
         try {
+            // Checking from the start, so the chat-model load and the wait for idle show as checking too.
+            _progress.value = KokoroCheckProgress(0, KOKORO_SPEED_TEST_RUNS)
             when (loadChatModel()) {
-                KokoroChatModelState.READY -> kokoroVoiceOutputController.measureSpeed { run, runs ->
-                    _progress.value = KokoroCheckProgress(run, runs)
+                KokoroChatModelState.READY -> {
+                    inferenceIdle.first { it }
+                    kokoroVoiceOutputController.measureSpeed { run, runs ->
+                        _progress.value = KokoroCheckProgress(run, runs)
+                    }
                 }
                 KokoroChatModelState.NO_MODEL -> KokoroSpeedResult.Unavailable(KOKORO_NO_CHAT_MODEL_MESSAGE)
                 KokoroChatModelState.FAILED -> KokoroSpeedResult.Unavailable(KOKORO_CHECK_UNAVAILABLE_MESSAGE)

@@ -10,6 +10,7 @@ import com.kernel.ai.core.voice.isLocaleReadyForWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.voice.kokoro.KokoroAutoCheck
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
@@ -118,6 +119,8 @@ data class VoiceUiState(
     val voiceSampleError: String? = null,
     /** The card whose sample is playing. Only one plays at a time; null when none is (#2174). */
     val activeVoiceSample: VoiceSampleCard? = null,
+    /** The Piper voice the playing sample speaks with; a Piper sample does not change the saved voice (#2173). */
+    val activeSampleVoice: SherpaPiperVoice? = null,
     val sherpaSpeed: Float = 0.85f,
     val sherpaPitch: Float = 1.0f,
     val sherpaGain: Float = 1.5f,
@@ -358,9 +361,12 @@ class VoiceViewModel @Inject constructor(
     private val inflectMicroVoiceOutputController: InflectMicroVoiceOutputController,
     private val androidTextToSpeechController: AndroidTextToSpeechController,
     private val kokoroSpeedCheckCache: KokoroSpeedCheckCache,
+    private val kokoroAutoCheck: KokoroAutoCheck,
 ) : ViewModel() {
     /** Set once a Kokoro download is seen in progress, so only a finished download (not opening the screen) runs the check. */
     private var kokoroDownloadSeen = false
+    /** Set while the Kokoro check the setup pick started is shown here, so its end clears the checking card (#2173). */
+    private var autoKokoroCheckShown = false
     private var sampleJob: Job? = null
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
@@ -389,6 +395,18 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             termsAcceptancePreferences.record.collect { record ->
                 _uiState.update { it.copy(termsAccepted = record.isAccepted()) }
+            }
+        }
+        viewModelScope.launch {
+            // A check the setup pick started shows here too, so Delete and the samples wait for it (#2173).
+            kokoroAutoCheck.progress.collect { progress ->
+                if (progress == null && !autoKokoroCheckShown) return@collect
+                autoKokoroCheckShown = progress != null
+                _uiState.update {
+                    it.copy(
+                        kokoroSpeed = progress?.let { p -> KokoroSpeedUiState.Checking(p.run, p.runs) } ?: KokoroSpeedUiState.Idle,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -810,6 +828,8 @@ class VoiceViewModel @Inject constructor(
         val previous = _uiState.value.selectedOutputEngine
         _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Checking(), kokoroSampleError = null) }
         viewModelScope.launch {
+            // A Settings check takes over a setup pick still waiting for its automatic check (#2173).
+            voiceOutputPreferences.setPendingKokoroCheck(false)
             if (!force && kokoroSpeedCheckCache.hasValidPass()) {
                 _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Idle) }
                 // Only select when the user has not picked another engine while the cache was read.
@@ -915,26 +935,25 @@ class VoiceViewModel @Inject constructor(
     }
 
     /**
-     * A downloaded Piper row's sample (#2174). The row's voice becomes the selected one first, as a row tap does: the
-     * Piper engine speaks with the stored voice, so that voice is written before the sample plays.
+     * A downloaded Piper row's sample (#2174). It plays through that row's voice without changing the saved one (#2173):
+     * a sample previews a voice, so tapping one does not select it.
      */
     fun togglePiperSample(voice: SherpaPiperVoice) {
-        val wasPlaying = _uiState.value.activeVoiceSample == VoiceSampleCard.PIPER &&
-            _uiState.value.selectedSherpaVoice == voice
+        val wasPlaying = _uiState.value.activeVoiceSample == VoiceSampleCard.PIPER && _uiState.value.activeSampleVoice == voice
         stopVoiceSample()
         val downloaded = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }?.downloadState is
             VoicePackDownloadState.Downloaded
-        if (wasPlaying || !downloaded) return
-        _uiState.update { it.copy(selectedSherpaVoice = voice) }
-        startSample(VoiceSampleCard.PIPER) { voiceOutputPreferences.setSelectedSherpaVoice(voice) }
+        if (wasPlaying || !downloaded || samplesBlocked()) return
+        startSample(VoiceSampleCard.PIPER, sherpaVoice = voice)
     }
 
-    private fun startSample(card: VoiceSampleCard, beforeSpeak: suspend () -> Unit = {}) {
-        _uiState.update { it.copy(activeVoiceSample = card, voiceSampleError = null) }
+    private fun startSample(card: VoiceSampleCard, sherpaVoice: SherpaPiperVoice? = null) {
+        _uiState.update { it.copy(activeVoiceSample = card, activeSampleVoice = sherpaVoice, voiceSampleError = null) }
         sampleJob = viewModelScope.launch {
-            beforeSpeak()
             val result = when (card) {
-                VoiceSampleCard.PIPER -> sherpaVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+                VoiceSampleCard.PIPER -> sherpaVoiceOutputController.speak(
+                    VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT, sherpaVoice = sherpaVoice),
+                )
                 VoiceSampleCard.INFLECT -> inflectMicroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
                 VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
                 VoiceSampleCard.PHONE -> androidTextToSpeechController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
@@ -947,6 +966,7 @@ class VoiceViewModel @Inject constructor(
                 } else {
                     it.copy(
                         activeVoiceSample = null,
+                        activeSampleVoice = null,
                         voiceSampleError = if (result is VoiceOutputResult.Unavailable) SAMPLE_FAILED_MESSAGE else null,
                     )
                 }
@@ -965,7 +985,7 @@ class VoiceViewModel @Inject constructor(
             VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.stop()
             VoiceSampleCard.PHONE -> androidTextToSpeechController.stop()
         }
-        _uiState.update { it.copy(activeVoiceSample = null) }
+        _uiState.update { it.copy(activeVoiceSample = null, activeSampleVoice = null) }
     }
 
     override fun onCleared() {
@@ -973,12 +993,15 @@ class VoiceViewModel @Inject constructor(
         super.onCleared()
     }
 
-    private fun isCardReady(card: VoiceSampleCard): Boolean = when (card) {
+    private fun isCardReady(card: VoiceSampleCard): Boolean = !samplesBlocked() && when (card) {
         VoiceSampleCard.PIPER -> _uiState.value.hasDownloadedSherpaVoice
         VoiceSampleCard.INFLECT -> _uiState.value.isInflectMicroReady
         VoiceSampleCard.KOKORO -> kokoroPackReady()
         VoiceSampleCard.PHONE -> true
     }
+
+    /** Samples wait while a Kokoro check runs: the check times the phone, and a sample would play over it (#2173). */
+    private fun samplesBlocked(): Boolean = _uiState.value.kokoroSpeed is KokoroSpeedUiState.Checking
 
     fun setSherpaVoice(voice: SherpaPiperVoice) {
         if (isReleaseBuild && !voice.releaseVisible) {

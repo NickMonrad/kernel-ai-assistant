@@ -171,6 +171,8 @@ class KernelAIApplication : Application(), Configuration.Provider {
         kokoroAutoCheck.start(
             scope = kokoroWarmUpScope,
             chatModelReady = inferenceEngine.isReady,
+            // The measurement waits for a reply in progress to finish, so it times Kokoro alone (#2173).
+            inferenceIdle = inferenceEngine.isGenerating.map { !it },
             packReady = modelDownloadManager.downloadStates.map { states ->
                 KokoroSetup.kernelModels().all { states[it] is DownloadState.Downloaded }
             },

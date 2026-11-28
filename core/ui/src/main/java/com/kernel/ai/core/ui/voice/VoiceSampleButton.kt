@@ -12,6 +12,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
@@ -22,12 +23,23 @@ import com.kernel.ai.core.ui.theme.JandalTheme
  * tap stops the sample; the caller decides what starting one stops.
  */
 @Composable
-fun VoiceSampleButton(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun VoiceSampleButton(
+    voiceName: String,
+    playing: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .heightIn(min = 48.dp)
-            .semantics { stateDescription = if (playing) "Playing" else "" },
+            .semantics {
+                // The label is the same for every voice, so the description names the voice for screen readers.
+                contentDescription = if (playing) "Stop sample of $voiceName" else "Hear a sample of $voiceName"
+                if (playing) stateDescription = "Playing"
+            },
         colors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent),
     ) {
         Icon(

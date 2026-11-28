@@ -224,7 +224,7 @@ class SpeakingSectionTest {
     }
 
     @Test
-    fun piperCardActionsHiddenWhileAnotherEngineSelected() {
+    fun piperCardHidesDeleteButKeepsSampleWhileAnotherEngineSelected() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
@@ -237,11 +237,11 @@ class SpeakingSectionTest {
         )
 
         cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Delete").assertDoesNotExist()
-        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Play sample").assertDoesNotExist()
+        piperSampleNode(SherpaPiperVoice.CoriHigh).assertExists()
     }
 
     @Test
-    fun playSampleRecordsSampleWhilePiperSelected() {
+    fun playSampleSpeaksThatVoiceOnly() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.AndroidTts),
@@ -253,16 +253,13 @@ class SpeakingSectionTest {
             ),
         )
 
-        composeTestRule.onNode(
-            hasContentDescription("Play Cori sample") and hasAnyAncestor(hasTestTag(piperCardTag(SherpaPiperVoice.CoriHigh))),
-            useUnmergedTree = true,
-        ).performScrollTo().performClick()
+        piperSampleNode(SherpaPiperVoice.CoriHigh).performScrollTo().performClick()
 
         assertEquals(listOf("sample(CoriHigh)"), calls)
     }
 
     @Test
-    fun coriDeleteAndPlaySampleHiddenWhileInflectSelected() {
+    fun coriDeleteHiddenAndSampleKeptWhileInflectSelected() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
@@ -276,7 +273,7 @@ class SpeakingSectionTest {
         )
 
         cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Delete").assertDoesNotExist()
-        cardButton(piperCardTag(SherpaPiperVoice.CoriHigh), "Play sample").assertDoesNotExist()
+        piperSampleNode(SherpaPiperVoice.CoriHigh).assertExists()
     }
 
     @Test
@@ -518,7 +515,8 @@ class SpeakingSectionTest {
             ),
         )
 
-        composeTestRule.onNodeWithText("Checking this phone can speak Kokoro smoothly… (about 30 s)").assertExists()
+        composeTestRule.onNodeWithText("Checking this phone can speak Kokoro smoothly").assertExists()
+        composeTestRule.onNodeWithText("Run 1 of 3").assertExists()
     }
 
     @Test
@@ -883,6 +881,12 @@ class SpeakingSectionTest {
 
         assertEquals(listOf("mobileData(CoriHigh)"), calls)
     }
+
+    /** The sample button on a downloaded Piper card, found by the voice name it announces (#2173). */
+    private fun piperSampleNode(voice: SherpaPiperVoice) = composeTestRule.onNode(
+        hasContentDescription("Hear a sample of ${voice.displayName}") and hasAnyAncestor(hasTestTag(piperCardTag(voice))),
+        useUnmergedTree = true,
+    )
 
     private fun piperCardTag(voice: SherpaPiperVoice): String =
         speakingCardTestTag(SpeakingOption.PiperVoice(SherpaVoiceRowUiState(voice)))

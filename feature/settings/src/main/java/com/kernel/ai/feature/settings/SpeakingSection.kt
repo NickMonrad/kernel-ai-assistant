@@ -36,6 +36,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadState
@@ -224,8 +226,10 @@ internal fun SpeakingSection(
                                 }
                                 if (downloaded) {
                                     VoiceSampleButton(
-                                        playing = uiState.activeVoiceSample == VoiceSampleCard.PIPER && isSelectedVoice,
+                                        playing = uiState.activeVoiceSample == VoiceSampleCard.PIPER && uiState.activeSampleVoice == voice,
                                         onClick = { onTogglePiperSample(voice) },
+                                        voiceName = voice.displayName,
+                                        enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                                     )
                                 }
                                 // Wi-Fi waiting and Cancel show under any engine for the selected voice, as the old status line did.
@@ -328,6 +332,8 @@ internal fun SpeakingSection(
                                     VoiceSampleButton(
                                         playing = uiState.activeVoiceSample == VoiceSampleCard.INFLECT,
                                         onClick = { onToggleVoiceSample(VoiceSampleCard.INFLECT) },
+                                        voiceName = VoiceOutputCopy.title(VoiceOutputEngine.InflectMicroExperimental),
+                                        enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                                     )
                                 }
                                 when {
@@ -436,6 +442,8 @@ internal fun SpeakingSection(
                                     VoiceSampleButton(
                                         playing = uiState.activeVoiceSample == VoiceSampleCard.KOKORO,
                                         onClick = { onToggleVoiceSample(VoiceSampleCard.KOKORO) },
+                                        voiceName = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
+                                        enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                                     )
                                 }
                                 when {
@@ -495,6 +503,8 @@ internal fun SpeakingSection(
                             VoiceSampleButton(
                                 playing = uiState.activeVoiceSample == VoiceSampleCard.PHONE,
                                 onClick = { onToggleVoiceSample(VoiceSampleCard.PHONE) },
+                                voiceName = VoiceOutputCopy.title(VoiceOutputEngine.AndroidTts),
+                                enabled = uiState.kokoroSpeed !is KokoroSpeedUiState.Checking,
                             )
                         },
                     )
@@ -576,6 +586,7 @@ private fun KokoroCheckProgress(check: KokoroSpeedUiState.Checking) {
                     text = "Run $run of ${check.runs}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
         }

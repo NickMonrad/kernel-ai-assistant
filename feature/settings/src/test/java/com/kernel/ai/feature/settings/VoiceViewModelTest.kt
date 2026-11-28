@@ -17,9 +17,10 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
+import com.kernel.ai.core.voice.kokoro.KokoroAutoCheck
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
-import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedCheckCache
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.memory.usecase.ChatModelLoadResult
 import com.kernel.ai.core.memory.usecase.ChatModelLoader
 import com.kernel.ai.core.voice.PiperVoiceSetup
@@ -127,6 +128,9 @@ class VoiceViewModelTest {
     private val inflectMicroVoiceOutputController: InflectMicroVoiceOutputController = mockk(relaxed = true)
     private val androidTextToSpeechController: AndroidTextToSpeechController = mockk(relaxed = true)
     private val kokoroSpeedCheckCache: KokoroSpeedCheckCache = mockk(relaxed = true)
+    private val kokoroAutoCheck: KokoroAutoCheck = mockk(relaxed = true) {
+        every { progress } returns MutableStateFlow(null)
+    }
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
     }
@@ -147,6 +151,22 @@ class VoiceViewModelTest {
         viewModel.togglePiperSample(SherpaPiperVoice.NorthernEnglishMale)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { sherpaVoiceOutputController.speak(any()) }
+    }
+
+    @Test
+    fun `a Piper sample speaks that voice without changing the saved one`() = runTest {
+        sherpaDownloadStates.value = mapOf(
+            SherpaPiperVoice.JennyDioco to VoicePackDownloadState.Downloaded("/voices/jenny"),
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.togglePiperSample(SherpaPiperVoice.JennyDioco)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            sherpaVoiceOutputController.speak(match { it.sherpaVoice == SherpaPiperVoice.JennyDioco })
+        }
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedSherpaVoice(any()) }
     }
 
     @Test
@@ -271,6 +291,7 @@ class VoiceViewModelTest {
         inflectMicroVoiceOutputController,
         androidTextToSpeechController,
         kokoroSpeedCheckCache,
+        kokoroAutoCheck,
     )
 
     @BeforeEach
@@ -431,6 +452,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -470,6 +492,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -509,6 +532,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -621,6 +645,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -661,6 +686,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -882,6 +908,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1246,6 +1273,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1302,6 +1330,7 @@ class VoiceViewModelTest {
             inflectMicroVoiceOutputController,
             androidTextToSpeechController,
             kokoroSpeedCheckCache,
+            kokoroAutoCheck,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

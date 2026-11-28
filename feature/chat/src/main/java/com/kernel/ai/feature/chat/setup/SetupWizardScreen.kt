@@ -600,7 +600,7 @@ private fun VoiceStep(
                 index = index,
                 tag = outputTag(state.outputSizes[engine]),
                 subContent = clip?.let { res ->
-                    { VoiceSampleButton(playing = player.playing == res, onClick = { player.toggle(res) }) }
+                    { VoiceSampleButton(voiceName = VoiceOutputCopy.title(engine), playing = player.playing == res, onClick = { player.toggle(res) }) }
                 },
             )
         }
@@ -651,14 +651,16 @@ private fun outputTag(bytes: Long?): (@Composable () -> Unit)? {
 private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Android's own listener"
     VoiceInputEngine.Asr4all -> VoiceInputEngine.Asr4all.displayName
-    else -> "Automatic"
+    VoiceInputEngine.Auto -> "Automatic"
+    else -> engine.displayName
 }
 
 private fun inputBody(engine: VoiceInputEngine, state: SetupWizardUiState): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
     VoiceInputEngine.Asr4all ->
         "Offline. Shows words as you speak. Size ${state.asr4allSize.name}, about ${formatBytesShort(state.asr4allBytes)}."
-    else -> VoiceInputEngine.AUTOMATIC_SUMMARY
+    VoiceInputEngine.Auto -> VoiceInputEngine.AUTOMATIC_SUMMARY
+    else -> engine.description
 }
 
 private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
