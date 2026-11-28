@@ -6,6 +6,11 @@ import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -123,11 +128,11 @@ class ItemDetailsSheetQuickEntryTest {
         assertTrue(brisket.isFavourite)
         assertTrue(brisket.dueAt != null)
         assertNull(brisket.notificationTime)
-        assertEquals(0, enterAdds)
+        assertEquals(1, enterAdds) // only the Enter-add in setup counts; Add & next does not
 
         composeTestRule.onNodeWithText("Add a description").assertIsDisplayed()
         composeTestRule.onNodeWithText("Set due date").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Add to favourites").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Add to favourites").assertIsDisplayed()
         composeTestRule.onNodeWithText("2 added · ↵ for the next one").assertIsDisplayed()
     }
 
@@ -174,8 +179,14 @@ class ItemDetailsSheetQuickEntryTest {
         setAddSheet()
         composeTestRule.onNodeWithTag("list_item_details_title").performTextInput("eggs")
 
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
+        // A focused name box can have the soft keyboard up: the first back hides it, the next closes the sheet.
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.pressBack()
         composeTestRule.waitForIdle()
+        if (saved == null) {
+            device.pressBack()
+            composeTestRule.waitForIdle()
+        }
 
         assertEquals("eggs", saved?.text)
         assertTrue(added.isEmpty())
@@ -209,7 +220,9 @@ class ItemDetailsSheetQuickEntryTest {
         composeTestRule.onNodeWithTag("list_item_details_paste_keep").performClick()
 
         composeTestRule.onNodeWithText("Add as 3 separate items?").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("list_item_details_title").assertTextEquals("tacos, carnitas, fried chicken")
+        composeTestRule.onNodeWithTag("list_item_details_title").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("tacos, carnitas, fried chicken")),
+        )
         assertTrue(added.isEmpty())
         assertNull(saved)
     }

@@ -25,17 +25,22 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Captures the four quick-entry states as PNGs for PR evidence. Runs only when the instrument
- * argument `quickEntryScreenshotDir` is set, so the normal suite skips it.
+ * Captures the quick-entry states as PNGs for PR evidence. Runs only when the instrument argument
+ * `quickEntryScreenshotDir` is set (a subdirectory name under the test package's external files dir),
+ * so the normal suite skips it.
  */
 class QuickEntryScreenshotCaptureTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
     private fun outputDir(): File {
-        val path = InstrumentationRegistry.getArguments().getString("quickEntryScreenshotDir")
-        Assume.assumeTrue("quickEntryScreenshotDir not set", path != null)
-        return File(path!!).apply { mkdirs() }
+        val name = InstrumentationRegistry.getArguments().getString("quickEntryScreenshotDir")
+        Assume.assumeTrue("quickEntryScreenshotDir not set", name != null)
+        val base = InstrumentationRegistry.getInstrumentation().context.getExternalFilesDir(null)
+        checkNotNull(base) { "no external files dir for the test package" }
+        return File(base, name!!).apply {
+            check(isDirectory || mkdirs()) { "cannot create $this" }
+        }
     }
 
     /** Host: a test list ("Groceries") behind the add sheet, so the captures show context. */
