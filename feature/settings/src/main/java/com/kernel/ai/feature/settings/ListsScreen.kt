@@ -25,17 +25,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -133,6 +134,13 @@ fun ListsScreen(
                         "Home-screen shortcuts aren't supported on this device"
                 }
             )
+        }
+    }
+
+    val handleAddListsWidget: () -> Unit = {
+        val result = HomeWidgetPinning.request(context, HomeItem.LISTS_WIDGET)
+        scope.launch {
+            snackbarHostState.showSnackbar(HomeWidgetPinning.resultMessage(HomeItem.LISTS_WIDGET, result))
         }
     }
 
@@ -305,6 +313,7 @@ fun ListsScreen(
                                 onFilterSelected = { viewModel.listFilter = it },
                                 onDismiss = { showSortMenu = false },
                                 onAddShortcut = { handleAddShortcut() },
+                                onAddListsWidget = { handleAddListsWidget() },
                                 onImportSharedList = { importPackageLauncher.launch(arrayOf("*/*")) },
                                 onOpenNextcloudLists = { onNavigateToNextcloud() },
                             )
@@ -831,6 +840,7 @@ private fun SortFilterMenu(
     onToggleArchived: () -> Unit,
     onDismiss: () -> Unit,
     onAddShortcut: () -> Unit,
+    onAddListsWidget: () -> Unit,
     onImportSharedList: () -> Unit,
     onOpenNextcloudLists: () -> Unit,
 ) {
@@ -923,6 +933,12 @@ private fun SortFilterMenu(
             leadingIcon = { Icon(Icons.Filled.Home, contentDescription = null) },
             onClick = { onDismiss(); onAddShortcut() },
             modifier = Modifier.testTag("lists_add_home_shortcut"),
+        )
+        DropdownMenuItem(
+            text = { Text("Add Lists widget") },
+            leadingIcon = { Icon(Icons.Filled.Widgets, contentDescription = null) },
+            onClick = { onDismiss(); onAddListsWidget() },
+            modifier = Modifier.testTag("lists_add_home_widget"),
         )
         DropdownMenuItem(
             text = { Text("Import Jandal file") },
