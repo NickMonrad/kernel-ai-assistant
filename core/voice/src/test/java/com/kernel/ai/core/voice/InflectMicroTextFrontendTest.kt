@@ -338,6 +338,15 @@ class InflectMicroTextFrontendTest {
     }
 
     @Test
+    fun phonemizeChunks_adds_no_full_stop_after_a_closing_quote_before_and() {
+        // #2177: a sentence ending in `."` already ends; splitting before " and " must not add a second full stop.
+        val text = "He said it was not wings.\" and the whole crowd of twenty laughed loudly at the long story about the ground shaking under the tables until the lights went out."
+        val chunks = InflectMicroTextFrontend.phonemizeChunks(normalizedText = text, phonemize = { it })
+        assertEquals("He said it was not wings.\"", chunks.first().text)
+        assertEquals(text, chunks.joinToString(" ") { it.text })
+    }
+
+    @Test
     fun phonemizeChunks_does_not_split_plain_and_join_without_number_word() {
         val text = "Fish and chips is a classic dish served across the United States and Britain for many generations of families."
         val chunks = InflectMicroTextFrontend.phonemizeChunks(

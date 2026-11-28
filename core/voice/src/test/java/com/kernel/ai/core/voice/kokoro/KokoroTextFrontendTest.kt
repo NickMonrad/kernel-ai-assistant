@@ -1,5 +1,6 @@
 package com.kernel.ai.core.voice.kokoro
 
+import com.kernel.ai.core.voice.SpeechCardText
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -20,6 +21,18 @@ class KokoroTextFrontendTest {
             "I cannot stop. We will not stop. You shall not pass. It does not work.",
             KokoroTextFrontend.phonemizerInput(
                 "I can't stop. We won't stop. You shan't pass. It doesn't work.",
+                NativeKokoroPhonemizer.LOCALE_EN_GB,
+            ),
+        )
+    }
+
+    @Test
+    fun speech_card_line_break_after_closing_quote_adds_no_full_stop() {
+        // #2177: `wings."` followed by a line break gained a second full stop before the next sentence.
+        assertEquals(
+            "He said not wings.\" Next",
+            KokoroTextFrontend.phonemizerInput(
+                SpeechCardText.speakable("He said not wings.\"\nNext"),
                 NativeKokoroPhonemizer.LOCALE_EN_GB,
             ),
         )

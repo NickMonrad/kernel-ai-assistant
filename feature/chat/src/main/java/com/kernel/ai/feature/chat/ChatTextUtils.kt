@@ -5,6 +5,7 @@ import com.kernel.ai.core.inference.JandalPersona
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.voice.SpeechLinkText
 import com.kernel.ai.core.voice.SpeechCardText
+import com.kernel.ai.core.voice.SpeechTerminalPunctuation
 import com.kernel.ai.core.skills.isFactualWikipediaQuestion
 import com.kernel.ai.feature.chat.model.ToolCallInfo
 import java.util.regex.Pattern
@@ -196,7 +197,7 @@ private data class SpeechChunkBoundary(
     val type: SpeechChunkBoundaryType,
 )
 
-private enum class SpeechChunkBoundaryType {
+internal enum class SpeechChunkBoundaryType {
     STRONG,
     SOFT,
     WHITESPACE,
@@ -462,7 +463,7 @@ private fun matchCase(source: String, replacement: String): String {
     }
 }
 
-private fun shapeSpeechChunkForPlayback(
+internal fun shapeSpeechChunkForPlayback(
     text: String,
     boundaryType: SpeechChunkBoundaryType,
 ): String {
@@ -479,10 +480,10 @@ private fun shapeSpeechChunkForPlayback(
 }
 
 private fun hasTerminalPause(text: String): Boolean =
-    Regex("""[.!?,;:]["')\]]*$""").containsMatchIn(text)
+    SpeechTerminalPunctuation.endsWith(text, ".!?,;:")
 
 private fun appendSpeechPause(text: String, punctuation: String): String {
-    val trailingClosers = text.takeLastWhile { it == '"' || it == '\'' || it == ')' || it == ']' }
+    val trailingClosers = text.takeLastWhile { it in SpeechTerminalPunctuation.CLOSERS }
     if (trailingClosers.isEmpty()) return text + punctuation
     return text.removeSuffix(trailingClosers) + punctuation + trailingClosers
 }

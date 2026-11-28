@@ -37,6 +37,13 @@ class SpeakableCardTextTest {
     }
 
     @Test
+    fun `closing quote or bracket before a line break gets no second full stop`() {
+        assertEquals("He said \"not wings.\" Next", SpeechCardText.speakable("He said \"not wings.\"\nNext"))
+        assertEquals("He said “not wings.” Next", SpeechCardText.speakable("He said “not wings.”\nNext"))
+        assertEquals("He asked \"why?\" Next", SpeechCardText.speakable("He asked \"why?\"\nNext"))
+    }
+
+    @Test
     fun `wikipedia read-more link and its title are not spoken`() {
         assertEquals(
             "Kiwi are flightless birds.",
