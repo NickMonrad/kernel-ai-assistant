@@ -60,7 +60,8 @@ jobs:
     needs: check-ref
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    environment: play-release
+    # Internal-track runs use play-internal (wait timer, no reviewer); alpha keeps the reviewer gate on play-release.
+    environment: ${{ inputs.track == 'internal' && 'play-internal' || 'play-release' }}
     permissions:
       contents: read
 
