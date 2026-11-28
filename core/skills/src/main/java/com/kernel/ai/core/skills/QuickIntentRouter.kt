@@ -1118,12 +1118,12 @@ class QuickIntentRouter(
                 }
             },
         ),
-        // "set a timer" / "start a timer" (no duration given) → ask how long. The whole utterance must
-        // be this request, optionally with a truncated or misheard final word ("set a time", "see a timer").
+        // "set a timer" / "start a timer" (no duration given) → ask how long. The misheard forms are limited to
+        // the three device-observed transcripts: "set a time", "set a tim" and "see a timer". The whole utterance must match.
         IntentPattern(
             intentName = "set_timer",
             regex = Regex(
-                """^(?:set|see|start|create)\s+(?:a\s+|the\s+)?(?:timer|countdown|time|tim)[\s.!?]*$""",
+                """^(?:(?:set|start|create)\s+(?:a\s+|the\s+)?(?:timer|countdown)|set\s+a\s+(?:time|tim)|see\s+a\s+timer)[\s.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { _, _ -> emptyMap() },
