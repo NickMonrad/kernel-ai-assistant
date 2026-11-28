@@ -196,10 +196,6 @@ jobs:
           echo "CRED_DIR=$CRED_DIR" >> "$GITHUB_ENV"
           echo "Credentials written to \$RUNNER_TEMP/play-release (owner-only)."
 
-      # ── Build and publish ────────────────────────────────────────────
-      # One Gradle run. :app:publishReleaseBundle depends on verifyTesterApkForPlayPublish
-      # when -PgithubTesterApk=true, which builds the release APK and checks it (package,
-      # versionName, Play-assigned versionCode, upload certificate) before GPP uploads.
       # ── Bundle only: build and keep the signed AAB, send nothing to Play ──
       - name: Build signed release bundle only (no Play upload)
         if: ${{ inputs.bundle_only }}
@@ -207,16 +203,20 @@ jobs:
           VERSION_CODE: ${{ inputs.version_code }}
         run: |
           set -euo pipefail
-          case "$VERSION_CODE" in
-            ''|*[!0-9]*) echo "::error::bundle_only needs a numeric version_code (got '$VERSION_CODE')"; exit 1 ;;
-          esac
-          ./gradlew --no-daemon --no-build-cache :app:verifyReleaseBundleForPlayUpload \
+          if ! [[ "$VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]] || [ "$VERSION_CODE" -gt 2100000000 ]; then
+            echo "::error::bundle_only needs a version_code between 1 and 2100000000 (got '$VERSION_CODE')"; exit 1
+          fi
+          ./gradlew --no-daemon --no-build-cache :app:verifyReleaseAttributionMetadata :app:verifyReleaseBundleForPlayUpload \
             -PreleaseSigningPropertiesFile="$CRED_DIR/keystore.properties" \
             -PversionCode="$VERSION_CODE"
           mkdir -p "$RUNNER_TEMP/release-bundle"
           cp app/build/outputs/bundle/release/app-release.aab "$RUNNER_TEMP/release-bundle/jandal-ai-$VERSION_CODE.aab"
           (cd "$RUNNER_TEMP/release-bundle" && sha256sum "jandal-ai-$VERSION_CODE.aab" > sha256.txt)
 
+      # ── Build and publish ────────────────────────────────────────────
+      # One Gradle run. :app:publishReleaseBundle depends on verifyTesterApkForPlayPublish
+      # when -PgithubTesterApk=true, which builds the release APK and checks it (package,
+      # versionName, Play-assigned versionCode, upload certificate) before GPP uploads.
       - name: Build tester APK and publish release bundle to Play (${{ inputs.track }})
         if: ${{ !inputs.bundle_only }}
         env:
