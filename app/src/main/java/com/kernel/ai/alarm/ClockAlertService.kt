@@ -95,6 +95,15 @@ internal suspend fun runSnoozeAction(
 }
 
 /**
+ * Runs the "+1 min" action from the notification or the full-screen alert. The alert stops ringing only once the
+ * extra minute is scheduled, so a failed add leaves it ringing. Same contract as [runSnoozeAction].
+ */
+internal suspend fun runAddOneMinuteAction(
+    addOneMinute: suspend () -> Boolean,
+    dismiss: () -> Unit,
+) = runSnoozeAction(snooze = addOneMinute, dismiss = dismiss)
+
+/**
  * Whether a voice event should trigger the clock-alert start-listening cue.
  * Used by both [ClockAlertService.handleVoiceEvent] and tests.
  */
@@ -363,7 +372,12 @@ class ClockAlertService : Service() {
             ClockAlertContract.ACTION_ADD_MINUTE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
-                    serviceScope.launch { performAddOneMinute(alert) }
+                    serviceScope.launch {
+                        runAddOneMinuteAction(
+                            addOneMinute = { performAddOneMinute(alert) },
+                            dismiss = { dismissAlert(alert) },
+                        )
+                    }
                 }
             }
 
@@ -645,7 +659,7 @@ class ClockAlertService : Service() {
         PendingIntent.getActivity(
             this,
             0,
-            ClockAlertActivity.createIntent(this, alert),
+            ClockAlertActivity.createIntent(this),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -675,7 +689,7 @@ class ClockAlertService : Service() {
 
     private fun syncActiveAlertSnapshot() {
         activeAlertSnapshot = activeAlerts.toSet()
-        activeAlertOwnerIdsFlow.value = activeAlerts.map { it.ownerId }.toSet()
+        ringingAlertsFlow.value = activeAlerts.toList()
     }
 
     /** Resolves the snooze duration for an alert from its captured config,
@@ -941,10 +955,10 @@ class ClockAlertService : Service() {
     companion object {
         @Volatile
         private var activeAlertSnapshot: Set<TriggeredClockAlert> = emptySet()
-        private val activeAlertOwnerIdsFlow = MutableStateFlow<Set<String>>(emptySet())
+        private val ringingAlertsFlow = MutableStateFlow<List<TriggeredClockAlert>>(emptyList())
 
-        /** Owner ids of alerts currently ringing; the full-screen alert activity closes when its owner leaves. */
-        internal val activeAlertOwnerIds: StateFlow<Set<String>> = activeAlertOwnerIdsFlow.asStateFlow()
+        /** Alerts currently ringing, oldest first. The full-screen alert shows the newest and closes when none rings. */
+        internal val ringingAlerts: StateFlow<List<TriggeredClockAlert>> = ringingAlertsFlow.asStateFlow()
 
         internal fun hasActiveTimerAlerts(): Boolean =
             activeAlertSnapshot.any { it.type == ClockEventType.TIMER }

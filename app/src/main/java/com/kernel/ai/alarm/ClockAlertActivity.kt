@@ -22,9 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,56 +29,43 @@ import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.ui.theme.KernelAITheme
 
 /**
- * Full-screen alert for a ringing alarm or timer (#2185). The alert notification's full-screen intent opens
- * this activity so the alert takes over the screen, including a locked one (`showWhenLocked` and
- * `turnScreenOn` in the manifest). The buttons hand the action to [ClockAlertService], which owns playback
- * and state, then the activity closes once its alert is no longer ringing.
+ * Full-screen alert for a ringing alarm or timer (#2185). The alert notification's full-screen intent opens this
+ * activity over the lock screen (`showWhenLocked` and `turnScreenOn` in the manifest). It shows the newest ringing
+ * alert from [ClockAlertService.ringingAlerts], the same alert the notification shows. A second alert or a
+ * dismissal updates the screen in place, so `onNewIntent` needs no handling. It closes when nothing is ringing.
  */
 class ClockAlertActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val alert = intent.toTriggeredClockAlert()
-        if (alert == null) {
-            finish()
-            return
-        }
         setContent {
             KernelAITheme {
-                val ringingOwnerIds by ClockAlertService.activeAlertOwnerIds.collectAsState()
-                var wasRinging by remember { mutableStateOf(false) }
-                LaunchedEffect(ringingOwnerIds) {
-                    if (alert.ownerId in ringingOwnerIds) {
-                        wasRinging = true
-                    } else if (wasRinging) {
-                        finish()
-                    }
+                val ringing by ClockAlertService.ringingAlerts.collectAsState()
+                val alert = ringing.lastOrNull()
+                LaunchedEffect(alert) {
+                    if (alert == null) finish()
                 }
-                ClockAlertScreen(
-                    alert = alert,
-                    onStop = {
-                        startService(clockAlertServiceIntent(this, ClockAlertContract.ACTION_STOP_ALERT, alert))
-                        finish()
-                    },
-                    onSnoozeOrAddMinute = {
-                        val action = if (alert.type == ClockEventType.TIMER) {
-                            ClockAlertContract.ACTION_ADD_MINUTE_ALERT
-                        } else {
-                            ClockAlertContract.ACTION_SNOOZE_ALERT
-                        }
-                        startService(clockAlertServiceIntent(this, action, alert))
-                        finish()
-                    },
-                )
+                if (alert != null) {
+                    ClockAlertScreen(
+                        alert = alert,
+                        onStop = {
+                            startService(clockAlertServiceIntent(this, ClockAlertContract.ACTION_STOP_ALERT, alert))
+                        },
+                        onSnoozeOrAddMinute = {
+                            val action = if (alert.type == ClockEventType.TIMER) {
+                                ClockAlertContract.ACTION_ADD_MINUTE_ALERT
+                            } else {
+                                ClockAlertContract.ACTION_SNOOZE_ALERT
+                            }
+                            startService(clockAlertServiceIntent(this, action, alert))
+                        },
+                    )
+                }
             }
         }
     }
 
     companion object {
-        internal fun createIntent(context: Context, alert: TriggeredClockAlert): Intent =
-            Intent(context, ClockAlertActivity::class.java).apply {
-                putTriggeredClockAlertExtras(alert)
-                putExtra(ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT, alert.autoSnoozeCount)
-            }
+        internal fun createIntent(context: Context): Intent = Intent(context, ClockAlertActivity::class.java)
     }
 }
 

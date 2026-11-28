@@ -550,7 +550,7 @@ class NativeIntentHandler @Inject constructor(
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // full-screen access is off; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
@@ -595,7 +595,7 @@ class NativeIntentHandler @Inject constructor(
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // full-screen access is off; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }

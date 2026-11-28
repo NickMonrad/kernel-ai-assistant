@@ -176,7 +176,7 @@
             android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.KernelAI"
+            android:theme="@style/Theme.KernelAI.ClockAlert"
             android:turnScreenOn="true" />
         <!-- Short-lived service keeps local speech synthesis foreground-scheduled during playback. -->
         <service
