@@ -27,6 +27,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockRepository
@@ -259,13 +260,41 @@ internal fun alertPendingIntentIdentity(action: String, alert: TriggeredClockAle
     "kernel-ai://clock-alert/${action}|${alert.type.name.lowercase()}|${alert.ownerId}|" +
         (alert.occurrenceTriggerAtMillis?.toString() ?: "none")
 
+/** The alert service's foreground notification, reduced to what teardown must do. */
+internal interface ClockAlertNotificationHost {
+    fun stopForegroundRemovingNotification()
+    fun cancelNotification(id: Int)
+}
+
+/**
+ * Removes the alert notification when the service stops or is destroyed. Cancels the id explicitly
+ * because `stopForeground(REMOVE)` alone left [ClockAlertContract.ALERT_NOTIFICATION_ID] posted on device.
+ */
+internal fun releaseAlertNotification(
+    host: ClockAlertNotificationHost,
+    notificationId: Int = ClockAlertContract.ALERT_NOTIFICATION_ID,
+) {
+    host.stopForegroundRemovingNotification()
+    host.cancelNotification(notificationId)
+}
+
 internal fun configuredSnoozeDurationMs(
-    configuredMs: Long,
-    fallbackMs: Long = ALARM_SNOOZE_MS,
+     configuredMs: Long,
+     fallbackMs: Long = ALARM_SNOOZE_MS,
 ): Long = configuredMs.takeIf { it > 0L } ?: fallbackMs
 
 @AndroidEntryPoint
 class ClockAlertService : Service() {
+    private fun serviceNotificationHost(): ClockAlertNotificationHost = object : ClockAlertNotificationHost {
+        override fun stopForegroundRemovingNotification() {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+
+        override fun cancelNotification(id: Int) {
+            NotificationManagerCompat.from(this@ClockAlertService).cancel(id)
+        }
+    }
+
     @Inject lateinit var startListeningCuePlayer: StartListeningCuePlayer
     @Inject lateinit var clockRepository: ClockRepository
     @Inject lateinit var voiceInputController: VoiceInputController
@@ -440,6 +469,7 @@ class ClockAlertService : Service() {
         activeAlerts.clear()
         activeAlertConfigs.clear()
         syncActiveAlertSnapshot()
+        releaseAlertNotification(serviceNotificationHost())
         super.onDestroy()
     }
 
@@ -558,7 +588,7 @@ class ClockAlertService : Service() {
         voiceStatusMessage = null
         voiceInputController.stopListening()
         stopPlayback()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        releaseAlertNotification(serviceNotificationHost())
         stopSelf()
     }
 
