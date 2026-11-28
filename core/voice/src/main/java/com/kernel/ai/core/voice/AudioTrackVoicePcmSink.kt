@@ -41,6 +41,8 @@ class AudioTrackVoicePcmSink : VoicePcmSink {
 
         override fun discard() = fadeOutAndDiscard(track)
 
+        override fun underrunCount(): Int = track.underrunCount
+
         override fun release() {
             activeTrack.compareAndSet(track, null)
             track.release()

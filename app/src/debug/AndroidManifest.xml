@@ -46,12 +46,6 @@
         <receiver
             android:name="com.kernel.ai.debug.sample.SampleClipReceiver"
             android:exported="true" />
-        <!-- #2115: renders one text through the Kokoro ExecuTorch lane to files/kokoro_render_<out>.wav. Explicit
-             component only; DUMP restricts senders to adb shell. -->
-        <receiver
-            android:name="com.kernel.ai.debug.tts.kokoro.KokoroRenderReceiver"
-            android:exported="true"
-            android:permission="android.permission.DUMP" />
         <receiver
             android:name="com.kernel.ai.debug.inflect.InflectSpikeReceiver"
             android:exported="true">
@@ -77,12 +71,6 @@
              component only; DUMP restricts senders to adb shell. No intent filter. -->
         <receiver
             android:name="com.kernel.ai.debug.inflect.InflectChunkWavReceiver"
-            android:exported="true"
-            android:permission="android.permission.DUMP" />
-        <!-- #2114: renders reply texts to a WAV through the shared reply stream with the Kokoro ExecuTorch lane.
-             Explicit component only; DUMP restricts senders to adb shell. No intent filter. -->
-        <receiver
-            android:name="com.kernel.ai.debug.tts.kokoro.KokoroChunkWavReceiver"
             android:exported="true"
             android:permission="android.permission.DUMP" />
         <!-- #1942: limits calendar reads to one named test calendar for device evidence. Explicit component

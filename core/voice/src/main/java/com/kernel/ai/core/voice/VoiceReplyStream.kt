@@ -27,6 +27,8 @@ interface VoicePcmTrack {
     fun drain(isCurrent: () -> Boolean)
     /** Fades out what is queued in the track and drops it; used when the reply is superseded or aborted. */
     fun discard()
+    /** Hardware underruns (buffer starvation) since the track was opened; 0 when the track does not report them. */
+    fun underrunCount(): Int = 0
     fun release()
 }
 
@@ -78,6 +80,7 @@ class VoiceReplyStream<T>(
     @Volatile private var lastSynthesisError: String? = null
     @Volatile private var audioWritten = false
     @Volatile private var playbackFailure: VoiceOutputResult.Unavailable? = null
+    @Volatile private var underruns = 0
 
     override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = withContext(Dispatchers.IO) {
         appendText(text)
@@ -112,6 +115,9 @@ class VoiceReplyStream<T>(
      */
     fun playbackResult(): VoiceOutputResult = playbackFailure ?: VoiceOutputResult.Spoken
 
+    /** Hardware underruns of the reply's track, read once playback has ended; 0 when none played. */
+    val playbackUnderruns: Int get() = underruns
+
     private fun closeAudio() {
         if (closed.compareAndSet(false, true)) audio.close()
     }
@@ -133,7 +139,7 @@ class VoiceReplyStream<T>(
                 // A superseded or aborted reply unwinds quietly; a cancelled caller propagates.
                 if (isCurrent()) throw error
                 return
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 skipChunk(error)
                 continue
             }
@@ -143,7 +149,7 @@ class VoiceReplyStream<T>(
     }
 
     /** Logs one failed unit; the reply continues with the next one. */
-    private fun skipChunk(error: Exception) {
+    private fun skipChunk(error: Throwable) {
         Log.e(TAG, "$engine chunk failed; skipping it and continuing the reply", error)
         lastSynthesisError = "$engine synthesis failed: ${error.message}"
     }
@@ -191,7 +197,10 @@ class VoiceReplyStream<T>(
             track?.discard()
             audio.cancel()
         } finally {
-            track?.release()
+            track?.let { active ->
+                underruns = active.underrunCount()
+                active.release()
+            }
             hooks.onPlaybackEnded(generation)
         }
     }

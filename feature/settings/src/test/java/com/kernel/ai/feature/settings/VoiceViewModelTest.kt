@@ -15,7 +15,8 @@ import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
 import com.kernel.ai.core.voice.AndroidNativeRecognitionLocaleStatus
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.InflectMicroModelSpec
-import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.Asr4allSizeSwitcher
 import com.kernel.ai.core.voice.Asr4allSwitchFailure
@@ -94,17 +95,10 @@ class VoiceViewModelTest {
     private val autoSpeak = MutableStateFlow(true)
     private val maxSpokenSentences = MutableStateFlow(0)
     private val activeSpeakerId = MutableStateFlow(0)
-    private val selectedKokoroVoice = MutableStateFlow(SherpaKokoroVoice.KokoroMultiLangInt8)
-    private val kokoroActiveSpeakerId = MutableStateFlow(0)
+    private val selectedKokoroVoice = MutableStateFlow(KokoroVoice.EMMA)
     private val sherpaDownloadStates: MutableStateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         MutableStateFlow(
             SherpaPiperVoice.entries.associateWith {
-                VoicePackDownloadState.NotDownloaded
-            },
-        )
-    private val kokoroDownloadStates: MutableStateFlow<Map<SherpaKokoroVoice, VoicePackDownloadState>> =
-        MutableStateFlow(
-            SherpaKokoroVoice.entries.associateWith {
                 VoicePackDownloadState.NotDownloaded
             },
         )
@@ -118,6 +112,7 @@ class VoiceViewModelTest {
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
     private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
     private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
     }
@@ -169,6 +164,7 @@ class VoiceViewModelTest {
         piperVoiceSetup,
         asr4allSizeSwitcher,
         termsAcceptancePreferences,
+        kokoroVoiceOutputController,
     )
 
     @BeforeEach
@@ -201,7 +197,6 @@ class VoiceViewModelTest {
         every { voiceOutputPreferences.maxSpokenSentences } returns maxSpokenSentences
         every { voiceOutputPreferences.activeSpeakerId } returns activeSpeakerId
         every { voiceOutputPreferences.selectedKokoroVoice } returns selectedKokoroVoice
-        every { voiceOutputPreferences.kokoroActiveSpeakerId } returns kokoroActiveSpeakerId
         coEvery { voiceOutputPreferences.setSpokenResponsesEnabled(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedSherpaVoice(any()) } just Runs
@@ -212,7 +207,6 @@ class VoiceViewModelTest {
         coEvery { voiceOutputPreferences.setMaxSpokenSentences(any()) } just Runs
         coEvery { voiceOutputPreferences.setActiveSpeakerId(any()) } just Runs
         coEvery { voiceOutputPreferences.setSelectedKokoroVoice(any()) } just Runs
-        coEvery { voiceOutputPreferences.setKokoroActiveSpeakerId(any()) } just Runs
         every { wakeWordPreferences.heyJandalEnabled } returns heyJandalEnabled
         every { wakeWordPreferences.confidenceThreshold } returns wakeWordThreshold
         coEvery { wakeWordPreferences.setConfidenceThreshold(any()) } coAnswers {
@@ -221,7 +215,6 @@ class VoiceViewModelTest {
         }
         every { sherpaVoicePackDownloadManager.downloadStates } returns sherpaDownloadStates
         every { wakeWordDetector.isAvailable } returns false
-        every { sherpaVoicePackDownloadManager.kokoroDownloadStates } returns kokoroDownloadStates
         every { modelDownloadManager.downloadStates } returns modelDownloadStates
         every { modelDownloadManager.waitingForWifi } returns MutableStateFlow(emptySet())
         every { termsAcceptancePreferences.record } returns termsRecord
@@ -231,9 +224,6 @@ class VoiceViewModelTest {
         every { sherpaVoicePackDownloadManager.startDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.cancelDownload(any()) } just Runs
         every { sherpaVoicePackDownloadManager.deleteVoice(any()) } just Runs
-        every { sherpaVoicePackDownloadManager.startKokoroDownload(any()) } just Runs
-        every { sherpaVoicePackDownloadManager.cancelKokoroDownload(any()) } just Runs
-        every { sherpaVoicePackDownloadManager.deleteKokoroVoice(any()) } just Runs
         every { context.applicationInfo } returns ApplicationInfo().apply {
             flags = ApplicationInfo.FLAG_DEBUGGABLE
         }
@@ -329,6 +319,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -363,6 +354,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -397,6 +389,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -504,6 +497,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -514,7 +508,7 @@ class VoiceViewModelTest {
         )
     }
     @Test
-    fun `release builds expose Android TTS and Sherpa while debug builds keep Inflect`() = runTest {
+    fun `release builds expose Android TTS, Sherpa and Kokoro while debug builds keep Inflect`() = runTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(
@@ -539,11 +533,12 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(
-            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental),
+            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
             releaseViewModel.uiState.value.availableOutputEngines,
         )
     }
@@ -566,6 +561,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -925,6 +921,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -976,6 +973,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

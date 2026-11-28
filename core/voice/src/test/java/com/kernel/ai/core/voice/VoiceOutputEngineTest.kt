@@ -8,6 +8,11 @@ import org.junit.jupiter.api.Test
 
 class VoiceOutputEngineTest {
     @Test
+    fun `Kokoro Settings copy identifies it as experimental`() {
+        assertEquals("Kokoro (experimental)", VoiceOutputEngine.KokoroExperimental.displayName)
+        assertTrue(VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental).contains("Kokoro-82M"))
+    }
+    @Test
     fun `default engine is Piper on mid-range and flagship devices and Android TTS on low-power`() {
         assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.FLAGSHIP))
         assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.MID_RANGE))
@@ -18,18 +23,23 @@ class VoiceOutputEngineTest {
     fun `release resolves an unavailable default to Android TTS while a stored Android choice is kept`() {
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
+            VoiceOutputEngine.resolveForBuild(null, isRelease = true, inflectEligible = false, default = VoiceOutputEngine.InflectMicroExperimental),
         )
         assertEquals(
             VoiceOutputEngine.AndroidTts,
-            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.KokoroExperimental),
+            VoiceOutputEngine.resolveForBuild("AndroidTts", isRelease = true, inflectEligible = false, default = VoiceOutputEngine.InflectMicroExperimental),
         )
     }
 
     @Test
-    fun `release catalogue offers Piper, Inflect on eligible devices, and Android TTS`() {
+    fun `release catalogue offers Piper, Kokoro, Inflect on eligible devices, and Android TTS`() {
         assertEquals(
-            listOf(VoiceOutputEngine.AndroidTts, VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.InflectMicroExperimental),
+            listOf(
+                VoiceOutputEngine.AndroidTts,
+                VoiceOutputEngine.SherpaExperimental,
+                VoiceOutputEngine.KokoroExperimental,
+                VoiceOutputEngine.InflectMicroExperimental,
+            ),
             VoiceOutputEngine.entriesForBuild(
                 isRelease = true,
                 inflectEligible = true,
@@ -52,13 +62,13 @@ class VoiceOutputEngineTest {
     }
 
     @Test
-    fun `release catalogue excludes Kokoro and other debug engines`() {
+    fun `release catalogue includes Kokoro`() {
         val engines = VoiceOutputEngine.entriesForBuild(
             isRelease = true,
             inflectEligible = true,
         )
 
-        assertFalse(engines.contains(VoiceOutputEngine.KokoroExperimental))
+        assertTrue(engines.contains(VoiceOutputEngine.KokoroExperimental))
     }
 
     @Test

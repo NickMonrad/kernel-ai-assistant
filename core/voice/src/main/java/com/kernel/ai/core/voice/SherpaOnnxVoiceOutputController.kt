@@ -93,16 +93,11 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
     private val activeSpeakerId: StateFlow<Int> = voiceOutputPreferences.activeSpeakerId
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
-    /** Active speaker ID for Kokoro multi-speaker voice (sid 0–102). Default 0. */
-    private val kokoroActiveSpeakerId: StateFlow<Int> = voiceOutputPreferences.kokoroActiveSpeakerId
-        .stateIn(scope, SharingStarted.Eagerly, 0)
-
     // ── Lifecycle state ──────────────────────────────────────────────────────
     private enum class InitState { UNINITIALIZED, AVAILABLE, UNAVAILABLE }
 
     @Volatile private var initState = InitState.UNINITIALIZED
     @Volatile private var initializedVoice: SherpaPiperVoice? = null
-    @Volatile private var initializedKokoroVoice: SherpaKokoroVoice? = null
 
     /** Reflected handle to `OfflineTts` instance; non-null iff [initState] == AVAILABLE. */
     @Volatile private var ttsInstance: Any? = null
@@ -141,32 +136,19 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         if (speakerCount > 1) sid.coerceIn(0, speakerCount - 1) else 0
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
-        if (voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental) {
-            initKokoro(voiceOutputPreferences.selectedKokoroVoice.first())
-        } else {
-            initialize(voiceOutputPreferences.selectedSherpaVoice.first())
-        }
+        initialize(voiceOutputPreferences.selectedSherpaVoice.first())
     }
 
     override suspend fun speak(request: VoiceSpeakRequest): VoiceOutputResult =
         withContext(Dispatchers.IO) {
             PronunciationLexicon.ensureLoaded(context)
-            val isKokoro =
-                voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental
             val initResult: VoiceOutputResult
             val speakerCount: Int
             val voiceSid: Int
-            if (isKokoro) {
-                val voice = voiceOutputPreferences.selectedKokoroVoice.first()
-                initResult = initKokoro(voice)
-                speakerCount = voice.speakerCount
-                voiceSid = kokoroActiveSpeakerId.value
-            } else {
-                val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-                initResult = initialize(voice)
-                speakerCount = voice.speakerCount
-                voiceSid = activeSpeakerId.value
-            }
+            val voice = voiceOutputPreferences.selectedSherpaVoice.first()
+            initResult = initialize(voice)
+            speakerCount = voice.speakerCount
+            voiceSid = activeSpeakerId.value
             if (initResult is VoiceOutputResult.Unavailable) return@withContext initResult
 
             val tts = ttsInstance
@@ -203,7 +185,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                     requestAudioFocus()
                     VoiceOutputTrace.speakingStarted("sherpa", spokenText)
                     VoiceOutputTrace.logSpeakingStarted(
-                        if (isKokoro) "kokoro" else "sherpa",
+                        "sherpa",
                         spokenText.length,
                     )
                     speakingStopGate.markStarted(stopToken)
@@ -234,22 +216,10 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
      */
     private suspend fun openSession(request: VoiceSpeakRequest, held: Boolean): VoiceOutputStreamingSession = withContext(Dispatchers.IO) {
         PronunciationLexicon.ensureLoaded(context)
-        val isKokoro =
-            voiceOutputPreferences.selectedEngine.first() == VoiceOutputEngine.KokoroExperimental
-        val initResult: VoiceOutputResult
-        val speakerCount: Int
-        val activeSid: Int
-        if (isKokoro) {
-            val voice = voiceOutputPreferences.selectedKokoroVoice.first()
-            initResult = initKokoro(voice)
-            speakerCount = voice.speakerCount
-            activeSid = kokoroActiveSpeakerId.value
-        } else {
-            val voice = voiceOutputPreferences.selectedSherpaVoice.first()
-            initResult = initialize(voice)
-            speakerCount = voice.speakerCount
-            activeSid = activeSpeakerId.value
-        }
+        val voice = voiceOutputPreferences.selectedSherpaVoice.first()
+        val initResult = initialize(voice)
+        val speakerCount = voice.speakerCount
+        val activeSid = activeSpeakerId.value
         if (initResult is VoiceOutputResult.Unavailable) {
             return@withContext object : VoiceOutputStreamingSession {
                 override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult = initResult
@@ -271,7 +241,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                 chunks = chunks,
                 speakerCount = speakerCount,
                 activeSid = activeSid,
-                isKokoro = isKokoro,
                 outcome = outcome,
                 playbackGate = playbackGate,
             )
@@ -354,8 +323,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
      */
     @Synchronized
     private fun initialize(voice: SherpaPiperVoice): VoiceOutputResult {
-        // If Kokoro was loaded, force a reset before switching to Piper.
-        if (initializedKokoroVoice != null || initializedVoice != voice) {
+        if (initializedVoice != voice) {
             resetForVoice(voice)
         }
         // If init previously failed only because the voice pack was missing, retry now that
@@ -463,7 +431,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         generateMethod = null
         initState = InitState.UNINITIALIZED
         initializedVoice = voice
-        initializedKokoroVoice = null
     }
 
     private suspend fun runStreamingPlayback(
@@ -472,7 +439,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         chunks: Channel<StreamingChunk>,
         speakerCount: Int,
         activeSid: Int,
-        isKokoro: Boolean,
         outcome: CompletableDeferred<StreamPlaybackOutcome>,
         playbackGate: CompletableDeferred<VoiceSpeakRequest?>?,
     ) {
@@ -568,7 +534,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
                         VoiceOutputTrace.speakingStarted("sherpa_stream", chunk.text)
                         if (!emittedStarted) {
                             VoiceOutputTrace.logSpeakingStarted(
-                                if (isKokoro) "kokoro" else "sherpa",
+                                "sherpa",
                                 chunk.text.length,
                             )
                             speakingStopGate.markStarted(playbackToken)
@@ -822,136 +788,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         }
     }
 
-    fun markKokoroVoiceAvailable(voice: SherpaKokoroVoice) {
-        if (initState == InitState.UNAVAILABLE && (initializedKokoroVoice == voice || initializedKokoroVoice == null)) {
-            Log.i(TAG, "Kokoro voice pack available for ${voice.displayName} — resetting init state for retry.")
-            resetForKokoroVoice(voice)
-        }
-    }
-
-    // ── Kokoro init ──────────────────────────────────────────────────────────
-
-    @Synchronized
-    private fun initKokoro(voice: SherpaKokoroVoice): VoiceOutputResult {
-        // If Piper was loaded, or a different Kokoro voice, force a reset.
-        if (initializedVoice != null || initializedKokoroVoice != voice) {
-            resetForKokoroVoice(voice)
-        }
-        return when (initState) {
-            InitState.AVAILABLE -> VoiceOutputResult.Spoken
-            InitState.UNAVAILABLE -> VoiceOutputResult.Unavailable(unavailableMessageKokoro(voice))
-            InitState.UNINITIALIZED -> doInitializeKokoro(voice)
-        }
-    }
-
-    private fun resetForKokoroVoice(voice: SherpaKokoroVoice) {
-        clearStreamingPlayback()
-        ttsInstance = null
-        generateMethod = null
-        initState = InitState.UNINITIALIZED
-        initializedVoice = null
-        initializedKokoroVoice = voice
-    }
-
-    private fun doInitializeKokoro(voice: SherpaKokoroVoice): VoiceOutputResult {
-        val modelDir = voice.voiceDir(context)
-        if (!hasRequiredKokoroVoicePackFiles(modelDir)) {
-            Log.w(TAG, "Kokoro voice pack not downloaded: ${voice.displayName}")
-            initState = InitState.UNAVAILABLE
-            return VoiceOutputResult.Unavailable(unavailableMessageKokoro(voice))
-        }
-        // Preload ORT so Class.forName doesn't trigger a JNI link failure (same as doInitialize).
-        try { System.loadLibrary("onnxruntime") } catch (_: UnsatisfiedLinkError) { }
-        return try {
-            val config = buildOfflineTtsKokoroConfig(modelDir, voice)
-            val ttsClass = Class.forName(SHERPA_OFFLINE_TTS_CLASS)
-            val instance = ttsClass
-                .getConstructor(
-                    android.content.res.AssetManager::class.java,
-                    Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS),
-                )
-                .newInstance(null, config)
-            ttsInstance = instance
-            generateMethod = ttsClass.getDeclaredMethod(
-                "generate",
-                String::class.java,
-                Int::class.javaPrimitiveType,
-                Float::class.javaPrimitiveType,
-            )
-            initState = InitState.AVAILABLE
-            Log.i(TAG, "Kokoro TTS initialised: ${voice.displayName}")
-            VoiceOutputResult.Spoken
-        } catch (e: Exception) {
-            Log.e(TAG, "Kokoro TTS init failed", e)
-            initState = InitState.UNAVAILABLE
-            VoiceOutputResult.Unavailable("Kokoro init failed: ${e.message}")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Kokoro TTS JNI failed to load — falling back to Android TTS", e)
-            initState = InitState.UNAVAILABLE
-            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
-        } catch (e: ExceptionInInitializerError) {
-            Log.e(TAG, "Kokoro TTS class init failed — falling back to Android TTS", e)
-            initState = InitState.UNAVAILABLE
-            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
-        } catch (e: NoClassDefFoundError) {
-            Log.e(TAG, "Kokoro TTS class not found after init failure — falling back to Android TTS", e)
-            initState = InitState.UNAVAILABLE
-            VoiceOutputResult.Unavailable("Kokoro JNI unavailable (${e.message?.take(80)})")
-        }
-    }
-
-    private fun buildOfflineTtsKokoroConfig(modelDir: File, voice: SherpaKokoroVoice): Any {
-        val kokoroConfigClass = Class.forName(SHERPA_KOKORO_MODEL_CONFIG_CLASS)
-        val modelConfigClass = Class.forName(SHERPA_MODEL_CONFIG_CLASS)
-        val ttsConfigClass = Class.forName(SHERPA_OFFLINE_TTS_CONFIG_CLASS)
-
-        // Build OfflineTtsKokoroModelConfig — use setProperty() which calls getDeclaredField() +
-        // setAccessible(true), since all fields in the Sherpa AAR are private Kotlin backing fields.
-        val kokoroConfig = kokoroConfigClass.getDeclaredConstructor().newInstance()
-        setProperty(kokoroConfig, "model", File(modelDir, "model.onnx").absolutePath)
-        setProperty(kokoroConfig, "voices", File(modelDir, SHERPA_KOKORO_VOICES_FILE).absolutePath)
-        setProperty(kokoroConfig, "tokens", File(modelDir, "tokens.txt").absolutePath)
-        setProperty(kokoroConfig, "dataDir", File(modelDir, "espeak-ng-data").absolutePath)
-        // Set "en-us" so espeak-ng uses English text normalisation rules: sentence-ending
-        // periods become pauses rather than being vocalised as "dot". This is safe even with
-        // multilingual speakers (sid 28-52) because synthesis language is driven by the
-        // speaker ID, not lang; lang only controls the G2P text-normalisation pipeline.
-        setProperty(kokoroConfig, "lang", "en-us")
-        // lexicon: join any present lexicon files with a comma (optional field)
-        val lexiconFiles = listOf("lexicon-us-en.txt", "lexicon-gb-en.txt")
-            .map { File(modelDir, it) }
-            .filter { it.exists() }
-            .joinToString(",") { it.absolutePath }
-        if (lexiconFiles.isNotEmpty()) {
-            setProperty(kokoroConfig, "lexicon", lexiconFiles)
-        }
-
-        // Build OfflineTtsModelConfig and inject Kokoro config
-        val modelConfig = modelConfigClass.getDeclaredConstructor().newInstance()
-        // setProperty() swallows its own exceptions (Log.w only), so use explicit reflection here
-        // to ensure a real failure propagates up and returns UNAVAILABLE rather than corrupt state.
-        try {
-            val setter = modelConfigClass.getDeclaredMethod("setKokoro", kokoroConfigClass)
-            setter.isAccessible = true
-            setter.invoke(modelConfig, kokoroConfig)
-        } catch (_: NoSuchMethodException) {
-            val field = modelConfigClass.getDeclaredField("kokoro")
-            field.isAccessible = true
-            field.set(modelConfig, kokoroConfig)
-        }
-        setProperty(modelConfig, "numThreads", 4)
-        setProperty(modelConfig, "debug", false)
-
-        // Build OfflineTtsConfig
-        val ttsConfig = ttsConfigClass.getDeclaredConstructor().newInstance()
-        setProperty(ttsConfig, "model", modelConfig)
-        setProperty(ttsConfig, "maxNumSentences", 1)
-        return ttsConfig
-    }
-
-    private fun unavailableMessageKokoro(voice: SherpaKokoroVoice): String =
-        "Kokoro voice '${voice.displayName}' is not available. Please download the voice pack in Settings."
-
     // ── Constants ────────────────────────────────────────────────────────────
 
     private companion object {
@@ -962,7 +798,6 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
         const val SHERPA_OFFLINE_TTS_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsConfig"
         const val SHERPA_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsModelConfig"
         const val SHERPA_VITS_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsVitsModelConfig"
-        const val SHERPA_KOKORO_MODEL_CONFIG_CLASS = "$SHERPA_PKG.OfflineTtsKokoroModelConfig"
         const val PIPER_NUM_THREADS = 4
     }
 }

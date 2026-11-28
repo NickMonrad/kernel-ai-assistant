@@ -67,9 +67,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kernel.ai.core.voice.HeyJandalGate
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 
-import com.kernel.ai.core.voice.KokoroSpeakerGroup
 import com.kernel.ai.core.voice.SemaineSpeakerMetadata
-import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VctkSpeakerMetadata
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -322,7 +321,6 @@ fun VoiceScreen(
         onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
-        onKokoroActiveSpeakerIdChanged = viewModel::setKokoroActiveSpeakerId,
         onDownloadSherpaStt = viewModel::downloadSherpaStt,
         onCancelSherpaStt = viewModel::cancelSherpaSttDownload,
         onDeleteSherpaStt = viewModel::deleteSherpaStt,
@@ -334,9 +332,10 @@ fun VoiceScreen(
         onDeleteSherpaVoice = viewModel::deleteSherpaVoice,
         onPlaySherpaSample = viewModel::playSherpaSample,
         onUseMobileDataForVoice = viewModel::useMobileDataForVoice,
-        onDownloadKokoroVoice = viewModel::downloadKokoroVoice,
-        onCancelKokoroVoice = viewModel::cancelKokoroVoiceDownload,
-        onDeleteKokoroVoice = viewModel::deleteKokoroVoice,
+        onDownloadKokoroPack = viewModel::downloadKokoroPack,
+        onCancelKokoroPack = viewModel::cancelKokoroPackDownload,
+        onDeleteKokoroPack = viewModel::deleteKokoroPack,
+        onUseMobileDataForKokoro = viewModel::useMobileDataForKokoro,
         onDownloadInflectMicro = viewModel::downloadInflectMicro,
         onCancelInflectMicro = viewModel::cancelInflectMicroDownload,
         onDeleteInflectMicro = viewModel::deleteInflectMicro,
@@ -534,8 +533,7 @@ private fun VoiceScreenContent(
     onPlaceDidYouMeanChanged: (Boolean) -> Unit,
     onMaxSpokenSentencesChanged: (Int) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
-    onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
-    onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
+    onKokoroVoiceSelected: (KokoroVoice) -> Unit,
     onDownloadSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onCancelSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
     onDeleteSherpaStt: (VoiceInputEngine) -> Unit = { _ -> },
@@ -547,9 +545,10 @@ private fun VoiceScreenContent(
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit = { _ -> },
     onPlaySherpaSample: (SherpaPiperVoice) -> Unit = { _ -> },
     onUseMobileDataForVoice: (SherpaPiperVoice) -> Unit = { _ -> },
-    onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
-    onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
-    onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit = { _ -> },
+    onDownloadKokoroPack: () -> Unit = {},
+    onCancelKokoroPack: () -> Unit = {},
+    onDeleteKokoroPack: () -> Unit = {},
+    onUseMobileDataForKokoro: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit = {},
     onCancelInflectMicro: () -> Unit = {},
     onDeleteInflectMicro: () -> Unit = {},
@@ -820,15 +819,15 @@ private fun VoiceScreenContent(
                 onSherpaGainChanged = onSherpaGainChanged,
                 onActiveSpeakerIdChanged = onActiveSpeakerIdChanged,
                 onKokoroVoiceSelected = onKokoroVoiceSelected,
-                onKokoroActiveSpeakerIdChanged = onKokoroActiveSpeakerIdChanged,
                 onDownloadSherpaVoice = onDownloadSherpaVoice,
                 onCancelSherpaVoice = onCancelSherpaVoice,
                 onDeleteSherpaVoice = onDeleteSherpaVoice,
                 onPlaySherpaSample = onPlaySherpaSample,
                 onUseMobileDataForVoice = onUseMobileDataForVoice,
-                onDownloadKokoroVoice = onDownloadKokoroVoice,
-                onCancelKokoroVoice = onCancelKokoroVoice,
-                onDeleteKokoroVoice = onDeleteKokoroVoice,
+                onUseMobileDataForKokoro = onUseMobileDataForKokoro,
+                onDownloadKokoroPack = onDownloadKokoroPack,
+                onCancelKokoroPack = onCancelKokoroPack,
+                onDeleteKokoroPack = onDeleteKokoroPack,
                 onDownloadInflectMicro = onDownloadInflectMicro,
                 onCancelInflectMicro = onCancelInflectMicro,
                 onDeleteInflectMicro = onDeleteInflectMicro,
@@ -956,125 +955,6 @@ internal fun SemaineSpeakerSelector(
     }
 }
 
-
-
-/**
- * Speaker selector for Kokoro multi-speaker model (103 speakers, sid 0–102).
- * Shows a numeric input and slider since there are no labelled speaker names in the model card.
- */
-@Composable
-internal fun KokoroSpeakerSelector(
-    voice: SherpaKokoroVoice,
-    activeSpeakerId: Int,
-    onSpeakerSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val effectiveId = activeSpeakerId.coerceIn(0, voice.speakerCount - 1)
-
-    // Three tabs: American English (sids 0–19), British English (20–27), Other (28–52)
-    val americanRange = KokoroSpeakerGroup.AmericanFemale.sidRange.first..KokoroSpeakerGroup.AmericanMale.sidRange.last
-    val britishRange  = KokoroSpeakerGroup.BritishFemale.sidRange.first..KokoroSpeakerGroup.BritishMale.sidRange.last
-    val otherRange    = KokoroSpeakerGroup.Multilingual.sidRange
-
-    fun sidToTabIndex(sid: Int): Int = when {
-        sid in americanRange -> 0
-        sid in britishRange  -> 1
-        else                 -> 2
-    }
-
-    val initialTabIndex = sidToTabIndex(effectiveId)
-    var selectedTabIndex by rememberSaveable(effectiveId) { mutableIntStateOf(initialTabIndex) }
-
-    // Slider state for the Other tab (25 speakers, 0-based index within the range)
-    val initialOtherIndex = if (effectiveId in otherRange) effectiveId - otherRange.first else 0
-    var otherSliderValue by remember(effectiveId) { mutableIntStateOf(initialOtherIndex) }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Kokoro speaker",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        Text(
-            text = "Selected: ${voice.speakerNameForSid(effectiveId)}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-        )
-
-        TabRow(selectedTabIndex = selectedTabIndex) {
-            Tab(selected = selectedTabIndex == 0, onClick = { selectedTabIndex = 0 }, text = { Text("🇺🇸 American") })
-            Tab(selected = selectedTabIndex == 1, onClick = { selectedTabIndex = 1 }, text = { Text("🇬🇧 British") })
-            Tab(selected = selectedTabIndex == 2, onClick = { selectedTabIndex = 2 }, text = { Text("🌍 Other") })
-        }
-
-        when (selectedTabIndex) {
-            // American tab: 20 named speakers (sids 0–19)
-            0 -> americanRange.forEach { sid ->
-                val name = voice.speakerNameForSid(sid)
-                val subtitle = if (name.startsWith("af_")) "American Female" else "American Male"
-                ListItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    headlineContent = { Text(name) },
-                    supportingContent = { Text(subtitle) },
-                    trailingContent = {
-                        RadioButton(
-                            selected = effectiveId == sid,
-                            onClick = { onSpeakerSelected(sid) },
-                        )
-                    },
-                )
-                HorizontalDivider()
-            }
-
-            // British tab: 8 named speakers (sids 20–27)
-            1 -> britishRange.forEach { sid ->
-                val name = voice.speakerNameForSid(sid)
-                val subtitle = if (name.startsWith("bf_")) "British Female" else "British Male"
-                ListItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    headlineContent = { Text(name) },
-                    supportingContent = { Text(subtitle) },
-                    trailingContent = {
-                        RadioButton(
-                            selected = effectiveId == sid,
-                            onClick = { onSpeakerSelected(sid) },
-                        )
-                    },
-                )
-                HorizontalDivider()
-            }
-
-            // Other tab: slider over 25 multilingual speakers (sids 28–52)
-            else -> {
-                val steps = otherRange.last - otherRange.first  // 24 steps → 25 values
-                val currentSid = otherRange.first + otherSliderValue
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Text(
-                        text = voice.speakerNameForSid(currentSid),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                    Slider(
-                        value = otherSliderValue.toFloat(),
-                        onValueChange = { otherSliderValue = it.roundToInt() },
-                        onValueChangeFinished = {
-                            onSpeakerSelected(otherRange.first + otherSliderValue)
-                        },
-                        valueRange = 0f..steps.toFloat(),
-                        steps = steps - 1,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        }
-    }
-}
 
 /**
  * A labelled slider row with an editable text field for precise input.
@@ -1221,7 +1101,6 @@ private fun VoiceScreenPreview() {
             onMaxSpokenSentencesChanged = {},
             onActiveSpeakerIdChanged = {},
             onKokoroVoiceSelected = {},
-            onKokoroActiveSpeakerIdChanged = {},
         )
     }
 }

@@ -99,30 +99,17 @@ class VoicePackDownloadWorker(
         val totalBytes = inputData.getLong(KEY_VOICE_TOTAL_BYTES, 0L)
 
         val piperVoice = SherpaPiperVoice.entries.firstOrNull { it.name == voiceName }
-        val kokoroVoice = if (piperVoice == null) SherpaKokoroVoice.entries.firstOrNull { it.name == voiceName } else null
-
-        if (piperVoice == null && kokoroVoice == null) {
-            return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
-        }
+            ?: return@withContext Result.failure(errorData("Unknown voice: $voiceName"))
 
         val isReleaseBuild =
             (applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) == 0
-        if (piperVoice != null &&
-            !SherpaVoicePackDownloadManager.canDownloadVoice(isReleaseBuild, piperVoice)
-        ) {
+        if (!SherpaVoicePackDownloadManager.canDownloadVoice(isReleaseBuild, piperVoice)) {
             Log.w(TAG, "Rejecting queued Piper download for non-release-visible voice: $voiceName")
             return@withContext Result.failure(errorData("Voice is not available in this build"))
         }
 
-        val destDir: File
-        val validationFn: (File) -> Boolean
-        if (kokoroVoice != null) {
-            destDir = kokoroVoice.voiceDir(applicationContext)
-            validationFn = ::hasRequiredKokoroVoicePackFiles
-        } else {
-            destDir = piperVoice!!.voiceDir(applicationContext)
-            validationFn = ::hasRequiredSherpaVoicePackFiles
-        }
+        val destDir = piperVoice.voiceDir(applicationContext)
+        val validationFn: (File) -> Boolean = ::hasRequiredSherpaVoicePackFiles
         val cacheDir = File(applicationContext.cacheDir, "sherpa-pack").also { it.mkdirs() }
         // Use destDir.name (pack version-specific) so a different pack version never resumes
         // from a stale partial file left by a previous version (e.g. v1.1 → v1.0 migration).

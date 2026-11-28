@@ -3,6 +3,7 @@ package com.kernel.ai.core.voice
 import android.util.Log
 import com.kernel.ai.core.inference.diagnostics.JandalEvents
 import com.kernel.ai.core.inference.diagnostics.TtsFailure
+import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -26,6 +27,7 @@ private const val TAG = "KernelAI"
  * - [VoiceOutputEngine.AndroidTts] routes directly to [AndroidTextToSpeechController].
  * - [VoiceOutputEngine.SherpaExperimental] tries [SherpaOnnxVoiceOutputController] first, but
  *   still falls back to Android TTS if Sherpa assets/runtime are missing or if synthesis fails.
+ * - [VoiceOutputEngine.KokoroExperimental] tries [KokoroVoiceOutputController] first, then Inflect Micro, then Android TTS.
  * - [VoiceOutputEngine.InflectMicroExperimental] tries the Inflect controller first, but
  *   still falls back to Android TTS if the model/frontend/runtime is unavailable.
  * Events are forwarded from whichever backend is active via [flatMapLatest].
@@ -37,6 +39,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private val sherpa: SherpaOnnxVoiceOutputController,
     private val inflect: InflectMicroVoiceOutputController,
     private val androidTts: AndroidTextToSpeechController,
+    private val kokoro: KokoroVoiceOutputController,
 ) : VoiceOutputController, StopReasonAwareVoiceOutput {
     private val activeController = MutableStateFlow<VoiceOutputController>(androidTts)
     @Volatile private var liveStream: RecordedStreamingSession? = null
@@ -46,8 +49,8 @@ class FallbackVoiceOutputController @Inject constructor(
 
     override suspend fun warmUp(): VoiceOutputResult = when (voiceOutputPreferences.selectedEngine.first()) {
         VoiceOutputEngine.AndroidTts -> warmUpAndroidTts()
-        VoiceOutputEngine.SherpaExperimental,
-        VoiceOutputEngine.KokoroExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.SherpaExperimental -> warmUpSherpaOrFallback()
+        VoiceOutputEngine.KokoroExperimental -> warmUpKokoroOrFallback()
         VoiceOutputEngine.InflectMicroExperimental -> warmUpInflectOrFallback()
     }
 
@@ -62,8 +65,8 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.speak(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> recordedSpeak(engine, request) { speakWithSherpaFallback(request) }
+            VoiceOutputEngine.SherpaExperimental -> recordedSpeak(engine, request) { speakWithSherpaFallback(request) }
+            VoiceOutputEngine.KokoroExperimental -> recordedSpeak(engine, request) { speakWithKokoroFallback(request) }
             VoiceOutputEngine.InflectMicroExperimental -> recordedSpeak(engine, request) { speakWithInflectFallback(request) }
         }
     }
@@ -95,16 +98,16 @@ class FallbackVoiceOutputController @Inject constructor(
                 androidTts.openStreamingSession(request)
             }
 
-            VoiceOutputEngine.SherpaExperimental,
-            VoiceOutputEngine.KokoroExperimental -> openSherpaStreamingSessionOrFallback(request, engine)
+            VoiceOutputEngine.SherpaExperimental -> openSherpaStreamingSessionOrFallback(request, engine)
+            VoiceOutputEngine.KokoroExperimental -> openKokoroStreamingSessionOrFallback(request, engine)
             VoiceOutputEngine.InflectMicroExperimental -> openInflectStreamingSessionOrFallback(request, engine)
         }
     }
 
-    /** Sherpa (Piper, Kokoro) only, for #1923: other engines return null and speak on confirmation as before. */
+    /** #1923: Sherpa pre-synthesis only; Kokoro and other engines confirm on the normal path. */
     override suspend fun openPreSynthesisedSession(request: VoiceSpeakRequest): VoiceOutputStreamingSession? {
         val engine = voiceOutputPreferences.selectedEngine.first()
-        if (engine != VoiceOutputEngine.SherpaExperimental && engine != VoiceOutputEngine.KokoroExperimental) return null
+        if (engine != VoiceOutputEngine.SherpaExperimental) return null
         if (sherpa.warmUp() is VoiceOutputResult.Unavailable) return null
         activate(sherpa)
         return recordedStreamSession(engine, sherpa, sherpa.openPreSynthesisedSession(request))
@@ -117,6 +120,7 @@ class FallbackVoiceOutputController @Inject constructor(
     private fun stopWith(reason: SpeakEndReason) {
         endLiveStream(reason)
         sherpa.stop()
+        kokoro.stop()
         inflect.stop()
         androidTts.stop()
     }
@@ -140,6 +144,113 @@ class FallbackVoiceOutputController @Inject constructor(
             recordFallback(VoiceOutputEngine.SherpaExperimental)
             activate(androidTts)
             androidTts.warmUp()
+        }
+    }
+
+    private suspend fun warmUpKokoroOrFallback(): VoiceOutputResult {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            return result
+        }
+        val inflectResult = inflect.warmUp()
+        if (inflectResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            return inflectResult
+        }
+        activate(androidTts)
+        return androidTts.warmUp()
+    }
+
+    private suspend fun speakWithKokoroFallback(request: VoiceSpeakRequest): VoiceOutputResult {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            var handedOff = false
+            val spoken = kokoro.speakWithRemainder(request) { text ->
+                handedOff = true
+                speakWithInflectOrAndroid(request.copy(text = text))
+            }
+            // Once Kokoro has played audio, a hand-off's result stands: speaking the whole reply again would repeat it.
+            if (handedOff || spoken !is VoiceOutputResult.Unavailable) return spoken
+        }
+        return speakWithInflectOrAndroid(request)
+    }
+
+    /** Speaks with Inflect Micro, and with Android TTS only when Inflect Micro is unavailable too (#2117). */
+    private suspend fun speakWithInflectOrAndroid(request: VoiceSpeakRequest): VoiceOutputResult {
+        val inflectResult = inflect.warmUp()
+        if (inflectResult !is VoiceOutputResult.Unavailable) {
+            activate(inflect)
+            val spoken = inflect.speak(request)
+            if (spoken !is VoiceOutputResult.Unavailable) return spoken
+        }
+        recordFallback(VoiceOutputEngine.KokoroExperimental)
+        activate(androidTts)
+        val androidResult = androidTts.warmUp()
+        return if (androidResult is VoiceOutputResult.Unavailable) androidResult else androidTts.speak(request)
+    }
+
+    private suspend fun openKokoroStreamingSessionOrFallback(
+        request: VoiceSpeakRequest,
+        engine: VoiceOutputEngine,
+    ): VoiceOutputStreamingSession {
+        val result = kokoro.warmUp()
+        if (result !is VoiceOutputResult.Unavailable) {
+            activate(kokoro)
+            var handedOff = false
+            val kokoroSession = recordedStreamSession(
+                engine,
+                kokoro,
+                kokoro.openStreamingSessionWithRemainder(request) { text ->
+                    handedOff = true
+                    speakWithInflectOrAndroid(request.copy(text = text))
+                },
+            )
+            return kokoroStreamWithInflectFallback(request, kokoroSession) { handedOff }
+        }
+        return openInflectStreamingSessionOrFallback(request, VoiceOutputEngine.InflectMicroExperimental)
+    }
+
+    /**
+     * Kokoro reports a reply it could not start only on the final append, and only when none of its audio was queued
+     * (VoiceReplyStream). Its buffered text is then unplayed: Inflect Micro speaks it whole, and Android TTS is used only
+     * if Inflect Micro is unavailable too (#2117). A chunk that fails after audio has queued hands the rest of the reply
+     * to Inflect Micro inside the Kokoro session, so this wrapper never re-speaks it.
+     */
+    private fun kokoroStreamWithInflectFallback(
+        request: VoiceSpeakRequest,
+        kokoroSession: VoiceOutputStreamingSession,
+        handedOff: () -> Boolean,
+    ): VoiceOutputStreamingSession = object : VoiceOutputStreamingSession {
+        private val buffer = StreamedReplyBuffer()
+        private var isClosed = false
+
+        override suspend fun append(text: String, isFinal: Boolean): VoiceOutputResult {
+            if (isClosed) return VoiceOutputResult.Spoken
+            buffer.add(text)
+            if (!isFinal) return kokoroSession.append(text, isFinal = false)
+
+            isClosed = true
+            val kokoroResult = kokoroSession.append(text, isFinal = true)
+            if (kokoroResult !is VoiceOutputResult.Unavailable) return kokoroResult
+            // A hand-off already spoke the rest of the reply through Inflect Micro: never re-speak it whole.
+            if (handedOff()) return kokoroResult
+            val finalText = buffer.text()
+            if (finalText.isBlank()) return kokoroResult
+            Log.w(TAG, "Kokoro streaming synthesis failed (${kokoroResult.message}); routing to Inflect Micro fallback.")
+            return speakWithInflectOrAndroid(request.copy(text = finalText))
+        }
+
+        override suspend fun appendPause(durationMs: Long) {
+            if (!isClosed) kokoroSession.appendPause(durationMs)
+        }
+
+        override suspend fun cancel() {
+            if (isClosed) return
+            isClosed = true
+            // Cancellation must not start speaking the buffered text (same rule as the Inflect streaming session).
+            kokoroSession.cancel()
         }
     }
 
@@ -220,7 +331,7 @@ class FallbackVoiceOutputController @Inject constructor(
             activate(inflect)
             val inflectSession = recordedStreamSession(engine, inflect, inflect.openStreamingSession(request))
             return object : VoiceOutputStreamingSession {
-                private val bufferedText = StringBuilder()
+                private val buffer = StreamedReplyBuffer()
                 private var isClosed = false
 
                 override suspend fun append(
@@ -228,21 +339,14 @@ class FallbackVoiceOutputController @Inject constructor(
                     isFinal: Boolean,
                 ): VoiceOutputResult {
                     if (isClosed) return VoiceOutputResult.Spoken
-                    if (text.isNotBlank()) {
-                        // Sentence chunks arrive without a separator; join them with one space so the
-                        // Android TTS fallback does not read "degrees.Today's" as one run.
-                        if (bufferedText.isNotEmpty() && !bufferedText.last().isWhitespace() && !text.first().isWhitespace()) {
-                            bufferedText.append(' ')
-                        }
-                        bufferedText.append(text)
-                    }
+                    buffer.add(text)
                     if (!isFinal) return inflectSession.append(text, isFinal = false)
 
                     isClosed = true
                     val inflectResult = inflectSession.append(text, isFinal = true)
                     if (inflectResult !is VoiceOutputResult.Unavailable) return inflectResult
 
-                    val finalText = bufferedText.toString().trim()
+                    val finalText = buffer.text()
                     if (finalText.isBlank()) return inflectResult
                     Log.w(
                         TAG,
@@ -315,6 +419,22 @@ class FallbackVoiceOutputController @Inject constructor(
         }
     }
 
+    /** Joins streamed sentence chunks for a fallback speak. Chunks arrive without a separator. */
+    private class StreamedReplyBuffer {
+        private val buffered = StringBuilder()
+
+        fun add(chunk: String) {
+            if (chunk.isBlank()) return
+            // One space between sentences, so the fallback does not read "degrees.Today's" as one run.
+            if (buffered.isNotEmpty() && !buffered.last().isWhitespace() && !chunk.first().isWhitespace()) {
+                buffered.append(' ')
+            }
+            buffered.append(chunk)
+        }
+
+        fun text(): String = buffered.toString().trim()
+    }
+
     /** Records streaming speak start, final append and cancel for a non-Android engine (#1870). */
     private fun recordedStreamSession(
         engine: VoiceOutputEngine,
@@ -332,7 +452,7 @@ class FallbackVoiceOutputController @Inject constructor(
     }
 
     private fun activate(controller: VoiceOutputController) {
-        if (controller !== sherpa) endLiveStream(SpeakEndReason.REPLACED)
+        if (controller !== sherpa && controller !== kokoro) endLiveStream(SpeakEndReason.REPLACED)
         activeController.value = controller
         stopInactiveControllers(controller)
     }
@@ -440,6 +560,7 @@ class FallbackVoiceOutputController @Inject constructor(
 
     private fun stopInactiveControllers(active: VoiceOutputController) {
         if (active !== sherpa) sherpa.stop()
+        if (active !== kokoro) kokoro.stop()
         if (active !== inflect) inflect.stop()
         if (active !== androidTts) androidTts.stop()
     }

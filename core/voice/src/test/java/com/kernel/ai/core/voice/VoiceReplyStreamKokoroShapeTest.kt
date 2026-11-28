@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The shared stream with a Kokoro-shaped engine: units are plain text chunks (as `KokoroEtDebugLane.splitText`
+ * The shared stream with a Kokoro-shaped engine: units are plain text chunks (as `KokoroEngine.splitText`
  * returns), synthesis is a fake waveform per chunk at 24 kHz. Complements [VoiceReplyStreamTest], which drives the
  * Inflect unit type, so both engines are covered by the same stream contract.
  */

@@ -1,4 +1,4 @@
-package com.kernel.ai.debug.tts.kokoro
+package com.kernel.ai.core.voice.kokoro
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
