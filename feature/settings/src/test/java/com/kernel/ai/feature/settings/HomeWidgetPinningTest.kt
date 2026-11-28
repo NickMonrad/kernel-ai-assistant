@@ -15,7 +15,9 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -29,6 +31,14 @@ class HomeWidgetPinningTest {
     @BeforeEach
     fun setUp() {
         every { context.getSystemService(AppWidgetManager::class.java) } returns manager
+        every { manager.getAppWidgetIds(any()) } returns intArrayOf()
+        HomeWidgetPinning.clearPendingWidgetPins()
+    }
+
+    @AfterEach
+    fun tearDownPendingIntentMocks() {
+        unmockkConstructor(Intent::class)
+        unmockkStatic(PendingIntent::class)
     }
 
     @Test
@@ -37,7 +47,7 @@ class HomeWidgetPinningTest {
 
         assertEquals(
             HomeWidgetPinning.PinResult.Unsupported,
-            HomeWidgetPinning.requestWidgetPin(context, provider, successCallback),
+            HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback),
         )
         verify(exactly = 0) { manager.requestPinAppWidget(any(), any(), any()) }
     }
@@ -48,7 +58,7 @@ class HomeWidgetPinningTest {
 
         assertEquals(
             HomeWidgetPinning.PinResult.Unsupported,
-            HomeWidgetPinning.requestWidgetPin(context, provider, successCallback),
+            HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback),
         )
     }
 
@@ -59,7 +69,7 @@ class HomeWidgetPinningTest {
 
         assertEquals(
             HomeWidgetPinning.PinResult.Requested,
-            HomeWidgetPinning.requestWidgetPin(context, provider, successCallback),
+            HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback),
         )
         verify { manager.requestPinAppWidget(provider, null, successCallback) }
     }
@@ -71,7 +81,7 @@ class HomeWidgetPinningTest {
 
         assertEquals(
             HomeWidgetPinning.PinResult.Rejected,
-            HomeWidgetPinning.requestWidgetPin(context, provider, successCallback),
+            HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback),
         )
     }
 
@@ -83,14 +93,8 @@ class HomeWidgetPinningTest {
 
         assertEquals(
             HomeWidgetPinning.PinResult.Rejected,
-            HomeWidgetPinning.requestWidgetPin(context, provider, successCallback),
+            HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback),
         )
-    }
-
-    @AfterEach
-    fun tearDownPendingIntentMocks() {
-        unmockkConstructor(Intent::class)
-        unmockkStatic(PendingIntent::class)
     }
 
     @Test
@@ -140,5 +144,39 @@ class HomeWidgetPinningTest {
     fun `confirmedItem ignores a missing or unknown item extra`() {
         assertNull(HomeWidgetPinning.confirmedItem(HomeWidgetPinning.ACTION_PIN_CONFIRMED, null))
         assertNull(HomeWidgetPinning.confirmedItem(HomeWidgetPinning.ACTION_PIN_CONFIRMED, "NOT_AN_ITEM"))
+    }
+
+    @Test
+    fun `ignores a confirmation for an item that was never requested`() {
+        assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.LISTS_WIDGET, widgetCount = 1))
+    }
+
+    @Test
+    fun `a rejected request is not pending, so its callback cannot claim`() {
+        every { manager.isRequestPinAppWidgetSupported } returns true
+        every { manager.requestPinAppWidget(any(), any(), any()) } returns false
+        HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback)
+
+        assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
+    }
+
+    @Test
+    fun `ignores a stale callback when no new widget appeared since the request`() {
+        every { manager.isRequestPinAppWidgetSupported } returns true
+        every { manager.requestPinAppWidget(any(), any(), any()) } returns true
+        every { manager.getAppWidgetIds(any()) } returns intArrayOf(7)
+        HomeWidgetPinning.requestWidgetPin(context, HomeItem.LISTS_WIDGET, provider, successCallback)
+
+        assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.LISTS_WIDGET, widgetCount = 1))
+    }
+
+    @Test
+    fun `claims a confirmation once when the widget count grew, then ignores duplicates`() {
+        every { manager.isRequestPinAppWidgetSupported } returns true
+        every { manager.requestPinAppWidget(any(), any(), any()) } returns true
+        HomeWidgetPinning.requestWidgetPin(context, HomeItem.JANDAL_WIDGET, provider, successCallback)
+
+        assertTrue(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
+        assertFalse(HomeWidgetPinning.claimConfirmation(HomeItem.JANDAL_WIDGET, widgetCount = 1))
     }
 }

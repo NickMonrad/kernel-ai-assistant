@@ -35,6 +35,7 @@ class HomeWidgetPinConfirmedReceiver : BroadcastReceiver() {
             intent.action,
             intent.getStringExtra(HomeWidgetPinning.EXTRA_ITEM),
         ) ?: return
+        if (!HomeWidgetPinning.claimConfirmation(context, item)) return
         HomeWidgetPinEvents.emit(item)
     }
 }

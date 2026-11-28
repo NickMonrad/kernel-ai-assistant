@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import java.util.concurrent.ConcurrentHashMap
 
 /** Home-screen items the app can offer to pin (#2194). */
 enum class HomeItem(val title: String, val description: String, val fallbackHowTo: String) {
@@ -43,11 +44,13 @@ object HomeWidgetPinning {
     fun request(context: Context, item: HomeItem): PinResult = when (item) {
         HomeItem.JANDAL_WIDGET -> requestWidgetPin(
             context,
+            item,
             ComponentName(context, JANDAL_PROVIDER),
             confirmationPendingIntent(context, item),
         )
         HomeItem.LISTS_WIDGET -> requestWidgetPin(
             context,
+            item,
             ComponentName(context, LISTS_PROVIDER),
             confirmationPendingIntent(context, item),
         )
@@ -60,17 +63,21 @@ object HomeWidgetPinning {
 
     /**
      * Returns [PinResult.Requested] only when the launcher accepted the request. A launcher that
-     * throws or declines is [PinResult.Rejected], never a silent success.
+     * throws or declines is [PinResult.Rejected], never a silent success. The widget count before the
+     * request is recorded so [claimConfirmation] can tell a real placement from a stale callback.
      */
     internal fun requestWidgetPin(
         context: Context,
+        item: HomeItem,
         provider: ComponentName,
         successCallback: PendingIntent,
     ): PinResult {
         val manager = context.getSystemService(AppWidgetManager::class.java) ?: return PinResult.Unsupported
         if (!manager.isRequestPinAppWidgetSupported) return PinResult.Unsupported
+        pendingWidgetPins[item] = manager.getAppWidgetIds(provider).size
         val accepted = runCatching { manager.requestPinAppWidget(provider, null, successCallback) }
             .getOrDefault(false)
+        if (!accepted) pendingWidgetPins.remove(item)
         return if (accepted) PinResult.Requested else PinResult.Rejected
     }
 
@@ -100,4 +107,33 @@ object HomeWidgetPinning {
         if (action != ACTION_PIN_CONFIRMED || itemName == null) return null
         return HomeItem.entries.firstOrNull { it.name == itemName }
     }
+
+    /** Widget requests the launcher accepted and has not yet confirmed, with each widget count before the request. */
+    private val pendingWidgetPins = ConcurrentHashMap<HomeItem, Int>()
+
+    /** Null for the shortcut, which has no AppWidget provider. */
+    internal fun providerFor(context: Context, item: HomeItem): ComponentName? = when (item) {
+        HomeItem.JANDAL_WIDGET -> ComponentName(context, JANDAL_PROVIDER)
+        HomeItem.LISTS_WIDGET -> ComponentName(context, LISTS_PROVIDER)
+        HomeItem.LISTS_SHORTCUT -> null
+    }
+
+    /**
+     * Claims a success callback for [item] only if it was requested and its widget count has grown.
+     * Launchers can flush success callbacks for other, earlier requests; those are ignored here.
+     */
+    internal fun claimConfirmation(context: Context, item: HomeItem): Boolean {
+        val manager = context.getSystemService(AppWidgetManager::class.java) ?: return false
+        val provider = providerFor(context, item) ?: return false
+        return claimConfirmation(item, manager.getAppWidgetIds(provider).size)
+    }
+
+    internal fun claimConfirmation(item: HomeItem, widgetCount: Int): Boolean {
+        val before = pendingWidgetPins[item] ?: return false
+        if (widgetCount <= before) return false
+        pendingWidgetPins.remove(item)
+        return true
+    }
+
+    internal fun clearPendingWidgetPins() = pendingWidgetPins.clear()
 }
