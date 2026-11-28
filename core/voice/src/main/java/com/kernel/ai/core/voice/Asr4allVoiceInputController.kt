@@ -722,7 +722,9 @@ class Asr4allVoiceInputController internal constructor(
             }
             if (text.isNotEmpty() && text != partial) {
                 partial = text
-                if (!discard.get()) _events.tryEmit(VoiceInputEvent.PartialTranscript(mode, text, sessionId))
+                // US→NZ spelling only; the full normalise() runs on the final transcript (#2177).
+                val shown = TranscriptNormaliser.normaliseSpelling(text)
+                if (!discard.get()) _events.tryEmit(VoiceInputEvent.PartialTranscript(mode, shown, sessionId))
             }
         }
         // Superseded: no finish, no error, no transcript.

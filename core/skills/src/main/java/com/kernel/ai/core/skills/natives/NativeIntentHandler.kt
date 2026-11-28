@@ -539,16 +539,15 @@ class NativeIntentHandler @Inject constructor(
                 val formatter = DateTimeFormatter.ofPattern("EEE d MMM 'at' h:mma")
                     .withZone(ZoneId.systemDefault())
                 val formattedTime = formatter.format(Instant.ofEpochMilli(scheduled.triggerAtMillis))
-                val warningText = result.warnings.joinToString(" ") { warning ->
+                val warningText = result.warnings.mapNotNull { warning ->
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are off for this alarm, so it will show as a notification."
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
-                }
+                }.joinToString(" ")
                 val confirmation = "Alarm set for $formattedTime${if (label != null) " — $label" else ""}."
                 val message = buildString {
                     append(confirmation)
@@ -585,16 +584,15 @@ class NativeIntentHandler @Inject constructor(
                     mins > 0 -> "$mins minute${if (mins != 1L) "s" else ""}"
                     else -> "${scheduled.durationMs / 1000} seconds"
                 }
-                val warningText = result.warnings.joinToString(" ") { warning ->
+                val warningText = result.warnings.mapNotNull { warning ->
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE ->
-                            "Full-screen alerts are off for this timer, so it will show as a notification."
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
-                }
+                }.joinToString(" ")
                 val confirmation = "Timer set for $durationStr."
                 val message = buildString {
                     append(confirmation)

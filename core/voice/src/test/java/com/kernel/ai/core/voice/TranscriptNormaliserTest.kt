@@ -507,6 +507,18 @@ class TranscriptNormaliserTest {
     }
 
     @Test
+    fun `US spelling keeps case and possessives, and leaves Momo alone`() {
+        assertEquals("Mum's coming", TranscriptNormaliser.normalise("Mom's coming"))
+        assertEquals("MUM said hi", TranscriptNormaliser.normalise("MOM said hi"))
+        assertEquals("Momo said hi", TranscriptNormaliser.normalise("Momo said hi"))
+    }
+
+    @Test
+    fun `partial transcripts get the spelling pass only`() {
+        assertEquals("weather an aukland mum", TranscriptNormaliser.normaliseSpelling("weather an aukland mom"))
+    }
+
+    @Test
     fun `US spelling rules leave longer words that contain the pattern alone`() {
         assertEquals("momentum and Colorado", TranscriptNormaliser.normalise("momentum and Colorado"))
     }

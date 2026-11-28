@@ -5,8 +5,8 @@ package com.kernel.ai.core.voice
  * brackets ("…not wings.\"", "…the ground.\u201D") already ends the sentence, so a preparer must not add a second
  * full stop after it. Straight and curly quotes count the same.
  */
-internal object SpeechTerminalPunctuation {
-    private const val CLOSERS = "\"'\u201D\u2019)]}"
+object SpeechTerminalPunctuation {
+    const val CLOSERS = "\"'\u201D\u2019)]}"
 
     /** True when [text], ignoring trailing closing quotes and brackets, ends with one of [marks]. */
     fun endsWith(text: String, marks: String): Boolean {

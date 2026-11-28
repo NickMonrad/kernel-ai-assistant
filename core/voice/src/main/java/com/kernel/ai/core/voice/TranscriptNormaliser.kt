@@ -204,6 +204,13 @@ object TranscriptNormaliser {
             out = "add ${m.groupValues[1]} to ${m.groupValues[2]}${m.groupValues[3]}"
             Log.w(TAG, "MISHEARD_ADD applied to \"$before\" → \"$out\"")
         }
+        out = normaliseSpelling(out)
+        return out
+    }
+
+    /** US→NZ spelling alone (#2177). Partial transcripts use this; the final transcript gets it through [normalise]. */
+    fun normaliseSpelling(text: String): String {
+        var out = text
         for ((re, replacement) in US_TO_NZ_SPELLING) {
             out = re.replace(out) { match -> matchCase(match.value, replacement) }
         }

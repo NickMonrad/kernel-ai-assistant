@@ -2726,7 +2726,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_alarm keeps full-screen warning visible but excludes it from spoken summary`() {
+    fun `set_alarm omits the full-screen warning from model text and spoken summary`() {
         val alarm = ClockAlarm(
             id = "alarm-1",
             label = "Wake",
@@ -2749,7 +2749,7 @@ class NativeIntentHandlerTest {
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
         assertTrue(success.content.contains("Alarm set for"))
-        assertTrue(success.content.contains("show as a notification"))
+        assertEquals(spoken, success.content)
         assertFalse(spoken.contains("notification"))
         assertTrue(success.content.startsWith(spoken))
     }
@@ -2786,7 +2786,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_alarm keeps multiple warnings visible but none are spoken`() {
+    fun `set_alarm keeps the boot-restore warning and omits the full-screen one`() {
         val alarm = ClockAlarm(
             id = "alarm-1",
             label = "Wake",
@@ -2809,7 +2809,7 @@ class NativeIntentHandlerTest {
         val result = handleIntent("set_alarm", mapOf("time" to "07:00", "label" to "Wake"))
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("show as a notification"))
+        assertFalse(success.content.contains("notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
@@ -2817,7 +2817,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_timer keeps full-screen warning visible but excludes it from spoken summary`() {
+    fun `set_timer omits the full-screen warning from model text and spoken summary`() {
         coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
             com.kernel.ai.core.memory.clock.ClockTimer(
                 id = "timer-1",
@@ -2835,7 +2835,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("show as a notification"))
+        assertEquals("Timer set for 1 min 30 sec.", success.content)
         assertFalse(spoken.contains("notification"))
         assertEquals("Timer set for 1 min 30 sec.", spoken)
         assertTrue(success.content.startsWith(spoken))
@@ -2866,7 +2866,7 @@ class NativeIntentHandlerTest {
     }
 
     @Test
-    fun `set_timer keeps multiple warnings visible but none are spoken`() {
+    fun `set_timer keeps the boot-restore warning and omits the full-screen one`() {
         coEvery { clockRepository.scheduleTimer(90_000L, "Tea") } returns SchedulingResult.Success(
             com.kernel.ai.core.memory.clock.ClockTimer(
                 id = "timer-1",
@@ -2887,7 +2887,7 @@ class NativeIntentHandlerTest {
         assertTrue(result is SkillResult.Success)
         val success = result as SkillResult.Success
         val spoken = requireNotNull(success.spokenSummary) { "spokenSummary must be populated" }
-        assertTrue(success.content.contains("show as a notification"))
+        assertFalse(success.content.contains("notification"))
         assertTrue(success.content.contains("may not persist across device restarts"))
         assertFalse(spoken.contains("notification"))
         assertFalse(spoken.contains("may not persist across device restarts"))
