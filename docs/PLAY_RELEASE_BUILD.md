@@ -186,6 +186,23 @@ gh secret set PLAY_SERVICE_ACCOUNT_JSON --env play-release < ~/.local/share/jand
 
 Type the three short secrets in **Settings › Environments › play-release › Environment secrets › Add environment secret**. To rotate a value, repeat the same command or form; nothing else changes. The service account holds testing-track release permissions only (see [One-time owner setup](#one-time-owner-setup)), and the app's first upload must already have been made manually in Play Console, because `AUTO` version resolution reads the existing Play version codes.
 
+#### Internal-track environment (`play-internal`)
+
+Internal-track runs use a second environment, `play-internal`, so internal builds (which reach only the owner's internal testers) don't need a manual approval. Alpha (closed testing) runs still use `play-release` and its required reviewer. The job picks the environment from the track input: `internal` → `play-internal`, `alpha` → `play-release`.
+
+Configure **Settings › Environments › New environment › `play-internal`**:
+
+| Setting | Value |
+|---|---|
+| Required reviewers | None |
+| Wait timer | 5 minutes, so a run started by mistake can be cancelled before it gets the secrets |
+| Allow administrators to bypass configured protection rules | Off |
+| Deployment branches and tags | **Selected branches and tags**, `main` only |
+
+Environment secrets can't be shared between environments, so add the same five secrets to `play-internal`, using the same commands as above with `--env play-internal`, and the three short ones in **Settings › Environments › play-internal › Environment secrets**. Until they exist, internal runs stop at **Check required secrets** without uploading anything.
+
+Trade-off: anyone with write access who can start the workflow on `main` can publish an internal build after the wait timer. Alpha still needs the owner's approval.
+
 #### Release steps
 
 Every build goes to **internal testing** first. The owner smoke tests it there, then promotes the same build to **closed testing** (`alpha`), which is where the testers' Google Group is.
@@ -197,7 +214,7 @@ Every build goes to **internal testing** first. The owner smoke tests it there, 
 
 1. Update `app/src/main/play/release-notes/en-AU/default.txt` and merge it to `main`. The run builds the `main` commit current when it is started, so the notes must be merged first.
 2. **Actions › Play release › Run workflow**: leave **Use workflow from** on `main`, keep the track on `internal`, tick **github_release**, then **Run workflow**. Any other branch fails in the `Require main` job without requesting approval.
-3. Open the run. `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval.
+3. Open the run. For **alpha**, `Publish to Play` waits for review; choose **Review deployments**, tick `play-release`, then **Approve and deploy**. The job receives the secrets only after this approval. For **internal**, the job waits for the `play-internal` wait timer instead (cancel the run within it to stop the upload).
 4. The job builds and signs the AAB, rejects it if unsigned (`verifyReleaseBundleForPlayUpload`), uploads it to internal testing with the next Play `versionCode`, and removes the credentials. With **github_release** ticked, the same Gradle run also builds the signed release APK (`:app:assembleRelease`, ordered before the upload) and publishes it as a GitHub **pre-release** (see below), which Obtainium and the Latest badge ignore. If the APK build fails, nothing is uploaded to Play.
 5. **Smoke test:** the owner updates from the Play internal-testing link and checks the build on a real phone. The GitHub pre-release is public and downloadable, but Obtainium doesn't offer it, so non-Play testers don't get it unless someone points them at it.
 6. **Promote:** in Play Console, open **Test and release › Testing › Internal testing**, choose **Promote release › Closed testing**, check the release notes, select **Next**, then **Save** and **Send for review** (on **Publishing overview** if managed publishing is on). Testers get the exact build that was smoke tested, with the same `versionCode`, so it matches the GitHub APK. It then waits for Google's review.
