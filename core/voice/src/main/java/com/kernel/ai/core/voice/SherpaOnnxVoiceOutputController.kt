@@ -145,7 +145,7 @@ class SherpaOnnxVoiceOutputController @Inject constructor(
             val initResult: VoiceOutputResult
             val speakerCount: Int
             val voiceSid: Int
-            val voice = voiceOutputPreferences.selectedSherpaVoice.first()
+            val voice = request.sherpaVoice ?: voiceOutputPreferences.selectedSherpaVoice.first()
             initResult = initialize(voice)
             speakerCount = voice.speakerCount
             voiceSid = activeSpeakerId.value

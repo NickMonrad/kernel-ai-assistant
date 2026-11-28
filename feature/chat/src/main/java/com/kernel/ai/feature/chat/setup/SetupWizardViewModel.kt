@@ -17,6 +17,8 @@ import com.kernel.ai.core.inference.setup.SetupWizardPreferences
 import com.kernel.ai.core.inference.terms.TermsAcceptancePreferences
 import com.kernel.ai.core.inference.terms.TermsAcceptanceSource
 import com.kernel.ai.core.voice.Asr4AllInstall
+import com.kernel.ai.core.voice.asr4all.Asr4AllSize
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
@@ -91,6 +93,18 @@ data class SetupWizardUiState(
     val isRerun: Boolean = false,
     /** True once the Terms of Use are accepted for the current version. Every step after Welcome needs it (#1998). */
     val termsAccepted: Boolean = false,
+    /** Size the asr4all card names: the stored choice when this tier offers it, else the default (#2173). */
+    val asr4allSize: Asr4AllSize = Asr4AllInstall.defaultSize,
+    /** Bytes the asr4all card still has to download; the card says "about N MB" (#2173). */
+    val asr4allBytes: Long = 0L,
+    /** True when every file of [asr4allSize] is on disk: the card shows Downloaded instead of Not downloaded (#2173). */
+    val asr4allDownloaded: Boolean = false,
+    /** The stored speech input when setup does not list it: it gets its own "Current: …" card. Null when listed (#2173). */
+    val extraInputEngine: VoiceInputEngine? = null,
+    /** The stored speech output when setup does not list it: it gets its own "Current: …" card. Null when listed (#2173). */
+    val extraOutputEngine: VoiceOutputEngine? = null,
+    /** The output first-run setup chooses on this phone. A Kokoro pick falls back to it until the check passes (#2173). */
+    val defaultOutput: VoiceOutputEngine = VoiceOutputEngine.SherpaExperimental,
 )
 
 /**
@@ -203,6 +217,7 @@ class SetupWizardViewModel @Inject constructor(
             voiceStates = voicePackDownloadManager.downloadStates.value
             // The stored size when this tier offers it: the plan counts the same files the provisioner queues.
             val asr4allSize = Asr4AllInstall.effectiveSize(voiceInputPreferences.asr4allSize.first(), tier)
+            val asr4allModels = Asr4AllInstall.models(asr4allSize)
             allPlannedModels = downloadManager.plannedFirstRunModels() +
                 Asr4AllInstall.models(asr4allSize).filterNot { isModelDownloaded(it) }
             val input = effectiveInput(inputEngine)
@@ -238,6 +253,12 @@ class SetupWizardViewModel @Inject constructor(
                 heyJandalExtraBytes = heyJandalExtraBytes(plannedModels),
                 welcomeTotalBytes = welcomeTotal,
                 isRerun = progress.completed,
+                asr4allSize = asr4allSize,
+                asr4allBytes = asr4allModels.sumOf { it.approxSizeBytes },
+                asr4allDownloaded = asr4allModels.all { isModelDownloaded(it) },
+                extraInputEngine = SetupSpeechOptions.extraCurrent(inputOptions, currentInput),
+                extraOutputEngine = SetupSpeechOptions.extraCurrent(outputOptions, currentOutput),
+                defaultOutput = defaultOutput,
             )
         }
     }
@@ -270,14 +291,22 @@ class SetupWizardViewModel @Inject constructor(
         } else {
             emptyList()
         }
-        return speech + inflect.filterNot { it in speech }
+        // Kokoro's pack joins the plan when Kokoro is the output, so the step-3 rows and totals include it (#2173).
+        val kokoro = if (output == VoiceOutputEngine.KokoroExperimental) {
+            KokoroSetup.kernelModels().filterNot { isModelDownloaded(it) }
+        } else {
+            emptyList()
+        }
+        val extra = inflect + kokoro
+        return speech + extra.filterNot { it in speech }
     }
     private fun isModelDownloaded(model: KernelModel): Boolean =
         downloadManager.downloadStates.value[model] is DownloadState.Downloaded
 
     /**
      * Bytes each speech output still has to download. Cori: its pack, or 0 when on disk. Inflect: its missing
-     * graph files plus Cori when Cori is not on disk, or 0 when all are on disk (#1931). Android TTS has no entry.
+     * graph files plus Cori when Cori is not on disk, or 0 when all are on disk (#1931). Kokoro: its missing pack
+     * files, or 0 when on disk (#2173). Android TTS has no entry.
      */
     private fun outputSizes(): Map<VoiceOutputEngine, Long> {
         val cori = if (isDownloaded(SherpaPiperVoice.CoriHigh)) 0L else SherpaPiperVoice.CoriHigh.approxDownloadBytes
@@ -285,6 +314,7 @@ class SetupWizardViewModel @Inject constructor(
         return mapOf(
             VoiceOutputEngine.SherpaExperimental to cori,
             VoiceOutputEngine.InflectMicroExperimental to inflectFiles + cori,
+            VoiceOutputEngine.KokoroExperimental to KokoroSetup.kernelModels().filterNot { isModelDownloaded(it) }.sumOf { it.approxSizeBytes },
         )
     }
 
@@ -420,6 +450,8 @@ class SetupWizardViewModel @Inject constructor(
             if (storedChoice == null) downloadNetworkPreferences.setChoice(effective)
             // Inflect queues on Skip too; Cori alone never does (#1936). Queued after the network choice (consent).
             if (output == VoiceOutputEngine.InflectMicroExperimental) queueInflectMicro()
+            // Kokoro's pack queues on Skip too; the speed check runs once it is on disk (#2173).
+            if (output == VoiceOutputEngine.KokoroExperimental) KokoroSetup.queue(downloadManager)
             setupWizardPreferences.markCompleted()
             onDone(effective)
         }
@@ -437,14 +469,26 @@ class SetupWizardViewModel @Inject constructor(
 
     /**
      * Saves the speech choices before the network choice, so VoiceDefaultsProvisioner reads them after
-     * consent. Returns the output written in this run, or null when the stored output was kept.
+     * consent. Returns the output the user chose in this run, or null when the stored output was kept.
      */
     private suspend fun saveSpeechChoices(state: SetupWizardUiState): VoiceOutputEngine? {
         inputToSave(state)?.let { voiceInputPreferences.setSelectedEngine(it) }
         // Written only when changed in this run, so a stored value stands otherwise (#1936).
         if (touched(KEY_ONLINE_SPEECH)) voiceInputPreferences.setAllowOnlineSpeechFallback(state.allowOnlineSpeech)
         val output = outputToSave(state)
-        output?.let { voiceOutputPreferences.setSelectedEngine(it) }
+        when (output) {
+            null -> Unit
+            // Kokoro is selected only by its speed check (#2173). Until it passes, the output keeps its stored value,
+            // or the tier default when none is stored.
+            VoiceOutputEngine.KokoroExperimental -> {
+                voiceOutputPreferences.setPendingKokoroCheck(true)
+                if (storedOutput == null) voiceOutputPreferences.setSelectedEngine(state.defaultOutput)
+            }
+            else -> {
+                voiceOutputPreferences.setPendingKokoroCheck(false)
+                voiceOutputPreferences.setSelectedEngine(output)
+            }
+        }
         return output
     }
 
@@ -469,6 +513,7 @@ class SetupWizardViewModel @Inject constructor(
         when (output) {
             VoiceOutputEngine.SherpaExperimental -> piperVoiceSetup.onEngineChosen(output)
             VoiceOutputEngine.InflectMicroExperimental -> queueInflectMicro()
+            VoiceOutputEngine.KokoroExperimental -> KokoroSetup.queue(downloadManager)
             else -> Unit
         }
     }

@@ -292,6 +292,15 @@ fun ChatScreen(
     val mealPlannerActivity by viewModel.mealPlannerActivity.collectAsStateWithLifecycle()
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    // The Kokoro speed-check result from setup, shown once in the snackbar (#2173).
+    val kokoroCheckNotice: KokoroCheckNoticeViewModel = hiltViewModel()
+    val kokoroCheckResult by kokoroCheckNotice.result.collectAsStateWithLifecycle()
+    LaunchedEffect(kokoroCheckResult) {
+        kokoroCheckResult?.let { result ->
+            kokoroCheckNotice.consume()
+            snackbarHostState.showSnackbar(result.message())
+        }
+    }
     val scope = rememberCoroutineScope()
     val view = androidx.compose.ui.platform.LocalView.current
     val keepScreenAwake = shouldKeepChatScreenAwake(

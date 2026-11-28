@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -41,11 +40,9 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.SignalCellularAlt
 import androidx.compose.material.icons.outlined.Wifi
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,7 +65,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -97,11 +93,11 @@ import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.SwitchSubSetting
 import com.kernel.ai.core.ui.findActivity
 import com.kernel.ai.core.ui.rememberDownloadNotificationGate
-import com.kernel.ai.core.ui.theme.JandalTheme
 import com.kernel.ai.core.ui.terms.TermsAcceptRow
 import com.kernel.ai.core.ui.terms.TermsOfUseLink
 import com.kernel.ai.core.ui.terms.TermsSheet
 import com.kernel.ai.core.ui.terms.rememberBundledTerms
+import com.kernel.ai.core.ui.voice.VoiceSampleButton
 import com.kernel.ai.core.voice.HonorCameraCoexistence
 import com.kernel.ai.core.voice.OnlineSpeechCopy
 import com.kernel.ai.core.voice.VoiceInputEngine
@@ -561,24 +557,20 @@ private fun VoiceStep(
     state.inputReason?.let { reason ->
         Text(text = reason, style = MaterialTheme.typography.bodySmall)
     }
-    if (inputEngine == null) {
-        Text(
-            text = "Your current speech input stays as it is.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-    ChoiceGroup(count = state.inputOptions.size) {
-        state.inputOptions.forEachIndexed { index, engine ->
+    val inputCards = state.inputOptions + listOfNotNull(state.extraInputEngine)
+    val selectedInput = inputEngine ?: state.extraInputEngine
+    ChoiceGroup(count = inputCards.size) {
+        inputCards.forEachIndexed { index, engine ->
             ChoiceCard(
-                title = inputTitle(engine),
-                description = inputBody(engine),
-                selected = inputEngine == engine,
+                title = if (engine == state.extraInputEngine) "Current: ${inputTitle(engine)}" else inputTitle(engine),
+                description = inputBody(engine, state),
+                selected = selectedInput == engine,
                 onSelect = { onInputSelected(engine) },
                 index = index,
-                tag = if (engine == VoiceInputEngine.Auto) {
-                    { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
-                } else {
-                    null
+                tag = when (engine) {
+                    VoiceInputEngine.Auto -> recommendedTag()
+                    VoiceInputEngine.Asr4all -> asr4allStatusTag(state.asr4allDownloaded)
+                    else -> null
                 },
                 subContent = if (inputEngine != null && onlineSpeechToggleVisible(inputEngine, engine)) {
                     {
@@ -595,27 +587,23 @@ private fun VoiceStep(
     }
 
     SectionLabel(text = "Speaking", icon = Icons.AutoMirrored.Outlined.VolumeUp)
-    ChoiceGroup(count = state.outputOptions.size) {
-        state.outputOptions.forEachIndexed { index, engine ->
+    val outputCards = state.outputOptions + listOfNotNull(state.extraOutputEngine)
+    val selectedOutput = outputEngine ?: state.extraOutputEngine
+    ChoiceGroup(count = outputCards.size) {
+        outputCards.forEachIndexed { index, engine ->
             val clip = sampleClipFor(engine)
             ChoiceCard(
-                title = VoiceOutputCopy.title(engine),
-                description = VoiceOutputCopy.body(engine),
-                selected = outputEngine == engine,
+                title = if (engine == state.extraOutputEngine) "Current: ${VoiceOutputCopy.title(engine)}" else VoiceOutputCopy.title(engine),
+                description = outputBody(engine),
+                selected = selectedOutput == engine,
                 onSelect = { onOutputSelected(engine) },
                 index = index,
                 tag = outputTag(state.outputSizes[engine]),
                 subContent = clip?.let { res ->
-                    { SampleButton(playing = player.playing == res, onClick = { player.toggle(res) }) }
+                    { VoiceSampleButton(voiceName = VoiceOutputCopy.title(engine), playing = player.playing == res, onClick = { player.toggle(res) }) }
                 },
             )
         }
-    }
-    if (outputEngine == null) {
-        Text(
-            text = "Your current speech output stays as it is.",
-            style = MaterialTheme.typography.bodySmall,
-        )
     }
 }
 
@@ -625,25 +613,6 @@ private fun sampleClipFor(engine: VoiceOutputEngine): Int? = when (engine) {
     VoiceOutputEngine.SherpaExperimental -> R.raw.sample_cori
     VoiceOutputEngine.InflectMicroExperimental -> R.raw.sample_inflect
     else -> null
-}
-
-/** "Hear a sample", or "Stop sample" while this voice's clip plays. A second tap stops it. */
-@Composable
-private fun SampleButton(playing: Boolean, onClick: () -> Unit) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier
-            .heightIn(min = 48.dp)
-            .semantics { stateDescription = if (playing) "Playing" else "" },
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = JandalTheme.colors.accent),
-    ) {
-        Icon(
-            imageVector = if (playing) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-        )
-        Text(text = if (playing) "Stop sample" else "Hear a sample", modifier = Modifier.padding(start = 8.dp))
-    }
 }
 
 /** Online speech switch inside the selected listening card (#1936). Saved on Finish or Skip. */
@@ -681,12 +650,33 @@ private fun outputTag(bytes: Long?): (@Composable () -> Unit)? {
 
 private fun inputTitle(engine: VoiceInputEngine): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Android's own listener"
-    else -> "Automatic"
+    VoiceInputEngine.Asr4all -> VoiceInputEngine.Asr4all.displayName
+    VoiceInputEngine.Auto -> "Automatic"
+    else -> engine.displayName
 }
 
-private fun inputBody(engine: VoiceInputEngine): String = when (engine) {
+private fun inputBody(engine: VoiceInputEngine, state: SetupWizardUiState): String = when (engine) {
     VoiceInputEngine.AndroidNative -> "Your phone's built-in speech recognition."
-    else -> VoiceInputEngine.AUTOMATIC_SUMMARY
+    VoiceInputEngine.Asr4all ->
+        "Offline. Shows words as you speak. Size ${state.asr4allSize.name}, about ${formatBytesShort(state.asr4allBytes)}."
+    VoiceInputEngine.Auto -> VoiceInputEngine.AUTOMATIC_SUMMARY
+    else -> engine.description
+}
+
+private fun outputBody(engine: VoiceOutputEngine): String = when (engine) {
+    VoiceOutputEngine.KokoroExperimental ->
+        "${VoiceOutputCopy.body(engine)} British and American voices. Your current voice stays until the check passes."
+    else -> VoiceOutputCopy.body(engine)
+}
+
+private fun recommendedTag(): (@Composable () -> Unit) = { InfoTag(text = "Recommended", style = InfoTagStyle.Success) }
+
+private fun asr4allStatusTag(downloaded: Boolean): (@Composable () -> Unit) = {
+    if (downloaded) {
+        InfoTag(text = "Downloaded", style = InfoTagStyle.Success)
+    } else {
+        InfoTag(text = "Not downloaded", style = InfoTagStyle.Neutral)
+    }
 }
 
 @Composable
