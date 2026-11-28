@@ -142,12 +142,12 @@ class CurrencyConversionService @Inject constructor(
                 }.use { response ->
                     if (!response.isSuccessful) {
                         throw IllegalArgumentException(
-                            "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+                            FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
                         )
                     }
                     val body = response.body?.string()
                         ?: throw IllegalArgumentException(
-                            "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+                            FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
                         )
                     val json = JSONObject(body)
                     buildMap<String, ResolvedCurrency> {
@@ -240,7 +240,7 @@ class CurrencyConversionService @Inject constructor(
             val date = LocalDate.parse(
                 json.optString("date").takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException(
-                        "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+                        FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
                     ),
             )
             if (ChronoUnit.DAYS.between(date, today) > MAX_RATE_AGE_DAYS) {
@@ -273,6 +273,8 @@ class CurrencyConversionService @Inject constructor(
     }
 
     private fun parseApiError(body: String, from: String, to: String, httpCode: Int): String {
+        // Any 5xx means the rate service is down, not that this pair has no rate.
+        if (httpCode >= 500) return FriendlyFailureReplies.CURRENCY_UNAVAILABLE
         val apiMessage = runCatching { JSONObject(body).optString("message") }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }

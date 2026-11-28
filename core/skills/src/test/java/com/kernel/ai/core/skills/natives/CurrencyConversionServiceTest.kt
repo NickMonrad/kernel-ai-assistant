@@ -130,9 +130,44 @@ class CurrencyConversionServiceTest {
         }
 
         assertEquals(
-            "Currency conversion failed for AUD to NZD: upstream unavailable",
+            "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
             error.message,
         )
+    }
+
+    @Test
+    fun `convert reports unavailable rates for a 503 with no body`() {
+        val service = CurrencyConversionService(fakeHttpClient(latestCode = 503, errorBody = ""))
+
+        val error = assertIllegalArgument {
+            service.convert(
+                amountRaw = "10",
+                fromCurrencyRaw = "AUD",
+                toCurrencyRaw = "NZD",
+                today = LocalDate.of(2026, 5, 10),
+            )
+        }
+
+        assertEquals(
+            "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+            error.message,
+        )
+    }
+
+    @Test
+    fun `convert names the pair and HTTP status when a client error has no body`() {
+        val service = CurrencyConversionService(fakeHttpClient(latestCode = 404, errorBody = ""))
+
+        val error = assertIllegalArgument {
+            service.convert(
+                amountRaw = "10",
+                fromCurrencyRaw = "AUD",
+                toCurrencyRaw = "NZD",
+                today = LocalDate.of(2026, 5, 10),
+            )
+        }
+
+        assertEquals("Currency conversion failed for AUD to NZD: HTTP 404", error.message)
     }
 
     @Test
@@ -276,6 +311,7 @@ class CurrencyConversionServiceTest {
         """.trimIndent(),
         currenciesCode: Int = 200,
         latestCode: Int = 200,
+        errorBody: String = "{\"message\":\"upstream unavailable\"}",
         onRequest: (String) -> Unit = {},
     ): OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(
@@ -294,7 +330,7 @@ class CurrencyConversionServiceTest {
                     .message(if (code == 200) "OK" else "ERROR")
                     .body(
                         (
-                            if (code == 200) body else "{\"message\":\"upstream unavailable\"}"
+                            if (code == 200) body else errorBody
                         ).toResponseBody("application/json; charset=utf-8".toMediaType()),
                     )
                     .build()
