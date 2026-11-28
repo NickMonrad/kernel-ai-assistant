@@ -19,6 +19,7 @@ sealed interface KokoroSpeedResult {
         val runs: List<Run> = emptyList(),
         val medianRealTimeFactor: Double = synthesisSeconds / audioSeconds,
         val medianFirstChunkSeconds: Double = firstChunkSeconds,
+        val stoppedEarly: Boolean = false,
     ) : KokoroSpeedResult {
         data class Run(
             val audioSeconds: Double,
@@ -81,20 +82,28 @@ internal fun measureKokoroSpeed(
     peakMemoryMb: () -> Long?,
     ensureActive: () -> Unit = {},
     runs: Int = KOKORO_SPEED_TEST_RUNS,
+    selectMaxRtf: Double = KOKORO_SELECT_MAX_MEDIAN_RTF,
     nanoTime: () -> Long = System::nanoTime,
 ): KokoroSpeedResult {
     val measured = ArrayList<KokoroSpeedResult.Measured.Run>(runs)
+    var stoppedEarly = false
     try {
-        repeat(runs) {
+        for (pass in 1..runs) {
             measured += timeOneSpeedRun(sentences, splitText, synthesizeChunk, sampleRate, ensureActive, nanoTime)
                 ?: return KokoroSpeedResult.Unavailable("Kokoro produced no audio for the speed test.")
+            // Two runs both over the limit put the median of three over it too, so a third pass cannot change the verdict.
+            if (pass == 2 && runs > 2 && measured.all { it.realTimeFactor > selectMaxRtf }) {
+                stoppedEarly = true
+                break
+            }
         }
     } catch (error: CancellationException) {
         throw error
     } catch (error: Throwable) {
         return KokoroSpeedResult.Unavailable("Kokoro speed test failed: ${error.message}")
     }
-    return aggregateKokoroSpeedRuns(measured, peakMemoryMb())
+    val result = aggregateKokoroSpeedRuns(measured, peakMemoryMb())
+    return if (stoppedEarly && result is KokoroSpeedResult.Measured) result.copy(stoppedEarly = true) else result
 }
 
 /** One pass over [sentences]; null when the pass produced no samples. */

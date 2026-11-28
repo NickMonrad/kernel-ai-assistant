@@ -397,47 +397,45 @@ internal fun SpeakingSection(
                                     ) { Text("Test voice speed") }
                                     KokoroSpeedPanel(uiState.kokoroSpeed)
                                 }
-                                if (kokoroSelected) {
-                                    when {
-                                        downloading -> OutlinedButton(
-                                            onClick = onCancelKokoroPack,
-                                            colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics { contentDescription = "Cancel Kokoro download" },
-                                        ) { Text("Cancel") }
-                                        ready -> OutlinedButton(
-                                            onClick = onDeleteKokoroPack,
-                                            colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
-                                        ) { Text("Delete") }
-                                        failed -> OutlinedButton(
-                                            onClick = onDownloadKokoroPack,
-                                            colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics { contentDescription = "Retry Kokoro download" },
-                                        ) { Text("Retry") }
-                                        else -> Button(
-                                            onClick = onDownloadKokoroPack,
-                                            modifier = Modifier.semantics { contentDescription = "Download Kokoro" },
-                                        ) { Text("Download") }
-                                    }
-                                    if (uiState.kokoroWaitingForWifi) {
-                                        Text(
-                                            text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        Button(
-                                            onClick = onUseMobileDataForKokoro,
-                                            modifier = Modifier.semantics {
-                                                contentDescription = "Use mobile data for Kokoro"
-                                            },
-                                        ) { Text("Use mobile data") }
-                                    }
-                                    if (ready) {
-                                        KokoroVoicePicker(
-                                            selected = uiState.selectedKokoroVoice,
-                                            onSelected = onKokoroVoiceSelected,
-                                        )
-                                    }
+                                when {
+                                    downloading -> OutlinedButton(
+                                        onClick = onCancelKokoroPack,
+                                        colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Cancel Kokoro download" },
+                                    ) { Text("Cancel") }
+                                    ready -> OutlinedButton(
+                                        onClick = onDeleteKokoroPack,
+                                        colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
+                                    ) { Text("Delete") }
+                                    failed -> OutlinedButton(
+                                        onClick = onDownloadKokoroPack,
+                                        colors = accentOutlinedColors,
+                                        modifier = Modifier.semantics { contentDescription = "Retry Kokoro download" },
+                                    ) { Text("Retry") }
+                                    else -> Button(
+                                        onClick = onDownloadKokoroPack,
+                                        modifier = Modifier.semantics { contentDescription = "Download Kokoro" },
+                                    ) { Text("Download") }
+                                }
+                                if (uiState.kokoroWaitingForWifi) {
+                                    Text(
+                                        text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        onClick = onUseMobileDataForKokoro,
+                                        modifier = Modifier.semantics {
+                                            contentDescription = "Use mobile data for Kokoro"
+                                        },
+                                    ) { Text("Use mobile data") }
+                                }
+                                if (kokoroSelected && ready) {
+                                    KokoroVoicePicker(
+                                        selected = uiState.selectedKokoroVoice,
+                                        onSelected = onKokoroVoiceSelected,
+                                    )
                                 }
                             },
                         )

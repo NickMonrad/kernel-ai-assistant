@@ -50,6 +50,7 @@ class KokoroVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val voiceOutputPreferences: VoiceOutputPreferences,
     private val loadMarker: KokoroLoadMarker,
+    private val memoryGate: KokoroWarmUpMemoryGate,
     private val inferenceEngine: InferenceEngine,
 ) : VoiceOutputController {
     private val eventsFlow = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
@@ -88,6 +89,20 @@ class KokoroVoiceOutputController @Inject constructor(
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
+            if (engine == null || engineVoice != voice) {
+                // A load is the step a native abort cannot be caught in, so it waits for the same checks as the
+                // background warm-up. A test that needs no load is not blocked by them.
+                if (loadMarker.unfinishedAtLaunch) {
+                    return@withLock KokoroSpeedResult.Unavailable(
+                        "Kokoro's last load did not finish, so it is not loaded again for this test.",
+                    )
+                }
+                if (!memoryGate.hasHeadroom()) {
+                    return@withLock KokoroSpeedResult.Unavailable(
+                        "Not enough free memory to load Kokoro. Close other apps and test again.",
+                    )
+                }
+            }
             val preparation = prepare(voice)
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
                 ?: return@withLock KokoroSpeedResult.Unavailable(

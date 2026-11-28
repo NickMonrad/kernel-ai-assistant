@@ -770,12 +770,13 @@ class VoiceViewModel @Inject constructor(
         if (_uiState.value.kokoroSpeed == KokoroSpeedUiState.Running) return
         _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Running) }
         viewModelScope.launch {
-            val result = kokoroVoiceOutputController.measureSpeed()
-            // Kokoro is loaded only for this measurement unless it is the selected engine.
-            if (_uiState.value.selectedOutputEngine != VoiceOutputEngine.KokoroExperimental) {
-                kokoroVoiceOutputController.unloadEngine()
+            try {
+                val result = kokoroVoiceOutputController.measureSpeed()
+                _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Done(result.summaryLines())) }
+            } finally {
+                // Also runs when leaving Settings cancels the test, so a loaded engine is not kept in memory.
+                releaseKokoroUnlessSelected()
             }
-            _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Done(result.summaryLines())) }
         }
     }
 
@@ -791,34 +792,51 @@ class VoiceViewModel @Inject constructor(
     private fun selectKokoroIfItKeepsUp(previous: VoiceOutputEngine) {
         _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Running) }
         viewModelScope.launch {
-            val result = kokoroVoiceOutputController.measureSpeed()
-            val lines = result.summaryLines()
-            if (result is KokoroSpeedResult.Measured && result.allowsKokoro) {
-                _uiState.update {
-                    it.copy(
-                        selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
-                        kokoroSpeed = KokoroSpeedUiState.Done(lines),
-                    ).withInflectAvailability()
-                }
-                voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
-                piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
-            } else {
-                // The gate loaded Kokoro only to measure it. Kokoro is not selected, so free its memory.
-                kokoroVoiceOutputController.unloadEngine()
-                val reason = if (result is KokoroSpeedResult.Measured) {
-                    "speech would stutter on this phone (median RTF %.2f; threshold %.2f)"
-                        .format(Locale.US, result.medianRealTimeFactor, com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF)
+            try {
+                val result = kokoroVoiceOutputController.measureSpeed()
+                val lines = result.summaryLines()
+                // The user may pick another engine while the gate runs. Their choice stands, so a pass is not applied.
+                val selectionUnchanged = _uiState.value.selectedOutputEngine == previous
+                if (selectionUnchanged && result is KokoroSpeedResult.Measured && result.allowsKokoro) {
+                    _uiState.update {
+                        it.copy(
+                            selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                            kokoroSpeed = KokoroSpeedUiState.Done(lines),
+                        ).withInflectAvailability()
+                    }
+                    voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
+                    piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
                 } else {
-                    "Kokoro is not ready"
+                    val reason = when {
+                        !selectionUnchanged -> ": you chose another voice during the test"
+                        result is KokoroSpeedResult.Measured -> ": speech would stutter on this phone " +
+                            "(median RTF %.2f; threshold %.2f)".format(
+                                Locale.US,
+                                result.medianRealTimeFactor,
+                                com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF,
+                            )
+                        // Unavailable: its message is already the first line of the panel.
+                        else -> ""
+                    }
+                    val current = _uiState.value.selectedOutputEngine
+                    _uiState.update {
+                        it.copy(
+                            kokoroSpeed = KokoroSpeedUiState.Done(
+                                lines + "Kokoro not selected$reason. Staying on ${VoiceOutputCopy.title(current)}.",
+                            ),
+                        )
+                    }
                 }
-                _uiState.update {
-                    it.copy(
-                        kokoroSpeed = KokoroSpeedUiState.Done(
-                            lines + "Kokoro not selected: $reason. Staying on ${VoiceOutputCopy.title(previous)}.",
-                        ),
-                    )
-                }
+            } finally {
+                releaseKokoroUnlessSelected()
             }
+        }
+    }
+
+    /** Frees the engine a speed test or gate loaded, unless Kokoro is the selected engine. Safe during cancellation. */
+    private fun releaseKokoroUnlessSelected() {
+        if (_uiState.value.selectedOutputEngine != VoiceOutputEngine.KokoroExperimental) {
+            kokoroVoiceOutputController.unloadEngine()
         }
     }
 
@@ -1020,13 +1038,14 @@ sealed interface KokoroSpeedUiState {
 
 /** Human-readable result for the speed panel. Kept here, next to the state that holds it. */
 internal fun KokoroSpeedResult.summaryLines(): List<String> = when (this) {
-    is KokoroSpeedResult.Measured -> listOf(
-        "Median RTF: %.2f (Honor target: <= 0.5; selection limit: <= 0.90)."
-            .format(Locale.US, medianRealTimeFactor),
-        "Median first sound: %.1f s (Honor target: <= 1.5 s).".format(Locale.US, medianFirstChunkSeconds),
-        "No crashes in 20 replies (owner Honor run; manual target).",
+    is KokoroSpeedResult.Measured -> listOfNotNull(
+        "Median RTF: %.2f (Honor target: <= 0.5; selection limit: <= %.2f)."
+            .format(Locale.US, medianRealTimeFactor, com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF),
+        "Median time to first chunk ready: %.1f s (engine already loaded, no audio track; not a first-sound figure)."
+            .format(Locale.US, medianFirstChunkSeconds),
         "Per-run RTF: ${runs.joinToString { "%.2f".format(Locale.US, it.realTimeFactor) }}.",
         peakMemoryMb?.let { "Peak memory: $it MB." } ?: "Peak memory: not reported.",
+        if (stoppedEarly) "Stopped after ${runs.size} runs: two runs were over the selection limit." else null,
         if (allowsKokoro) "Verdict: keeps up with playback." else "Verdict: speech would stutter on this phone.",
     )
     is KokoroSpeedResult.Unavailable -> listOf(message)

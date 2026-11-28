@@ -68,6 +68,52 @@ class KokoroSpeedTestTest {
     }
 
     @Test
+    fun a_test_stops_after_two_runs_that_are_both_over_the_limit() {
+        var chunks = 0
+        var now = 0L
+        val result = measureKokoroSpeed(
+            sentences = listOf("one."),
+            splitText = { listOf(it) },
+            synthesizeChunk = {
+                chunks++
+                now += 2_000_000_000L // two seconds to make one second of audio: RTF 2.0 on every run
+                FloatArray(sampleRate)
+            },
+            sampleRate = sampleRate,
+            peakMemoryMb = { null },
+            nanoTime = { now },
+        ) as KokoroSpeedResult.Measured
+
+        assertEquals(2, chunks)
+        assertEquals(2, result.runs.size)
+        assertTrue(result.stoppedEarly)
+        assertFalse(result.allowsKokoro)
+    }
+
+    @Test
+    fun a_fast_second_run_keeps_the_third_pass() {
+        var chunks = 0
+        var now = 0L
+        val synthSeconds = mutableListOf(2.0, 0.2, 2.0)
+        val result = measureKokoroSpeed(
+            sentences = listOf("one."),
+            splitText = { listOf(it) },
+            synthesizeChunk = {
+                chunks++
+                now += (synthSeconds.removeAt(0) * 1_000_000_000L).toLong()
+                FloatArray(sampleRate)
+            },
+            sampleRate = sampleRate,
+            peakMemoryMb = { null },
+            nanoTime = { now },
+        ) as KokoroSpeedResult.Measured
+
+        assertEquals(3, chunks)
+        assertEquals(3, result.runs.size)
+        assertFalse(result.stoppedEarly)
+    }
+
+    @Test
     fun a_cancelled_test_stops_before_the_next_chunk_and_propagates_cancellation() {
         var chunks = 0
         var checks = 0
