@@ -44,6 +44,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -77,9 +79,15 @@ fun SettingsScreen(
     val useSystemColors by viewModel.useSystemColors.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         viewModel.saveError.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+    LaunchedEffect(Unit) {
+        HomeWidgetPinEvents.confirmed.collect { item ->
+            snackbarHostState.showSnackbar(HomeWidgetPinning.addedMessage(item))
         }
     }
 
@@ -260,6 +268,12 @@ fun SettingsScreen(
             HorizontalDivider()
 
 
+            // ── Home screen ───────────────────────────────────────────────────
+            Spacer(modifier = Modifier.height(4.dp))
+            HomeScreenSection(
+                onRequestPin = { item -> HomeWidgetPinning.request(context, item) },
+                onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+            )
             // ── App ───────────────────────────────────────────────────────────
             Spacer(modifier = Modifier.height(4.dp))
             Text(

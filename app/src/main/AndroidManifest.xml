@@ -268,6 +268,10 @@
                 <action android:name="com.kernel.ai.action.LISTS_DATA_CHANGED" />
             </intent-filter>
         </receiver>
+        <!-- Success callback for home-screen widget pin requests (#2194). Internal, non-exported. -->
+        <receiver
+            android:name="com.kernel.ai.feature.settings.HomeWidgetPinConfirmedReceiver"
+            android:exported="false" />
 
         <!--
             Jandal as Android Default Digital Assistant.
