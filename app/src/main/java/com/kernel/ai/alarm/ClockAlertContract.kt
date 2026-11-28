@@ -1,5 +1,8 @@
 package com.kernel.ai.alarm
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import com.kernel.ai.core.memory.clock.ClockEventType
 
 internal object ClockAlertContract {
@@ -43,3 +46,51 @@ internal data class TriggeredClockAlert(
     val soundUri: String? = null,
     val autoSnoozeCount: Int = 0,
 )
+
+/** Reads the alert back from an intent written by [putTriggeredClockAlertExtras]. */
+internal fun Intent.toTriggeredClockAlert(): TriggeredClockAlert? {
+    val ownerId = getStringExtra(ClockAlertContract.EXTRA_OWNER_ID) ?: return null
+    val label = getStringExtra(ClockAlertContract.EXTRA_LABEL) ?: return null
+    val title = getStringExtra(ClockAlertContract.EXTRA_TITLE) ?: return null
+    val type = getStringExtra(ClockAlertContract.EXTRA_EVENT_TYPE)
+        ?.let(ClockEventType::valueOf)
+        ?: ClockEventType.ALARM
+    val occurrenceTriggerAtMillis = getLongExtra(
+        ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
+        -1L,
+    ).takeIf { it > 0L }
+    val soundUri = getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
+    val autoSnoozeCount = getIntExtra(
+        ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT,
+        0,
+    )
+    return TriggeredClockAlert(
+        ownerId = ownerId,
+        label = label,
+        title = title,
+        type = type,
+        occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
+        soundUri = soundUri,
+        autoSnoozeCount = autoSnoozeCount,
+    )
+}
+
+internal fun Intent.putTriggeredClockAlertExtras(alert: TriggeredClockAlert): Intent = apply {
+    putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
+    putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
+    putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
+    putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
+    putExtra(
+        ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
+        alert.occurrenceTriggerAtMillis ?: -1L,
+    )
+    putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
+}
+
+/** Intent for a button action on the ringing alert, handled by [ClockAlertService]. */
+internal fun clockAlertServiceIntent(context: Context, action: String, alert: TriggeredClockAlert): Intent =
+    Intent(context, ClockAlertService::class.java).apply {
+        this.action = action
+        data = Uri.parse(alertPendingIntentIdentity(action, alert))
+        putTriggeredClockAlertExtras(alert)
+    }

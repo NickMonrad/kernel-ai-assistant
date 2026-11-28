@@ -4,6 +4,7 @@ import com.kernel.ai.core.memory.clock.SchedulingResult
 import com.kernel.ai.core.memory.clock.SchedulingWarning
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
@@ -77,5 +78,35 @@ class AlarmSaveResultTest {
         assertNull(emptyList<SchedulingWarning>().toWarningMessage(isTimer = false))
     }
 
+    // ── settingsOffers and full-screen copy ─────────────────────────────
+
+    @Test
+    fun `settingsOffers offers only the full-screen page when full-screen alerts are off`() {
+        assertEquals(
+            listOf(AlarmSettingsOffer.FULL_SCREEN_ALERTS),
+            listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE).settingsOffers(),
+        )
+    }
+
+    @Test
+    fun `settingsOffers offers both pages when exact alarms and full-screen alerts are off`() {
+        assertEquals(
+            listOf(AlarmSettingsOffer.EXACT_ALARMS, AlarmSettingsOffer.FULL_SCREEN_ALERTS),
+            listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE, SchedulingWarning.EXACT_ALARM_UNAVAILABLE).settingsOffers(),
+        )
+    }
+
+    @Test
+    fun `settingsOffers is empty when only the boot restore limit applies`() {
+        assertEquals(emptyList<AlarmSettingsOffer>(), listOf(SchedulingWarning.BOOT_RESTORE_LIMITED).settingsOffers())
+    }
+
+    @Test
+    fun `toWarningMessage reports full-screen alerts are off rather than promising full-screen`() {
+        val message = listOf(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE).toWarningMessage(isTimer = true)
+
+        assertTrue(message.orEmpty().startsWith("Timer set."))
+        assertTrue(message.orEmpty().contains("Full-screen alerts are off"))
+    }
 
 }

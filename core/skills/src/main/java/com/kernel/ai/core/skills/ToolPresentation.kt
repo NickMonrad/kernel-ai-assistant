@@ -40,6 +40,8 @@ sealed interface ToolPresentation {
         val icon: String,
         val title: String,
         val subtitle: String? = null,
+        /** Optional third line, e.g. the list a reminder was added to. */
+        val detail: String? = null,
     ) : ToolPresentation
 
     data class ListPreview(
@@ -128,6 +130,7 @@ object ToolPresentationJson {
             put("icon", presentation.icon)
             put("title", presentation.title)
             put("subtitle", presentation.subtitle)
+            put("detail", presentation.detail)
         }
 
         is ToolPresentation.ListPreview -> JSONObject().apply {
@@ -201,6 +204,7 @@ object ToolPresentationJson {
             icon = obj.optString("icon"),
             title = obj.optString("title"),
             subtitle = obj.optString("subtitle").takeIf { it.isNotBlank() },
+            detail = obj.optString("detail").takeIf { it.isNotBlank() },
         )
 
         "list_preview" -> ToolPresentation.ListPreview(

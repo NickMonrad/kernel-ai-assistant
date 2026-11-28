@@ -5,7 +5,6 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.SystemClock
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Timer
@@ -74,7 +72,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -89,8 +86,6 @@ import com.kernel.ai.core.memory.clock.StopwatchStatus
 import com.kernel.ai.core.memory.clock.WorldClock
 import com.kernel.ai.core.memory.clock.WorldClockCandidate
 import com.kernel.ai.core.memory.clock.WorldClockCatalog
-import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
-import com.kernel.ai.core.permissions.launchFirstAvailable
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import java.time.DayOfWeek
@@ -111,7 +106,6 @@ fun SidePanelScreen(
 ) {
     val context = LocalContext.current
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
-    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.exact_alarm_no_settings_page)
     val timers by viewModel.timers.collectAsStateWithLifecycle()
     val recentCompletedTimers by viewModel.recentCompletedTimers.collectAsStateWithLifecycle()
     val stopwatch by viewModel.stopwatch.collectAsStateWithLifecycle()
@@ -131,7 +125,7 @@ fun SidePanelScreen(
     var showCreateTimerDialog by remember { mutableStateOf(false) }
     var showAddWorldClockDialog by remember { mutableStateOf(false) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
-    var schedulingWarning by remember { mutableStateOf<String?>(null) }
+    var schedulingNotice by remember { mutableStateOf<SchedulingNotice?>(null) }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var nowElapsedRealtimeMs by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -168,7 +162,7 @@ fun SidePanelScreen(
         when (result) {
             is AlarmSaveResult.STORED -> {
                 if (closeDialog) showCreateTimerDialog = false
-                schedulingWarning = result.warnings.toWarningMessage(isTimer = true)
+                schedulingNotice = result.warnings.toSchedulingNotice(isTimer = true)
             }
             is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                 schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -267,7 +261,10 @@ fun SidePanelScreen(
                     if (!success) {
                         schedulingError = "Couldn't update the alarm."
                     } else if (!context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
-                        schedulingWarning = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing."
+                        schedulingNotice = SchedulingNotice(
+                            message = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing.",
+                            offers = listOf(AlarmSettingsOffer.EXACT_ALARMS),
+                        )
                     }
                 }
             },
@@ -426,7 +423,7 @@ fun SidePanelScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             showCreateAlarmDialog = false
-                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
+                            schedulingNotice = result.warnings.toSchedulingNotice(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -450,7 +447,7 @@ fun SidePanelScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             editingAlarm = null
-                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
+                            schedulingNotice = result.warnings.toSchedulingNotice(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable."
@@ -504,32 +501,8 @@ fun SidePanelScreen(
             },
         )
     }
-    schedulingWarning?.let { message ->
-        AlertDialog(
-            onDismissRequest = { schedulingWarning = null },
-            icon = { Icon(Icons.Default.Info, contentDescription = null) },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
-            },
-            dismissButton = if (message.contains("Exact-alarm access is off")) {
-                {
-                    TextButton(onClick = {
-                        val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
-                        if (!opened) {
-                            Toast.makeText(
-                                context,
-                                noSettingsPageMessage,
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        schedulingWarning = null
-                    }) { Text("Alarms & reminders settings") }
-                }
-            } else {
-                null
-            },
-        )
+    schedulingNotice?.let { notice ->
+        SchedulingNoticeDialog(notice = notice, onDismiss = { schedulingNotice = null })
     }
 }
 

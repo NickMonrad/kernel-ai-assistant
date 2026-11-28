@@ -9,6 +9,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.dao.ListItemDao
+import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.notification.ListNotificationScheduler
 import com.kernel.ai.core.memory.notification.toNotificationId
 import dagger.hilt.android.AndroidEntryPoint
@@ -34,21 +35,22 @@ class ListDueNotificationReceiver : BroadcastReceiver() {
         val itemId = intent.getLongExtra(ListNotificationScheduler.EXTRA_ITEM_ID, -1L)
             .takeIf { it >= 0L } ?: return
         val itemText = intent.getStringExtra(ListNotificationScheduler.EXTRA_ITEM_TEXT) ?: return
+        val listId = intent.getLongExtra(ListNotificationScheduler.EXTRA_LIST_ID, -1L)
         val listName = intent.getStringExtra(ListNotificationScheduler.EXTRA_LIST_NAME) ?: ""
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // The alarm can fire after the item was ticked; a ticked item owes no reminder.
-                if (listItemDao.getById(itemId)?.checked == true) return@launch
-                showNotification(context, itemId, itemText, listName)
+                // The alarm can fire after the item was ticked or deleted; neither owes a reminder.
+                if (!shouldShowListReminder(listItemDao.getById(itemId))) return@launch
+                showNotification(context, itemId, listId, itemText, listName)
             } finally {
                 pendingResult.finish()
             }
         }
     }
 
-    private fun showNotification(context: Context, itemId: Long, itemText: String, listName: String) {
+    private fun showNotification(context: Context, itemId: Long, listId: Long, itemText: String, listName: String) {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
         ensureChannel(notificationManager)
 
@@ -59,7 +61,7 @@ class ListDueNotificationReceiver : BroadcastReceiver() {
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setContentIntent(buildOpenAppPendingIntent(context))
+            .setContentIntent(buildOpenListPendingIntent(context, itemId, listId))
             .build()
 
         notificationManager.notify(itemId.toNotificationId(), notification)
@@ -78,17 +80,29 @@ class ListDueNotificationReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun buildOpenAppPendingIntent(context: Context): PendingIntent =
+    /**
+     * Opens the list the reminder belongs to. The request code is per item so that each
+     * notification keeps its own target; reminders scheduled before list ids were carried fall back to the app.
+     */
+    private fun buildOpenListPendingIntent(context: Context, itemId: Long, listId: Long): PendingIntent =
         PendingIntent.getActivity(
             context,
-            0,
+            itemId.toNotificationId(),
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                if (listId >= 0L) putExtra(NAVIGATION_ROUTE_EXTRA, listReminderRoute(listId))
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
     companion object {
         const val CHANNEL_ID = "list_due_channel"
+        private const val NAVIGATION_ROUTE_EXTRA = "navigation_route"
     }
 }
+
+/** A list reminder is shown only while its item still exists and is unticked. */
+internal fun shouldShowListReminder(item: ListItemEntity?): Boolean = item != null && !item.checked
+
+/** Nav route for a list screen; accepted by the external-route allowlist in `KernelNavHost`. */
+internal fun listReminderRoute(listId: Long): String = "lists/$listId"

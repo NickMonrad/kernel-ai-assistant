@@ -29,6 +29,17 @@ fun exactAlarmSettingsIntents(packageName: String): List<Intent> = listOf(
     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
 )
 
+/**
+ * The "Full-screen alerts" page for this app (Android 14+), where full-screen alarm and timer alerts can be
+ * allowed (#2185), falling back to App info where the request page is missing.
+ */
+fun fullScreenIntentSettingsIntents(packageName: String): List<Intent> = listOf(
+    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+        data = Uri.fromParts("package", packageName, null)
+    },
+    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+)
+
 /** Whether exact alarms may be scheduled. Read live, so callers see the result after returning from Settings. */
 fun canScheduleExactAlarms(context: Context): Boolean =
     context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true

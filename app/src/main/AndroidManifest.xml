@@ -19,6 +19,8 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Alarm/timer apps: exact alarms are granted without a user prompt, so alarms and timers fire on time (#1990). -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Alarm/timer full-screen alerts (#2185): Play requires a "Full-screen intent" declaration for this use. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Re-schedule alarms after device reboot (#327) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -166,6 +168,16 @@
             android:name=".alarm.ClockAlertService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- Full-screen takeover for a ringing alarm or timer (#2185). Shows over the lock screen, no PIN bypass. -->
+        <activity
+            android:name=".alarm.ClockAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.KernelAI"
+            android:turnScreenOn="true" />
         <!-- Short-lived service keeps local speech synthesis foreground-scheduled during playback. -->
         <service
             android:name=".speech.SpeechPlaybackService"

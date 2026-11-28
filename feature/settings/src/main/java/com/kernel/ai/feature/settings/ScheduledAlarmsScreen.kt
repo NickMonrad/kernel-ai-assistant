@@ -1,7 +1,6 @@
 package com.kernel.ai.feature.settings
 
 import android.app.AlarmManager
-import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -51,15 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
 import com.kernel.ai.core.memory.clock.ClockAlarm
-import com.kernel.ai.core.permissions.exactAlarmSettingsIntents
-import com.kernel.ai.core.permissions.launchFirstAvailable
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -73,7 +68,6 @@ fun ScheduledAlarmsScreen(
     viewModel: ScheduledAlarmsViewModel = hiltViewModel(),
 ) {
     val alarms by viewModel.alarms.collectAsStateWithLifecycle()
-    val noSettingsPageMessage = stringResource(com.kernel.ai.core.permissions.R.string.exact_alarm_no_settings_page)
     val context = LocalContext.current
     var pendingCancel by remember { mutableStateOf<ClockAlarm?>(null) }
     var pendingCancelIds by remember { mutableStateOf<Set<String>?>(null) }
@@ -81,7 +75,7 @@ fun ScheduledAlarmsScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<String>()) }
     var schedulingError by remember { mutableStateOf<String?>(null) }
-    var schedulingWarning by remember { mutableStateOf<String?>(null) }
+    var schedulingNotice by remember { mutableStateOf<SchedulingNotice?>(null) }
     val inSelectionMode = selectedIds.isNotEmpty()
 
     Scaffold(
@@ -173,7 +167,10 @@ fun ScheduledAlarmsScreen(
                                 if (!success) {
                                     schedulingError = "Couldn't update the alarm."
                                 } else if (!context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
-                                    schedulingWarning = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing."
+                                    schedulingNotice = SchedulingNotice(
+                                        message = "Alarm enabled. Exact-alarm access is off, so timing may be less exact. Enable Alarms & reminders in Settings for more precise timing.",
+                                        offers = listOf(AlarmSettingsOffer.EXACT_ALARMS),
+                                    )
                                 }
                             }
                         },
@@ -192,7 +189,7 @@ fun ScheduledAlarmsScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             showCreateDialog = false
-                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
+                            schedulingNotice = result.warnings.toSchedulingNotice(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable. Grant exact alarm permission."
@@ -216,7 +213,7 @@ fun ScheduledAlarmsScreen(
                     when (result) {
                         is AlarmSaveResult.STORED -> {
                             editingAlarm = null
-                            schedulingWarning = result.warnings.toWarningMessage(isTimer = false)
+                            schedulingNotice = result.warnings.toSchedulingNotice(isTimer = false)
                         }
                         is AlarmSaveResult.EXACT_ALARM_BLOCKED ->
                             schedulingError = "Exact alarm scheduling is unavailable."
@@ -286,32 +283,8 @@ fun ScheduledAlarmsScreen(
             },
         )
     }
-    schedulingWarning?.let { message ->
-        AlertDialog(
-            onDismissRequest = { schedulingWarning = null },
-            icon = { Icon(Icons.Default.Info, contentDescription = null) },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = { schedulingWarning = null }) { Text("OK") }
-            },
-            dismissButton = if (message.contains("Exact-alarm access is off")) {
-                {
-                    TextButton(onClick = {
-                        val opened = launchFirstAvailable(exactAlarmSettingsIntents(context.packageName)) { context.startActivity(it) }
-                        if (!opened) {
-                            Toast.makeText(
-                                context,
-                                noSettingsPageMessage,
-                                Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                        schedulingWarning = null
-                    }) { Text("Alarms & reminders settings") }
-                }
-            } else {
-                null
-            },
-        )
+    schedulingNotice?.let { notice ->
+        SchedulingNoticeDialog(notice = notice, onDismiss = { schedulingNotice = null })
     }
 }
 

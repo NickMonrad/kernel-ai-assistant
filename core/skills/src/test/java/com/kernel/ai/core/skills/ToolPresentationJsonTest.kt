@@ -106,6 +106,13 @@ class ToolPresentationJsonTest {
     }
 
     @Test
+    fun `status detail round-trips through json`() {
+        val original = ToolPresentation.Status(icon = "⏰", title = "call mum", subtitle = "Tomorrow at 7 pm", detail = "To-do list")
+
+        assertEquals(original, ToolPresentationJson.fromJsonString(ToolPresentationJson.toJsonString(original)))
+    }
+
+    @Test
     fun `forecast day round-trips through json`() {
         val original = ToolPresentation.ForecastDay(
             date = "Mon 31 Mar",
