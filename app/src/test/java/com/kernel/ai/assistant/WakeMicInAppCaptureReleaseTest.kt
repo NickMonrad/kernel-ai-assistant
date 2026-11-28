@@ -18,6 +18,7 @@ class WakeMicInAppCaptureReleaseTest {
 
     private val wakeSession = 101
     private val inAppSession = 202
+    private val otherAppSession = 303
     private val mode = VoiceCaptureMode.AlertCommand
     private var now = 0L
     private var detectorArmed = true
@@ -35,7 +36,9 @@ class WakeMicInAppCaptureReleaseTest {
             ownSessionIds = { setOf(wakeSession, inAppSession) },
             clockMs = { now },
             scheduleRecheck = {},
-            onResumed = { _, _, _ -> },
+            onOtherAppResumed = { _, _ -> },
+            onSilenceRunStarted = {},
+            onSilenceRunEnded = { _, _, _ -> },
         )
         yieldGate = WakeMicYieldGate(
             releaseMic = { detectorArmed = false },
@@ -82,5 +85,25 @@ class WakeMicInAppCaptureReleaseTest {
         assertFalse(contention.paused)
         assertTrue(detectorArmed)
         assertEquals(2_000L, rearmedAt)
+    }
+
+    @Test
+    fun `an in-app stop with another app still recording keeps the wake mic paused and never re-arms`() {
+        clients = listOf(
+            MicRecordingClient(wakeSession, MediaRecorder.AudioSource.VOICE_RECOGNITION, silenced = true),
+            MicRecordingClient(inAppSession, MediaRecorder.AudioSource.MIC, silenced = false),
+        )
+        contention.onRecordingClients(clients)
+        now = 100L
+        yieldGate.onVoiceEvent(VoiceInputEvent.ListeningStarted(mode, inAppSession.toLong()))
+
+        // Another app starts recording on MIC while our in-app capture still runs, then our in-app capture stops.
+        now = 2_000L
+        clients = listOf(MicRecordingClient(otherAppSession, MediaRecorder.AudioSource.MIC, silenced = false))
+        yieldGate.onVoiceEvent(VoiceInputEvent.ListeningStopped(mode, inAppSession.toLong()))
+
+        assertTrue(contention.paused)
+        assertFalse(detectorArmed)
+        assertEquals(-1L, rearmedAt)
     }
 }

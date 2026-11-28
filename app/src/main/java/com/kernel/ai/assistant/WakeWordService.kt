@@ -806,7 +806,8 @@ class WakeWordService : Service() {
                     MicContention.SILENCED -> "WakeWordService: audio server silenced wake capture — releasing wake mic"
                 },
             )
-            JandalEvents.record("wake", "mic_contention_pause", "cause" to cause)
+            // A SILENCED pause logs once per back-off run, from onSilenceRunStarted; a failed probe is not a new run.
+            if (cause == MicContention.OTHER_APP) JandalEvents.record("wake", "mic_contention_pause", "cause" to cause)
             // A silence probe repeats every 10 to 120 s, and a release while the user has paused is expected (#2109).
             if (cause == MicContention.OTHER_APP && !userPause.paused) {
                 recordServiceError(WakeCategory.MIC_CONTENDED_BY_OTHER_APP)
@@ -826,9 +827,20 @@ class WakeWordService : Service() {
                 micLock.withLock { contentionGate.onHoldRecheck(currentMicClients()) }
             }
         },
-        // #2178: each resume names its cause, the source that ended the pause, and the hold it cost the wake mic.
-        onResumed = { cause, source, heldMs ->
-            JandalEvents.record("wake", "mic_contention_resume", "cause" to cause, "source" to source, "held_ms" to heldMs)
+        // #2178: other-app pauses log their resume; a SILENCED back-off run logs once at its start and once at its end.
+        onOtherAppResumed = { source, heldMs ->
+            JandalEvents.record("wake", "mic_contention_resume", "cause" to MicContention.OTHER_APP, "source" to source, "held_ms" to heldMs)
+        },
+        onSilenceRunStarted = { JandalEvents.record("wake", "mic_contention_pause", "cause" to MicContention.SILENCED) },
+        onSilenceRunEnded = { end, probeCount, heldMs ->
+            JandalEvents.record(
+                "wake",
+                "mic_contention_resume",
+                "cause" to MicContention.SILENCED,
+                "source" to end,
+                "probe_count" to probeCount,
+                "held_ms" to heldMs,
+            )
         },
     )
 
