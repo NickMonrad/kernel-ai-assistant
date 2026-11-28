@@ -25,6 +25,7 @@ internal object KokoroOovFallback {
     private val POSSESSIVE = Regex("['\u2019]s$")
     private val QUOTES = Regex("[\"'\u2018\u2019\u201C\u201D]")
     private val CAMEL_CASE = Regex("(\\p{Ll})(\\p{Lu})")
+    private val TRAILING_PUNCTUATION = Regex("[^\\p{L}\\p{N}]+$")
 
     /** Digraphs and trigraphs, longest first; matched at each position before single letters. */
     private val MULTI = listOf(
@@ -110,9 +111,9 @@ internal object KokoroOovFallback {
         return spoken + punctuation
     }
 
-    /** phonemis's phonemes for [word] after quote removal and CamelCase splitting; null if that changes nothing or has no vowel. */
+    /** phonemis's phonemes for [word] after quote removal, CamelCase splitting and trailing punctuation removal; null if that changes nothing or has no vowel. */
     private fun retryPhonemes(phonemizer: KokoroPhonemizer, word: String): String? {
-        val cleaned = word.replace(QUOTES, "").replace(CAMEL_CASE, "$1 $2")
+        val cleaned = word.replace(QUOTES, "").replace(CAMEL_CASE, "$1 $2").replace(TRAILING_PUNCTUATION, "")
         if (cleaned.isBlank() || cleaned == word) return null
         return phonemizer.phonemize(cleaned).phonemes.takeIf { phonemes -> phonemes.any { it in VOWEL_PHONEMES } }
     }

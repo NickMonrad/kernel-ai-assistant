@@ -118,4 +118,9 @@ class SpeechAbbreviationTextTest {
         assertEquals("Mount Eden and Mount Maunganui", SpeechAbbreviationText.expand("Mt Eden and Mt. Maunganui"))
         assertEquals("on mt Ruapehu, Mt", SpeechAbbreviationText.expand("on mt Ruapehu, Mt"))
     }
+
+    @Test
+    fun `Mt after a number is a megatonne unit and is left alone`() {
+        assertEquals("78 Mt CO2", SpeechAbbreviationText.expand("78 Mt CO2"))
+    }
 }

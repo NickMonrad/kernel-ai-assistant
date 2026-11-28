@@ -42,8 +42,9 @@ internal object SpeechAbbreviationText {
     private val metresPerSecond = Regex("""(\d)\s*m/s\b""")
     private val kilometresPerHour = Regex("""(\d)\s*km/h\b""")
 
-    // "Mt Eden", "Mt. Maunganui": only before a capitalised name, so a lowercase "mt" is left alone.
-    private val mountBeforeName = Regex("""\bMt\.?(?=\s+\p{Lu})""")
+    // "Mt Eden", "Mt. Maunganui": only before a capitalised name, so a lowercase "mt" is left alone. Not after a
+    // number, where Mt is megatonnes ("78 Mt CO2").
+    private val mountBeforeName = Regex("""(?<!\d)(?<!\d\s)\bMt\.?(?=\s+\p{Lu})""")
 
     fun expand(text: String): String {
         var value = mountBeforeName.replace(text) { "Mount" }

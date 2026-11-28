@@ -155,4 +155,14 @@ class KokoroOovFallbackTest {
         assertEquals("hɛlˈoʊ $road", phonemize("'hello' road", known = known, fallbacks = fallbacks))
         assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
     }
+
+    @Test
+    fun trailing_punctuation_is_not_doubled_by_the_retry() {
+        // The retry strips the "." from "KiwiSaver." before phonemising, so the only "." is the one phonemis emitted.
+        val fallbacks = mutableListOf<Int>()
+        val known = mapOf("road" to road, "kiwi" to "kˈɪwi", "saver" to "sˈeɪvə")
+
+        assertEquals("kˈɪwi sˈeɪvə. $road", phonemize("KiwiSaver. road", known = known, fallbacks = fallbacks))
+        assertTrue(fallbacks.isEmpty(), "fallbacks=$fallbacks")
+    }
 }
