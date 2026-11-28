@@ -2,6 +2,7 @@ package com.kernel.ai.feature.settings
 
 import androidx.lifecycle.ViewModel
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.kernel.ai.core.voice.AndroidNativeRecognitionSupport
 import com.kernel.ai.core.voice.AndroidNativeRecognitionAvailability
@@ -787,10 +788,14 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Checking, kokoroSampleError = null) }
         viewModelScope.launch {
             try {
-                val result = when (chatModelLoader.ensureLoaded()) {
+                val loadResult = chatModelLoader.ensureLoaded()
+                val result = when (loadResult) {
                     ChatModelLoadResult.Loaded -> kokoroVoiceOutputController.measureSpeed()
                     ChatModelLoadResult.NoModelDownloaded -> KokoroSpeedResult.Unavailable(KOKORO_NO_CHAT_MODEL_MESSAGE)
-                    is ChatModelLoadResult.Failed -> KokoroSpeedResult.Unavailable(KOKORO_CHECK_UNAVAILABLE_MESSAGE)
+                    is ChatModelLoadResult.Failed -> {
+                        Log.w(KOKORO_CHECK_LOG_TAG, "Kokoro check: chat model failed to load", loadResult.cause)
+                        KokoroSpeedResult.Unavailable(KOKORO_CHECK_UNAVAILABLE_MESSAGE)
+                    }
                 }
                 applyKokoroCheckResult(result, previous)
             } finally {
@@ -1055,5 +1060,6 @@ sealed interface KokoroSpeedUiState {
 
 private const val KOKORO_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
 internal const val KOKORO_NO_CHAT_MODEL_MESSAGE = "Kokoro can't be checked until a chat model is downloaded."
-internal const val KOKORO_CHECK_UNAVAILABLE_MESSAGE = "Couldn't prepare the check on this phone. Check again."
-internal const val KOKORO_SAMPLE_FAILED_MESSAGE = "Couldn't play the sample. Check Kokoro again, then retry."
+internal const val KOKORO_CHECK_UNAVAILABLE_MESSAGE = "Couldn't prepare the check on this phone."
+internal const val KOKORO_SAMPLE_FAILED_MESSAGE = "Couldn't play the sample with Kokoro."
+private const val KOKORO_CHECK_LOG_TAG = "KernelAI"

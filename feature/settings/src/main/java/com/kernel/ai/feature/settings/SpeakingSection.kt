@@ -436,6 +436,7 @@ internal fun SpeakingSection(
                                     ) { Text("Cancel") }
                                     ready -> OutlinedButton(
                                         onClick = onDeleteKokoroPack,
+                                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                                         colors = accentOutlinedColors,
                                         modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
                                     ) { Text("Delete") }
