@@ -84,25 +84,29 @@ class KokoroVoiceOutputController @Inject constructor(
     /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
     suspend fun measureSpeed(): KokoroSpeedResult = withContext(Dispatchers.IO) {
         if (!inferenceEngine.isReady.value) {
-            return@withContext KokoroSpeedResult.Unavailable("Load the chat model first, then test the voice.")
+            return@withContext KokoroSpeedResult.Unavailable("Couldn't prepare the check on this phone.")
         }
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
         val cancellation = currentCoroutineContext()
         synthesisLock.withLock {
-            if (engine == null || engineVoice != voice) {
-                // A load needs memory headroom; a test that needs no load is not blocked by it.
-                if (!memoryGate.hasHeadroom()) {
-                    return@withLock KokoroSpeedResult.Unavailable(
-                        "Not enough free memory to load Kokoro. Close other apps and test again.",
-                    )
-                }
+            // Read before any load: the speed-fail details carry these figures whether or not a load is needed.
+            val snapshot = memoryGate.snapshot()
+            val details = snapshot.describe(KOKORO_LOAD_MIN_AVAILABLE_BYTES)
+            Log.i(TAG, "Kokoro check memory: $details")
+            // A load needs memory headroom; a check that needs no load is not blocked by it.
+            if (needsFullLoad(voice) && !kokoroHasHeadroom(snapshot, KOKORO_LOAD_MIN_AVAILABLE_BYTES)) {
+                return@withLock KokoroSpeedResult.Unavailable(
+                    message = KOKORO_LOW_MEMORY_MESSAGE,
+                    details = details,
+                    memoryShort = true,
+                )
             }
             val preparation = prepare(voice)
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
                 ?: return@withLock KokoroSpeedResult.Unavailable(
                     (preparation as? VoiceOutputResult.Unavailable)?.message ?: "Kokoro engine is not initialized.",
                 )
-            measureKokoroSpeed(
+            val result = measureKokoroSpeed(
                 sentences = KOKORO_SPEED_TEST_SENTENCES,
                 splitText = { sentence -> loaded.splitText(KokoroTextFrontend.phonemizerInput(sentence, voice.locale)) },
                 synthesizeChunk = { chunk -> loaded.synthesizeChunk(chunk) },
@@ -110,6 +114,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 peakMemoryMb = ::readPeakMemoryMb,
                 ensureActive = { cancellation.ensureActive() },
             )
+            if (result is KokoroSpeedResult.Measured) result.copy(memoryDetails = details) else result
         }
     }
 
@@ -162,7 +167,7 @@ class KokoroVoiceOutputController @Inject constructor(
             val voice = voiceOutputPreferences.selectedKokoroVoice.first()
             timing.mark("settingsRead", "voice=${voice.name}")
             val cached = engine != null && engineVoice == voice
-            val preparation = synthesisLock.withLock { prepare(voice, timing) }
+            val preparation = synthesisLock.withLock { prepareForReply(voice, timing) }
             timing.mark("prepared", "cached=$cached ok=${preparation == VoiceOutputResult.Spoken}")
             val loaded = engine.takeIf { preparation == VoiceOutputResult.Spoken && engineVoice == voice }
             val unavailable = preparation as? VoiceOutputResult.Unavailable
@@ -234,6 +239,21 @@ class KokoroVoiceOutputController @Inject constructor(
                 releaseEngine()
             }
         }
+    }
+
+    /** A full load (not a cached engine, not a same-locale voice swap) is the only step that needs headroom. */
+    private fun needsFullLoad(voice: KokoroVoice): Boolean = engine == null || engineVoice?.locale != voice.locale
+
+    /**
+     * Reply-time load (#2170): a full load needs [KOKORO_LOAD_MIN_AVAILABLE_BYTES] free. A refusal is Unavailable, so the
+     * reply falls back to Inflect Micro, then Android TTS. Caller holds [synthesisLock].
+     */
+    private fun prepareForReply(voice: KokoroVoice, timing: KokoroReplyTiming): VoiceOutputResult {
+        if (!needsFullLoad(voice)) return prepare(voice, timing)
+        val snapshot = memoryGate.snapshot()
+        if (kokoroHasHeadroom(snapshot, KOKORO_LOAD_MIN_AVAILABLE_BYTES)) return prepare(voice, timing)
+        Log.w(TAG, "Kokoro reply load refused: ${snapshot.describe(KOKORO_LOAD_MIN_AVAILABLE_BYTES)}")
+        return VoiceOutputResult.Unavailable(KOKORO_LOW_MEMORY_MESSAGE)
     }
 
     private fun isCurrent(generation: Long): Boolean = !stopped && playbackGeneration.get() == generation

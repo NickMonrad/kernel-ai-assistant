@@ -1,6 +1,7 @@
 package com.kernel.ai.core.voice
 
 import com.kernel.ai.core.inference.hardware.HardwareTier
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -11,6 +12,17 @@ class VoiceOutputEngineTest {
     fun `Kokoro Settings copy identifies it as experimental`() {
         assertEquals("Kokoro (experimental)", VoiceOutputEngine.KokoroExperimental.displayName)
         assertTrue(VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental).contains("Kokoro-82M"))
+    }
+
+    @Test
+    fun `Kokoro card description quotes the same pack size as the chip`() {
+        assertTrue(VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental).contains("about ${KokoroSetup.approxSizeText()};"))
+    }
+
+    @Test
+    fun `pack size rounds decimal megabytes`() {
+        assertEquals("348 MB", KokoroSetup.formatSizeMb(348_400_000L))
+        assertEquals("351 MB", KokoroSetup.formatSizeMb(350_600_000L))
     }
     @Test
     fun `default engine is Piper on mid-range and flagship devices and Android TTS on low-power`() {

@@ -10,6 +10,7 @@ sealed interface KokoroSpeedResult {
      * [realTimeFactor] is synthesis time ÷ audio length: 1.0 means audio is made exactly as fast as it plays.
      * [firstChunkSeconds] is time from the start of the run to the first chunk being ready.
      * [peakMemoryMb] is the process VmHWM after the run, or null when /proc is unreadable.
+     * [memoryDetails] is the free-memory figures the check read before it ran; null when no check ran.
      */
     data class Measured(
         val audioSeconds: Double,
@@ -20,6 +21,7 @@ sealed interface KokoroSpeedResult {
         val medianRealTimeFactor: Double = synthesisSeconds / audioSeconds,
         val medianFirstChunkSeconds: Double = firstChunkSeconds,
         val stoppedEarly: Boolean = false,
+        val memoryDetails: String? = null,
     ) : KokoroSpeedResult {
         data class Run(
             val audioSeconds: Double,
@@ -32,7 +34,8 @@ sealed interface KokoroSpeedResult {
         val realTimeFactor: Double get() = medianRealTimeFactor
         val allowsKokoro: Boolean get() = medianRealTimeFactor <= KOKORO_SELECT_MAX_MEDIAN_RTF
     }
-    data class Unavailable(val message: String) : KokoroSpeedResult
+    /** [memoryShort]: no load was attempted because of free memory; [details] are the numbers the gate read. */
+    data class Unavailable(val message: String, val details: String? = null, val memoryShort: Boolean = false) : KokoroSpeedResult
 }
 
 const val KOKORO_SELECT_MAX_MEDIAN_RTF = 0.70

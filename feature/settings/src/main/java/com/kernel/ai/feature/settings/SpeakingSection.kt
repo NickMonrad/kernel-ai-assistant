@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -107,7 +108,7 @@ internal fun SpeakingSection(
     onCancelKokoroPack: () -> Unit,
     onDeleteKokoroPack: () -> Unit,
     onUseMobileDataForKokoro: () -> Unit = {},
-    onTestKokoroSpeed: () -> Unit = {},
+    onCheckKokoroSpeed: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit,
     onCancelInflectMicro: () -> Unit,
     onDeleteInflectMicro: () -> Unit,
@@ -144,6 +145,7 @@ internal fun SpeakingSection(
                         val voice = option.row.voice
                         val downloadState = option.row.downloadState
                         val downloaded = downloadState is VoicePackDownloadState.Downloaded
+                        val packBusy = downloadState is VoicePackDownloadState.Downloading
                         val isCori = voice == SherpaPiperVoice.CoriHigh
                         val isMultiSpeaker = voice == SherpaPiperVoice.VctkMedium ||
                             voice == SherpaPiperVoice.SemaineMedium
@@ -156,6 +158,7 @@ internal fun SpeakingSection(
                         // Wi-Fi waiting and Cancel show under any engine for the selected voice, unless Inflect owns it.
                         val cardActionsVisible = (sherpaSelected || isSelectedVoice) && !inflectOwnsDownload
                         ChoiceCard(
+                            enabled = !packBusy && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                             title = if (isCori) {
                                 VoiceOutputCopy.title(VoiceOutputEngine.SherpaExperimental)
                             } else {
@@ -180,7 +183,7 @@ internal fun SpeakingSection(
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
-                            tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
+                            tag = if (downloaded) downloadedChip() else sizeTag(formatBytes(voice.approxDownloadBytes)),
                             extraLine = downloadStatusLine(downloadState) ?: if (sherpaSelected && isSelectedVoice && !downloaded) {
                                 "Selected. The phone's voice speaks until this downloads."
                             } else {
@@ -297,6 +300,7 @@ internal fun SpeakingSection(
                         val state = uiState.inflectMicroAvailability
                         val selected = engine == VoiceOutputEngine.InflectMicroExperimental
                         ChoiceCard(
+                            enabled = state !is ModelAvailabilityState.Preparing && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                             title = VoiceOutputCopy.title(VoiceOutputEngine.InflectMicroExperimental),
                             description = "${VoiceOutputCopy.body(VoiceOutputEngine.InflectMicroExperimental)} " +
                                 "Also needs the ${uiState.selectedSherpaVoice.displayName} voice pack.",
@@ -371,6 +375,7 @@ internal fun SpeakingSection(
                             title = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
                             description = VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental),
                             selected = kokoroSelected,
+                            enabled = !downloading && !uiState.kokoroWaitingForWifi && uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                             onSelect = {
                                 onOutputEngineSelected(VoiceOutputEngine.KokoroExperimental)
                                 // A tap starts a missing pack, as the Download button does.
@@ -378,24 +383,50 @@ internal fun SpeakingSection(
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
-                            tag = if (ready) downloadedChip() else sizeTag(KokoroSetup.approxSizeBytes()),
+                            tag = if (ready) downloadedChip() else sizeTag(KokoroSetup.approxSizeText()),
                             extraLine = when {
                                 uiState.kokoroWaitingForWifi -> "Waiting for Wi-Fi"
                                 downloading -> "Downloading ${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
                                 failed -> "Download failed. Tap Retry."
+                                uiState.kokoroSpeed == KokoroSpeedUiState.Checking ->
+                                    "Checking this phone can speak Kokoro smoothly… (about 30 s)"
                                 kokoroSelected && !ready -> "Selected. Download the pack first; other voices speak until then."
+                                ready && !kokoroSelected && uiState.kokoroSpeed == KokoroSpeedUiState.Idle ->
+                                    "Tap to check this phone can use Kokoro"
                                 else -> null
                             },
                             subContent = {
                                 TermsOfUseLinkWithSheet()
                                 if (ready) {
-                                    OutlinedButton(
-                                        onClick = onTestKokoroSpeed,
-                                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Running,
-                                        colors = accentOutlinedColors,
-                                        modifier = Modifier.semantics { contentDescription = "Test Kokoro voice speed" },
-                                    ) { Text("Test voice speed") }
-                                    KokoroSpeedPanel(uiState.kokoroSpeed)
+                                    when (val check = uiState.kokoroSpeed) {
+                                        is KokoroSpeedUiState.Failed -> {
+                                            Text(
+                                                text = if (check.memoryShort) {
+                                                    "This phone doesn't have enough free memory for Kokoro right now. Staying on ${check.stayingOn}."
+                                                } else {
+                                                    "This phone isn't fast enough for Kokoro; replies would stutter. Staying on ${check.stayingOn}."
+                                                },
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                            check.details?.let { CheckDetails(it) }
+                                        }
+                                        is KokoroSpeedUiState.CannotRun -> {
+                                            Text(text = check.reason, style = MaterialTheme.typography.bodySmall)
+                                            check.details?.let { CheckDetails(it) }
+                                        }
+                                        else -> Unit
+                                    }
+                                    if (uiState.kokoroSpeed is KokoroSpeedUiState.Failed ||
+                                        uiState.kokoroSpeed is KokoroSpeedUiState.CannotRun
+                                    ) {
+                                        TextButton(
+                                            onClick = onCheckKokoroSpeed,
+                                            modifier = Modifier.semantics { contentDescription = "Check Kokoro again" },
+                                        ) { Text("Check again") }
+                                    }
+                                    uiState.kokoroSampleError?.let {
+                                        Text(text = it, style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                                 when {
                                     downloading -> OutlinedButton(
@@ -405,6 +436,7 @@ internal fun SpeakingSection(
                                     ) { Text("Cancel") }
                                     ready -> OutlinedButton(
                                         onClick = onDeleteKokoroPack,
+                                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                                         colors = accentOutlinedColors,
                                         modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
                                     ) { Text("Delete") }
@@ -442,6 +474,7 @@ internal fun SpeakingSection(
                     }
 
                     SpeakingOption.PhoneVoice -> ChoiceCard(
+                        enabled = uiState.kokoroSpeed != KokoroSpeedUiState.Checking,
                         title = VoiceOutputCopy.title(VoiceOutputEngine.AndroidTts),
                         description = VoiceOutputCopy.body(VoiceOutputEngine.AndroidTts),
                         selected = engine == VoiceOutputEngine.AndroidTts,
@@ -542,24 +575,16 @@ private fun KokoroVoicePicker(
 }
 
 @Composable
-private fun KokoroSpeedPanel(state: KokoroSpeedUiState) {
-    when (state) {
-        KokoroSpeedUiState.Idle -> Unit
-        KokoroSpeedUiState.Running -> Text(
-            text = "Testing voice speed…",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        is KokoroSpeedUiState.Done -> Column(modifier = Modifier.fillMaxWidth()) {
-            state.lines.forEach { line ->
-                Text(text = line, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
+private fun CheckDetails(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
-private fun sizeTag(bytes: Long): @Composable () -> Unit = {
-    InfoTag(text = formatBytes(bytes), style = InfoTagStyle.Neutral)
+private fun sizeTag(text: String): @Composable () -> Unit = {
+    InfoTag(text = text, style = InfoTagStyle.Neutral)
 }
 
 /** Progress or failure line under a voice card. Wi-Fi waiting is shown in the card's sub-content instead. */

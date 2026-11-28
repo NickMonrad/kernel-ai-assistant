@@ -90,20 +90,58 @@ class KokoroBackgroundWarmUp @Inject constructor(
     }
 }
 
-/** Reads the memory state that decides whether a background warm-up may load a ~0.75 GB engine. */
+/** Memory the Kokoro gate read, in bytes. [memAvailableBytes] is null when /proc/meminfo has no readable MemAvailable. */
+data class KokoroMemorySnapshot(
+    val lowMemory: Boolean,
+    val memAvailableBytes: Long?,
+    val availMemBytes: Long,
+) {
+    /** MemAvailable when readable (includes reclaimable cache), otherwise ActivityManager's availMem. */
+    val decisionBytes: Long get() = memAvailableBytes ?: availMemBytes
+
+    fun describe(thresholdBytes: Long): String =
+        "MemAvailable=${mebibytes(memAvailableBytes)} availMem=${mebibytes(availMemBytes)} " +
+            "threshold=${mebibytes(thresholdBytes)} lowMemory=$lowMemory"
+}
+
+private fun mebibytes(bytes: Long?): String =
+    bytes?.let { "%.0f MiB".format(java.util.Locale.US, it / 1_048_576.0) } ?: "unavailable"
+
+/** Reads the memory state that decides whether Kokoro may load (~0.75-0.95 GB engine). */
 @Singleton
 class KokoroWarmUpMemoryGate @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-    fun hasHeadroom(): Boolean {
+    fun snapshot(): KokoroMemorySnapshot {
         val info = ActivityManager.MemoryInfo()
         (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(info)
-        return kokoroWarmUpHasHeadroom(info.lowMemory, info.availMem)
+        return KokoroMemorySnapshot(
+            lowMemory = info.lowMemory,
+            memAvailableBytes = readMemAvailableBytes(),
+            availMemBytes = info.availMem,
+        )
     }
+
+    /** Background warm-up only: the default threshold is the unprompted-load margin. */
+    fun hasHeadroom(minAvailableBytes: Long = KOKORO_WARM_UP_MIN_AVAILABLE_BYTES): Boolean =
+        kokoroHasHeadroom(snapshot(), minAvailableBytes)
+
+    private fun readMemAvailableBytes(): Long? = runCatching {
+        java.io.File("/proc/meminfo").useLines { lines ->
+            lines.firstOrNull { it.startsWith("MemAvailable:") }
+                ?.split(Regex("\\s+"))?.getOrNull(1)?.toLongOrNull()?.times(1024L)
+        }
+    }.getOrNull()
 }
 
-/** Available memory required before a background warm-up: the engine's footprint plus about 1 GiB of margin. */
+/** Background warm-up: engine footprint plus about 1 GiB of margin. Unprompted loads only. */
 internal const val KOKORO_WARM_UP_MIN_AVAILABLE_BYTES = 2L * 1024 * 1024 * 1024
 
-internal fun kokoroWarmUpHasHeadroom(lowMemory: Boolean, availableBytes: Long): Boolean =
-    !lowMemory && availableBytes >= KOKORO_WARM_UP_MIN_AVAILABLE_BYTES
+/** User-initiated check and reply-time load: measured load is ~0.95 GB, so 1.25 GiB leaves margin (#2170 Honor). */
+internal const val KOKORO_LOAD_MIN_AVAILABLE_BYTES = 1_280L * 1024 * 1024
+
+/** Shown only for a memory-short check; the card adds which voice stays selected. */
+internal const val KOKORO_LOW_MEMORY_MESSAGE = "This phone doesn't have enough free memory for Kokoro right now."
+
+internal fun kokoroHasHeadroom(snapshot: KokoroMemorySnapshot, minAvailableBytes: Long): Boolean =
+    !snapshot.lowMemory && snapshot.decisionBytes >= minAvailableBytes

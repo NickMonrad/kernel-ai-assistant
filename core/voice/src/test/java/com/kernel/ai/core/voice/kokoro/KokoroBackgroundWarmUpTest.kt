@@ -123,8 +123,8 @@ class KokoroBackgroundWarmUpTest {
 
     @Test
     fun `low memory blocks warm-up even with plenty available`() {
-        assertFalse(kokoroWarmUpHasHeadroom(lowMemory = true, availableBytes = 8L * 1024 * 1024 * 1024))
-        assertFalse(kokoroWarmUpHasHeadroom(lowMemory = false, availableBytes = KOKORO_WARM_UP_MIN_AVAILABLE_BYTES - 1))
-        assertTrue(kokoroWarmUpHasHeadroom(lowMemory = false, availableBytes = KOKORO_WARM_UP_MIN_AVAILABLE_BYTES))
+        assertFalse(kokoroHasHeadroom(KokoroMemorySnapshot(lowMemory = true, memAvailableBytes = null, availMemBytes = 8L * 1024 * 1024 * 1024), KOKORO_WARM_UP_MIN_AVAILABLE_BYTES))
+        assertFalse(kokoroHasHeadroom(KokoroMemorySnapshot(lowMemory = false, memAvailableBytes = KOKORO_WARM_UP_MIN_AVAILABLE_BYTES - 1, availMemBytes = 0L), KOKORO_WARM_UP_MIN_AVAILABLE_BYTES))
+        assertTrue(kokoroHasHeadroom(KokoroMemorySnapshot(lowMemory = false, memAvailableBytes = KOKORO_WARM_UP_MIN_AVAILABLE_BYTES, availMemBytes = 0L), KOKORO_WARM_UP_MIN_AVAILABLE_BYTES))
     }
 }
