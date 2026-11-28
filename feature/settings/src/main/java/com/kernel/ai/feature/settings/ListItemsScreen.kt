@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatIndentDecrease
+import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.automirrored.filled.FormatIndentIncrease
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -108,6 +111,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -116,12 +121,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -1354,39 +1361,50 @@ fun ListItemsScreen(
     if (showAddDialog) {
         val parentItemId = addSubItemParentId
         val newItemDraft = remember(listId) { ListItemEntity(listId = listId, text = "") }
+        val quickEntryHintRetired by viewModel.quickEntryHintRetired.collectAsStateWithLifecycle()
+        // Every add, including the batch's Enter-adds, goes through this one path.
+        fun addDraft(created: ListItemEntity) {
+            if (parentItemId == null) {
+                viewModel.addItem(
+                    listId = listId,
+                    itemText = created.text,
+                    description = created.description,
+                    dueAt = created.dueAt,
+                    isFavourite = created.isFavourite,
+                    notificationTime = created.notificationTime,
+                ) { createdItemId ->
+                    pendingCreatedItemIds.add(createdItemId)
+                }
+            } else {
+                viewModel.addSubItem(
+                    listId = listId,
+                    parentItemId = parentItemId,
+                    itemText = created.text,
+                    description = created.description,
+                    dueAt = created.dueAt,
+                    isFavourite = created.isFavourite,
+                    notificationTime = created.notificationTime,
+                ) { createdItemId ->
+                    pendingCreatedItemIds.add(createdItemId)
+                }
+            }
+        }
         ItemDetailsSheet(
             item = newItemDraft,
             title = if (parentItemId == null) "Add item" else "Add sub-item",
             primaryActionLabel = "Add",
             canAddSubItem = false,
             onAddSubItem = {},
+            quickEntry = ItemQuickEntry(
+                hintRetired = quickEntryHintRetired,
+                onAddNext = { addDraft(it) },
+                onEnterAdded = viewModel::recordQuickEntryEnterAdd,
+                onHintDismissed = viewModel::dismissQuickEntryHint,
+            ),
             onSave = { created ->
                 showAddDialog = false
                 addSubItemParentId = null
-                if (parentItemId == null) {
-                    viewModel.addItem(
-                        listId = listId,
-                        itemText = created.text,
-                        description = created.description,
-                        dueAt = created.dueAt,
-                        isFavourite = created.isFavourite,
-                        notificationTime = created.notificationTime,
-                    ) { createdItemId ->
-                        pendingCreatedItemIds.add(createdItemId)
-                    }
-                } else {
-                    viewModel.addSubItem(
-                        listId = listId,
-                        parentItemId = parentItemId,
-                        itemText = created.text,
-                        description = created.description,
-                        dueAt = created.dueAt,
-                        isFavourite = created.isFavourite,
-                        notificationTime = created.notificationTime,
-                    ) { createdItemId ->
-                        pendingCreatedItemIds.add(createdItemId)
-                    }
-                }
+                addDraft(created)
             },
             onDismiss = {
                 showAddDialog = false
@@ -2004,6 +2022,8 @@ internal fun ItemDetailsSheet(
     interactionsEnabled: Boolean = true,
     onToggleSubItem: (ListItemEntity) -> Unit = {},
     onOpenSubItem: (ListItemEntity) -> Unit = {},
+    /** Add-flow behaviour (single-line name, Enter-to-add, batch). Null for Edit, which is unchanged. */
+    quickEntry: ItemQuickEntry? = null,
     onSave: (ListItemEntity) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -2024,8 +2044,56 @@ internal fun ItemDetailsSheet(
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
 
+    // Quick entry (add flow only): the name is single-line, Enter adds and keeps the sheet open.
+    val quick = quickEntry
+    var addedCount by remember(item.id) { mutableStateOf(0) }
+    var hintDismissedHere by remember(item.id) { mutableStateOf(false) }
+    var nameFocused by remember { mutableStateOf(false) }
+    var pastedCandidates by remember { mutableStateOf<List<String>?>(null) }
+    val nameFocusRequester = remember { FocusRequester() }
+    val clipboard = LocalClipboardManager.current
+    val view = LocalView.current
+    val hintVisible = quick != null && addedCount == 0 && text.isNotEmpty() &&
+        !quick.hintRetired && !hintDismissedHere
+    LaunchedEffect(nameFocused) {
+        if (nameFocused && hintVisible) view.announceForAccessibility(QUICK_ENTRY_HINT_TEXT)
+    }
+
+    fun draft(): ListItemEntity = item.copy(
+        text = text,
+        description = description,
+        dueAt = dueAt,
+        isFavourite = isFavourite,
+        notificationTime = if (notifyEnabled) notificationTime else null,
+    )
+
+    fun resetForNextItem(added: Int) {
+        text = ""
+        description = ""
+        dueAt = null
+        notificationTime = null
+        notifyEnabled = false
+        isFavourite = false
+        addedCount += added
+        nameFocusRequester.requestFocus()
+    }
+
+    /** Adds the typed item and keeps the sheet open. [enterAdd] counts toward hint retirement. */
+    fun addAndNext(enterAdd: Boolean) {
+        val entry = quick ?: return
+        if (text.isBlank()) return
+        entry.onAddNext(draft())
+        if (enterAdd) entry.onEnterAdded()
+        resetForNextItem(added = 1)
+    }
+
+    /** Done, swipe and back in quick mode: add any leftover name, then close. */
+    fun finishQuick() {
+        if (text.isNotBlank()) onSave(draft()) else onDismiss()
+    }
+
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (quick != null) finishQuick() else onDismiss() },
         sheetState = sheetState,
     ) {
         Column(
@@ -2065,12 +2133,50 @@ internal fun ItemDetailsSheet(
             ) {
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth().testTag("list_item_details_title"),
+                    onValueChange = { newText ->
+                        if (quick == null) {
+                            text = newText
+                        } else {
+                            // Only a long insertion can be a paste; the clipboard confirms it is a list.
+                            val clip = if (newText.length - text.length >= 2) clipboard.getText()?.text else null
+                            val lines = pastedNameLines(oldText = text, newText = newText, clipboardText = clip)
+                            if (lines != null) {
+                                pastedCandidates = lines
+                            } else {
+                                text = collapseNameLineBreaks(newText)
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocusRequester)
+                        .onFocusChanged { nameFocused = it.isFocused }
+                        .testTag("list_item_details_title"),
                     label = { Text("Item") },
                     minLines = 1,
-                    maxLines = 6,
+                    maxLines = if (quick == null) 6 else 1,
+                    singleLine = quick != null,
+                    keyboardOptions = if (quick == null) KeyboardOptions.Default
+                    else KeyboardOptions.Default.copy(imeAction = ImeAction.Next),
+                    keyboardActions = if (quick == null) KeyboardActions.Default
+                    else KeyboardActions(onNext = { addAndNext(enterAdd = true) }),
                 )
+                if (quick != null) {
+                    if (addedCount == 0) {
+                        if (hintVisible) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            QuickEntryHintStrip(
+                                onDismiss = {
+                                    hintDismissedHere = true
+                                    quick.onHintDismissed()
+                                },
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        QuickEntryCounter(quickEntryCounterText(addedCount, descriptionFocused))
+                    }
+                }
 
                 // Due date chip directly under the item field.
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2275,31 +2381,65 @@ internal fun ItemDetailsSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.testTag("list_item_details_cancel"),
-                ) { Text("Cancel") }
-                Spacer(modifier = Modifier.width(8.dp))
-                Button(
-                    modifier = Modifier.testTag("list_item_details_save"),
-                    onClick = {
-                        onSave(
-                            item.copy(
-                                text = text,
-                                description = description,
-                                dueAt = dueAt,
-                                isFavourite = isFavourite,
-                                notificationTime = if (notifyEnabled) notificationTime else null,
-                            ),
-                        )
-                    },
-                    enabled = text.isNotBlank(),
-                ) { Text(primaryActionLabel) }
+                if (quick != null && addedCount > 0) {
+                    TextButton(
+                        onClick = { finishQuick() },
+                        modifier = Modifier.testTag("list_item_details_done"),
+                    ) { Text("Done") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        modifier = Modifier.testTag("list_item_details_add_next"),
+                        onClick = { addAndNext(enterAdd = false) },
+                        enabled = text.isNotBlank(),
+                    ) { Text("Add & next") }
+                } else {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("list_item_details_cancel"),
+                    ) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        modifier = Modifier.testTag("list_item_details_save"),
+                        onClick = { onSave(draft()) },
+                        enabled = text.isNotBlank(),
+                    ) { Text(primaryActionLabel) }
+                }
             }
 
             // Navigation bar clearance
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    // Pasted list in the name box: keep it as one item, or add each line as its own item.
+    pastedCandidates?.let { candidates ->
+        AlertDialog(
+            onDismissRequest = {
+                text = candidates.joinToString(", ")
+                pastedCandidates = null
+            },
+            title = { Text("Add as ${candidates.size} separate items?") },
+            text = { Text(candidates.joinToString(" · ")) },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        text = candidates.joinToString(", ")
+                        pastedCandidates = null
+                    },
+                    modifier = Modifier.testTag("list_item_details_paste_keep"),
+                ) { Text("Keep as one") }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        candidates.forEach { entry -> quick?.onAddNext(draft().copy(text = entry)) }
+                        pastedCandidates = null
+                        resetForNextItem(added = candidates.size)
+                    },
+                    modifier = Modifier.testTag("list_item_details_paste_split"),
+                ) { Text("Split") }
+            },
+        )
     }
 
     // Date picker rendered as a separate dialog that floats over the bottom sheet
@@ -2378,6 +2518,67 @@ internal fun ItemDetailsSheet(
                     showTimePicker = false
                 }) { Text("Cancel") }
             },
+        )
+    }
+}
+
+/** Tinted hint under the item box: explains Enter-to-add. The × retires it for good. */
+@Composable
+private fun QuickEntryHintStrip(onDismiss: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("list_item_details_quick_hint"),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardReturn,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = QUICK_ENTRY_HINT_TEXT,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("list_item_details_quick_hint_dismiss"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss hint",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+        }
+    }
+}
+
+/** Running count of items added in this sheet session. */
+@Composable
+private fun QuickEntryCounter(text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("list_item_details_quick_counter"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
