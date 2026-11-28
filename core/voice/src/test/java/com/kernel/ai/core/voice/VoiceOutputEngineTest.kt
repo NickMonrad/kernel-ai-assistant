@@ -8,6 +8,11 @@ import org.junit.jupiter.api.Test
 
 class VoiceOutputEngineTest {
     @Test
+    fun `Kokoro Settings copy identifies it as experimental`() {
+        assertEquals("Kokoro (experimental)", VoiceOutputEngine.KokoroExperimental.displayName)
+        assertTrue(VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental).contains("Kokoro-82M"))
+    }
+    @Test
     fun `default engine is Piper on mid-range and flagship devices and Android TTS on low-power`() {
         assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.FLAGSHIP))
         assertEquals(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.defaultForTier(HardwareTier.MID_RANGE))

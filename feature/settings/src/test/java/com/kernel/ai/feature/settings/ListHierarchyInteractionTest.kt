@@ -465,6 +465,62 @@ class ListHierarchyInteractionTest {
         assertEquals(listOf(child.id), completeGroups.first().children.map { it.id })
     }
 
+    @Test
+    fun `dropping at the end of a group keeps the dragged child ahead of its ticked sub-items`() {
+        val parent = item(1)
+        val salt = item(2, parentItemId = parent.itemId)
+        val sumac = item(3, parentItemId = parent.itemId, checked = true)
+        val dragged = item(4)
+        val complete = listOf(
+            EffectiveHierarchyGroup(parent, listOf(salt, sumac)),
+            EffectiveHierarchyGroup(dragged, emptyList()),
+        )
+        // The projection hides the ticked sub-item from the active list, so the drag sees only Salt.
+        val visible = complete.map { group -> group.copy(children = group.children.filterNot { it.checked }) }
+
+        val placement = pendingHierarchyPlacement(
+            completeGroups = complete,
+            visibleGroups = visible,
+            collapsedParentItemIds = emptySet(),
+            draggedRowId = dragged.id,
+            target = HierarchyDropTarget.ParentRow(parent.id),
+        )
+
+        assertEquals(salt.orderKey, placement?.lowerOrderKey)
+        assertEquals(sumac.orderKey, placement?.upperOrderKey)
+        assertEquals(listOf(2L, 4L, 3L), placement?.resultGroups?.first()?.children?.map { it.id })
+        assertEquals(
+            listOf(2L, 4L),
+            hierarchyGroupsForDragPreview(placement, visible, emptySet(), searchQuery = "")
+                .first().children.map { it.id },
+        )
+    }
+
+    @Test
+    fun `settle check ignores a ticked sub-item stored between open siblings`() {
+        val parent = item(1)
+        val open = item(2, parentItemId = parent.itemId)
+        val ticked = item(3, parentItemId = parent.itemId, checked = true)
+        val later = item(4, parentItemId = parent.itemId)
+        val persisted = listOf(EffectiveHierarchyGroup(parent, listOf(open, ticked, later)))
+        // The drop lists the open children first and the ticked child after them.
+        val committed = listOf(EffectiveHierarchyGroup(parent, listOf(open, later, ticked)))
+
+        assertTrue(hierarchyPlacementSettled(persisted, committed))
+    }
+
+    @Test
+    fun `settle check fails when open sub-items are not in the committed order`() {
+        val parent = item(1)
+        val open = item(2, parentItemId = parent.itemId)
+        val ticked = item(3, parentItemId = parent.itemId, checked = true)
+        val later = item(4, parentItemId = parent.itemId)
+        val persisted = listOf(EffectiveHierarchyGroup(parent, listOf(open, ticked, later)))
+        val committed = listOf(EffectiveHierarchyGroup(parent, listOf(later, open, ticked)))
+
+        assertFalse(hierarchyPlacementSettled(persisted, committed))
+    }
+
     private fun item(id: Long, parentItemId: String? = null, checked: Boolean = false) =
         ListItemEntity(
             id = id,

@@ -56,7 +56,7 @@ internal suspend fun KokoroHandoff.synthesizeOrHandOff(
         synthesize(unit.chunk)
     } catch (error: CancellationException) {
         throw error
-    } catch (error: Exception) {
+    } catch (error: Throwable) {
         failed("Kokoro synthesis failed: ${error.message}", unit.restOfAppend)
         null
     }
@@ -88,7 +88,7 @@ internal fun kokoroSentenceUnits(
             val restOfAppend = sentences.subList(index, sentences.size).joinToString(" ")
             val chunks = try {
                 phonemeChunks(sentence)
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 handoff.failed("Kokoro phonemizing failed: ${error.message}", restOfAppend)
                 return@sequence
             }

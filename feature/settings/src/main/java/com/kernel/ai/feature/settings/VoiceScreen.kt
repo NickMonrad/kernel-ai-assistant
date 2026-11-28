@@ -317,6 +317,7 @@ fun VoiceScreen(
         onSherpaPitchChanged = viewModel::setSherpaPitch,
         onSherpaGainChanged = viewModel::setSherpaGain,
         onAutoSpeakChanged = viewModel::setAutoSpeak,
+        onPlaceDidYouMeanChanged = viewModel::setPlaceDidYouMeanEnabled,
         onMaxSpokenSentencesChanged = viewModel::setMaxSpokenSentences,
         onActiveSpeakerIdChanged = viewModel::setActiveSpeakerId,
         onKokoroVoiceSelected = viewModel::setKokoroVoice,
@@ -334,6 +335,7 @@ fun VoiceScreen(
         onDownloadKokoroPack = viewModel::downloadKokoroPack,
         onCancelKokoroPack = viewModel::cancelKokoroPackDownload,
         onDeleteKokoroPack = viewModel::deleteKokoroPack,
+        onUseMobileDataForKokoro = viewModel::useMobileDataForKokoro,
         onTestKokoroSpeed = viewModel::testKokoroSpeed,
         onDownloadInflectMicro = viewModel::downloadInflectMicro,
         onCancelInflectMicro = viewModel::cancelInflectMicroDownload,
@@ -529,6 +531,7 @@ private fun VoiceScreenContent(
     onSherpaPitchChanged: (Float) -> Unit,
     onSherpaGainChanged: (Float) -> Unit,
     onAutoSpeakChanged: (Boolean) -> Unit,
+    onPlaceDidYouMeanChanged: (Boolean) -> Unit,
     onMaxSpokenSentencesChanged: (Int) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
     onKokoroVoiceSelected: (KokoroVoice) -> Unit,
@@ -546,6 +549,7 @@ private fun VoiceScreenContent(
     onDownloadKokoroPack: () -> Unit = {},
     onCancelKokoroPack: () -> Unit = {},
     onDeleteKokoroPack: () -> Unit = {},
+    onUseMobileDataForKokoro: () -> Unit = {},
     onTestKokoroSpeed: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit = {},
     onCancelInflectMicro: () -> Unit = {},
@@ -755,6 +759,23 @@ private fun VoiceScreenContent(
             HorizontalDivider()
 
             ListItem(
+                headlineContent = { Text("Did you mean place prompts (experimental)") },
+                supportingContent = {
+                    Text(
+                        text = "Ask before acting when a navigation or weather place is a near miss of an NZ place name. Off by default.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = uiState.placeDidYouMeanEnabled,
+                        onCheckedChange = onPlaceDidYouMeanChanged,
+                    )
+                },
+            )
+            HorizontalDivider()
+
+            ListItem(
                 headlineContent = { Text("Max spoken sentences") },
                 supportingContent = {
                     val label = if (uiState.maxSpokenSentences == 0) "Unlimited" else "${uiState.maxSpokenSentences}"
@@ -805,6 +826,7 @@ private fun VoiceScreenContent(
                 onDeleteSherpaVoice = onDeleteSherpaVoice,
                 onPlaySherpaSample = onPlaySherpaSample,
                 onUseMobileDataForVoice = onUseMobileDataForVoice,
+                onUseMobileDataForKokoro = onUseMobileDataForKokoro,
                 onDownloadKokoroPack = onDownloadKokoroPack,
                 onCancelKokoroPack = onCancelKokoroPack,
                 onDeleteKokoroPack = onDeleteKokoroPack,
@@ -1078,6 +1100,7 @@ private fun VoiceScreenPreview() {
             onSherpaPitchChanged = {},
             onSherpaGainChanged = {},
             onAutoSpeakChanged = {},
+            onPlaceDidYouMeanChanged = {},
             onMaxSpokenSentencesChanged = {},
             onActiveSpeakerIdChanged = {},
             onKokoroVoiceSelected = {},

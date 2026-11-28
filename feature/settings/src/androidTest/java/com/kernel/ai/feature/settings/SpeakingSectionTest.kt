@@ -460,6 +460,61 @@ class SpeakingSectionTest {
     }
 
     @Test
+    fun kokoroCardUsesExperimentalLabelAndDescription() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+            ),
+        )
+
+        composeTestRule.onNode(hasText("Kokoro (experimental)") and hasAnyAncestor(hasTestTag(kokoroCardTag)))
+            .assertExists()
+        composeTestRule.onNode(
+            hasText("Kokoro-82M speech on this device.", substring = true) and hasAnyAncestor(hasTestTag(kokoroCardTag)),
+        ).assertExists()
+    }
+
+    @Test
+    fun kokoroPackProgressCombinesAllFileBytes() {
+        val models = KokoroSetup.kernelModels()
+        val states = kokoroStates(DownloadState.NotDownloaded).toMutableMap()
+        states[models.first()] = DownloadState.Downloaded("first")
+        states[models[1]] = DownloadState.Downloading(progress = 0.5f)
+        val expectedBytes = models.first().approxSizeBytes + (models[1].approxSizeBytes * 0.5f).toLong()
+        val expectedPercent = (expectedBytes.toFloat() / models.sumOf { it.approxSizeBytes } * 100).toInt()
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = states,
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Downloading $expectedPercent%").assertExists()
+        composeTestRule.onNodeWithText("Downloading 100%").assertDoesNotExist()
+    }
+
+    @Test
+    fun kokoroWaitingForWifiOffersPackOnlyMobileData() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloading(progress = 0f)),
+                kokoroWaitingForWifi = true,
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.")
+            .assertExists()
+        cardButton(kokoroCardTag, "Use mobile data").performScrollTo().performClick()
+        assertEquals(listOf("mobileDataKokoro"), calls)
+    }
+
+    @Test
     fun kokoroDownloadHiddenWhilePiperSelected() {
         setSection(
             VoiceUiState(
@@ -657,6 +712,7 @@ class SpeakingSectionTest {
                         onDownloadKokoroPack = { calls += "downloadKokoro" },
                         onCancelKokoroPack = { calls += "cancelKokoro" },
                         onDeleteKokoroPack = { calls += "deleteKokoro" },
+                        onUseMobileDataForKokoro = { calls += "mobileDataKokoro" },
                         onDownloadInflectMicro = { calls += "downloadInflect" },
                         onCancelInflectMicro = { calls += "cancelInflect" },
                         onDeleteInflectMicro = { calls += "deleteInflect" },

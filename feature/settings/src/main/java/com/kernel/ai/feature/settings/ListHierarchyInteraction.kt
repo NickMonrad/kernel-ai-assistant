@@ -4,6 +4,7 @@ import com.kernel.ai.core.memory.entity.ListItemEntity
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyGroup
 import com.kernel.ai.core.memory.lists.EffectiveHierarchyProjection
 import com.kernel.ai.core.memory.lists.ListLifecycle
+import com.kernel.ai.core.memory.lists.OrderKey
 import com.kernel.ai.core.memory.lists.VersionStamp
 
 /**
@@ -129,7 +130,10 @@ internal fun hierarchyGroupsForDragPreview(
     collapsedParentItemIds: Set<String>,
     searchQuery: String,
 ): List<EffectiveHierarchyGroup<ListItemEntity>> = visibleHierarchyGroups(
-    groups = placement?.resultGroups ?: visibleGroups,
+    groups = placement?.resultGroups?.map { group ->
+        // Ticked sub-items trail the visible children in the drop model; they never render in the preview.
+        group.copy(children = group.children.filterNot { it.checked })
+    } ?: visibleGroups,
     collapsedParentItemIds = collapsedParentItemIds,
     searchQuery = searchQuery,
     previewedChildRowId = placement?.draggedRowId,
@@ -146,6 +150,29 @@ internal fun hierarchyDropTargetHighlightParentRowId(
         is HierarchyDropTarget.TopLevelInsertion -> null
     }
 }
+
+/** Index after the last visible (unticked) child; ticked sub-items trail it and stay hidden. */
+private fun List<ListItemEntity>.visibleEndIndex(): Int = indexOfLast { !it.checked } + 1
+
+/** Smallest sibling order key strictly above [lower], or null when no sibling sits above it. */
+private fun nextOrderKeyAfter(lower: String?, siblings: List<ListItemEntity>): String? = siblings
+    .map(ListItemEntity::orderKey)
+    .filter { lower == null || OrderKey.compare(it, lower) > 0 }
+    .minWithOrNull(Comparator { left, right -> OrderKey.compare(left, right) })
+
+/**
+ * True when every open parent has the same unticked children, in the same order, in the persisted
+ * data and in the committed drop. Ticked children are excluded: the drop lists them after the open
+ * ones, but they keep their stored position, so comparing them would never settle.
+ */
+internal fun hierarchyPlacementSettled(
+    persisted: List<EffectiveHierarchyGroup<ListItemEntity>>,
+    committed: List<EffectiveHierarchyGroup<ListItemEntity>>,
+): Boolean = openChildShape(persisted) == openChildShape(committed)
+
+private fun openChildShape(groups: List<EffectiveHierarchyGroup<ListItemEntity>>) = groups
+    .filterNot { it.parent.checked }
+    .map { group -> group.parent.id to group.children.filterNot { it.checked }.map(ListItemEntity::id) }
 
 /**
  * Calculates a complete destination from the effective hierarchy plus the current visible group
@@ -169,7 +196,9 @@ internal fun pendingHierarchyPlacement(
         val children = if (visible.parent.itemId in collapsedParentItemIds) {
             complete.children
         } else {
-            visible.children
+            // Ticked sub-items are hidden from the active list but trail the visible children,
+            // so a drop at the end of the group lands before them.
+            visible.children + complete.children.filter { child -> visible.children.none { it.id == child.id } }
         }
         if (children.any { child -> complete.children.none { it.id == child.id } }) return null
         complete.copy(parent = visible.parent, children = children)
@@ -260,15 +289,15 @@ internal fun pendingHierarchyPlacement(
             if (destinationIndex < 0) return null
             val children = result[destinationIndex].children.toMutableList()
             val insertAt = when (target) {
-                is HierarchyDropTarget.ParentRow -> children.size
+                is HierarchyDropTarget.ParentRow -> children.visibleEndIndex()
                 is HierarchyDropTarget.ChildInsertion -> target.beforeChildRowId?.let { childId ->
                     if (childId == draggedRowId) return null
                     children.indexOfFirst { it.id == childId }.takeIf { it >= 0 } ?: return null
-                } ?: children.size
+                } ?: children.visibleEndIndex()
                 else -> error("Unreachable drop target")
             }
             val lower = children.getOrNull(insertAt - 1)?.orderKey
-            val upper = children.getOrNull(insertAt)?.orderKey
+            val upper = nextOrderKeyAfter(lower, children)
             children.add(insertAt, sourceItem)
             result[destinationIndex] = result[destinationIndex].copy(children = children)
             placement(result, parent = destination.parent.itemId, lower = lower, upper = upper)

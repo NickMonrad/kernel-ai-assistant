@@ -157,5 +157,33 @@ Additional third-party libraries and downloadable model/voice assets
   in a release artefact; they remain subject to their upstream model cards, release
   notes, licences, and provider terms.
 
-  See docs/LEGAL_AND_ATTRIBUTION.md for the launch attribution checklist and the
-  components that must be reviewed before Play Store release.
+  See docs/LEGAL_AND_ATTRIBUTION.md for the launch attribution checklist and the components that must be reviewed before Play Store release.
+
+Kokoro phonemiser native library
+  Phonemis 5ec260e33127de044bda7147f52cea27a7e2e491 and Verbalis b14f1b3f96e759326935de12f81b35b87ec57f6a,
+  fetched at these pinned upstream commits and statically linked into libkokoro_phonemis.so. Phonemis and Verbalis
+  are licensed under MIT; full texts are in legal/phonemis-MIT.txt and
+  legal/verbalis-MIT.txt. Vendored xsimd 14.2 is BSD-3-Clause (legal/xsimd-BSD-3-Clause.txt); nlohmann-json 3.12.0 is MIT
+  (legal/nlohmann-json-MIT.txt); the Unicode table is under Unicode License v3 (legal/Unicode-3.0.txt).
+
+Kokoro English part-of-speech tagger (KOKORO_TAGS, phonemizer/en-us/tags.json)
+  Derived from the Brown Corpus. The Brown Corpus is for non-commercial use only; the tagger is not cleared for
+  commercial use. Phonemis treats the tagger as optional; English phonemisation works without it, with weaker
+  handling of words whose pronunciation depends on part of speech.
+  Owner decision: the tagger is kept and ships with this notice. Jandal is non-commercial, which satisfies the Brown Corpus non-commercial restriction.
+
+NZ Place Names (layer 51681), Land Information New Zealand (LINZ)
+  Licensed under Creative Commons Attribution 4.0 International
+  https://data.linz.govt.nz/license/attribution-4-0-international/
+  https://data.linz.govt.nz/layer/51681-nz-place-names-nzgb/
+  Used: core/skills/src/main/assets/place_dym/linz_localities.txt. Names of Locality and
+  Suburb features only, de-duplicated and sorted, with no other change. Used as a
+  known-place list for the experimental "Did you mean" prompt (#2079).
+  Attribution: "Contains data sourced from the LINZ Data Service licensed for reuse under CC BY 4.0"
+
+GeoNames
+  Place names © GeoNames, licensed under Creative Commons Attribution 4.0 International
+  https://creativecommons.org/licenses/by/4.0/
+  https://www.geonames.org/
+  Used: core/skills/src/main/assets/place_dym/competitor_places.txt (Australian populated
+  place names, GeoNames PPL feature class). Experimental "Did you mean" prompt (#2079).

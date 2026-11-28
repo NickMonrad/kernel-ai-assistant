@@ -42,4 +42,108 @@ class WakeUserPauseTest {
             wakeNotificationText(userPaused = false, cameraSuspended = false, otherAppRecording = false),
         )
     }
+
+    @Test
+    fun `resume from the notification promotes with the listening text and clears the pause`() {
+        val pause = WakeUserPause().apply { pause() }
+        var postedText: String? = null
+        val result = promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { postedText = it },
+            onRejected = {},
+        )
+        assertEquals(UserActionPromotion(promoted = true, pauseChanged = true), result)
+        assertEquals(NOTIFICATION_TEXT_LISTENING, postedText)
+        assertFalse(pause.paused)
+    }
+
+    @Test
+    fun `pause from the notification promotes with the paused text and sets the pause`() {
+        val pause = WakeUserPause()
+        var postedText: String? = null
+        val result = promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_PAUSE,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { postedText = it },
+            onRejected = {},
+        )
+        assertEquals(UserActionPromotion(promoted = true, pauseChanged = true), result)
+        assertEquals(NOTIFICATION_TEXT_USER_PAUSED, postedText)
+        assertTrue(pause.paused)
+    }
+
+    @Test
+    fun `the pause change is applied before the notification is promoted`() {
+        val pause = WakeUserPause().apply { pause() }
+        var pausedWhenPromoted: Boolean? = null
+        promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { pausedWhenPromoted = pause.paused },
+            onRejected = {},
+        )
+        assertEquals(false, pausedWhenPromoted)
+    }
+
+    @Test
+    fun `a notification action on a service that is not set up leaves the pause alone`() {
+        val pause = WakeUserPause().apply { pause() }
+        var postedText: String? = null
+        val result = promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = false,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { postedText = it },
+            onRejected = {},
+        )
+        assertEquals(UserActionPromotion(promoted = true, pauseChanged = false), result)
+        assertTrue(pause.paused)
+        assertEquals(NOTIFICATION_TEXT_USER_PAUSED, postedText)
+    }
+
+    @Test
+    fun `a rejected promotion reverts a Resume so the pause still matches the detector`() {
+        val pause = WakeUserPause().apply { pause() }
+        var rejection: SecurityException? = null
+        val result = promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_RESUME,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { throw SecurityException("microphone FGS not allowed") },
+            onRejected = { rejection = it },
+        )
+        assertEquals(UserActionPromotion(promoted = false, pauseChanged = false), result)
+        assertTrue(pause.paused)
+        assertEquals("microphone FGS not allowed", rejection?.message)
+    }
+
+    @Test
+    fun `a rejected promotion reverts a Pause so the mic is not released without a pause`() {
+        val pause = WakeUserPause()
+        val result = promoteWithUserAction(
+            pause,
+            WakeWordService.ACTION_PAUSE,
+            setUp = true,
+            cameraSuspended = false,
+            otherAppRecording = false,
+            promote = { throw SecurityException("microphone FGS not allowed") },
+            onRejected = {},
+        )
+        assertEquals(UserActionPromotion(promoted = false, pauseChanged = false), result)
+        assertFalse(pause.paused)
+    }
 }

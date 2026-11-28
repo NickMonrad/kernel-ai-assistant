@@ -85,9 +85,9 @@ object ReleaseAssetAttributionCatalog {
         KernelModel.KOKORO_LEXICON_EN_US, KernelModel.KOKORO_LEXICON_EN_GB,
         KernelModel.KOKORO_TAGS, KernelModel.KOKORO_VOICE_BF_EMMA,
         KernelModel.KOKORO_VOICE_BM_DANIEL, KernelModel.KOKORO_VOICE_AF_HEART -> Details(
-            "Hugging Face · software-mansion/react-native-executorch-kokoro at v0.11.0",
-            "Apache-2.0 model; MIT ExecuTorch export; Apache-2.0 misaki lexicon data (verify before release)",
-            "ExecuTorch FP32 export of hexgrad/Kokoro-82M with misaki phonemiser lexicons; downloaded on demand",
+            "Hugging Face · software-mansion/Kokoro-82M-ExecuTorch at v0.11.0",
+            "Apache-2.0 model and export; Apache-2.0 misaki lexicons; MIT phonemis and Verbalis; BSD-3-Clause xsimd; MIT nlohmann-json; Unicode-3.0 table",
+            "ExecuTorch FP32 export of hexgrad/Kokoro-82M; downloaded on demand. The optional part-of-speech tagger is derived from the Brown Corpus, which is for non-commercial use only and is not cleared for commercial use; Phonemis treats the tagger as optional.",
         )
     }
 
@@ -198,9 +198,9 @@ object ReleaseAssetAttributionCatalog {
             id = "kokoro:pack",
             name = "Kokoro-82M ExecuTorch voice pack (en-US and en-GB lexicons; bf_emma, bm_daniel, af_heart voices)",
             purposeCategory = "Speech synthesis (TTS) voice",
-            sourceDisplay = "https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/v0.11.0/",
-            licenceDisplay = "Apache-2.0 (hexgrad/Kokoro-82M model weights); MIT (software-mansion ExecuTorch export v0.11.0); Apache-2.0 (misaki-derived lexicon data)",
-            lineageDisplay = "hexgrad/Kokoro-82M, exported by software-mansion/react-native-executorch-kokoro v0.11.0 (XNNPACK fp32 standard graphs)",
+            sourceDisplay = "https://huggingface.co/software-mansion/Kokoro-82M-ExecuTorch/resolve/v0.11.0/",
+            licenceDisplay = "Apache-2.0 (Software Mansion ExecuTorch Kokoro export and Kokoro-82M model); Apache-2.0 (misaki lexicons); MIT (phonemis and Verbalis); BSD-3-Clause (xsimd); MIT (nlohmann-json); Unicode-3.0 (Unicode table)",
+            lineageDisplay = "hexgrad/Kokoro-82M, exported by Software Mansion at v0.11.0 (XNNPACK fp32 standard graphs). The optional KOKORO_TAGS part-of-speech tagger is derived from the Brown Corpus, for non-commercial use only and not cleared for commercial use; Phonemis treats the tagger as optional.",
             releaseStatus = "Download on demand (~351 MB)",
         ),
     )
@@ -210,8 +210,8 @@ object ReleaseAssetAttributionCatalog {
         ReleaseAssetAttribution("tts:AndroidTts", "Android text-to-speech", "Speech synthesis (TTS) service", "Android platform text-to-speech service", "Platform terms; installed engine-specific", "Runs on the device platform", "Release fallback"),
         ReleaseAssetAttribution("tts:SherpaExperimental", "Sherpa-ONNX Piper runtime", "Speech synthesis (TTS) engine", "Inflect-enabled Sherpa-ONNX Android library (1.13.0 build) and Sherpa-ONNX v1.13.0 source", "Apache-2.0 (Sherpa-ONNX); GPL-3.0-or-later (eSpeak-ng, statically linked in the packaged JNI library); MIT (piper-phonemize); public domain (uni-algo)", "Packaged libsherpa-onnx-jni.so for four ABIs; GPL-3.0 corresponding-source terms apply to the eSpeak-ng code in it", "Release-visible · Piper voices download on demand"),
         ReleaseAssetAttribution("tts:InflectMicroExperimental", "Inflect Micro v2 TTS", "Speech synthesis (TTS) engine", "owensong/Inflect-Micro-v2-ONNX", "Apache License 2.0 (upstream model repository)", "Two ONNX graphs require the Inflect-enabled Sherpa-ONNX JNI extension", "Release-visible · flagship arm64 devices only"),
-        ReleaseAssetAttribution("tts:KokoroExperimental", "Kokoro-82M TTS", "Speech synthesis (TTS) engine", "On-demand Kokoro pack (see kokoro:pack)", "Apache-2.0 (Kokoro-82M model)", "hexgrad/Kokoro-82M; ExecuTorch export software-mansion/react-native-executorch-kokoro v0.11.0", "Release-visible · optional on-demand pack, experimental"),
-        ReleaseAssetAttribution("tts:KokoroPhonemis", "Kokoro phonemiser native library", "Speech synthesis (TTS) text frontend", "software-mansion-labs/Phonemis 5ec260e33127de044bda7147f52cea27a7e2e491 and software-mansion-labs/Verbalis b14f1b3f96e759326935de12f81b35b87ec57f6a, fetched at build time", "MIT (Phonemis, Verbalis); Unicode-3.0 (Unicode data); xsimd BSD-3-Clause; nlohmann-json MIT", "Packaged in the core/voice JNI library; no runtime download", "Release-visible · Kokoro engine"),
+        ReleaseAssetAttribution("tts:KokoroExperimental", "Kokoro (experimental)", "Speech synthesis (TTS) engine", "On-demand Kokoro pack (see kokoro:pack)", "Apache-2.0 (Software Mansion ExecuTorch Kokoro export and Kokoro-82M model)", "hexgrad/Kokoro-82M; optional Brown Corpus-derived KOKORO_TAGS is non-commercial only, not cleared for commercial use, and treated as optional by Phonemis", "Release-visible · optional on-demand pack, experimental"),
+        ReleaseAssetAttribution("tts:KokoroPhonemis", "Kokoro phonemiser native library", "Speech synthesis (TTS) text frontend", "software-mansion-labs/Phonemis 5ec260e33127de044bda7147f52cea27a7e2e491 and software-mansion-labs/Verbalis b14f1b3f96e759326935de12f81b35b87ec57f6a, fetched at build time", "MIT (Phonemis, Verbalis); Unicode-3.0 (Unicode data); xsimd BSD-3-Clause; nlohmann-json MIT", "Packaged in the core/voice JNI library; no runtime download. Optional Brown Corpus-derived part-of-speech tagger is non-commercial only and not cleared for commercial use; Phonemis treats it as optional", "Release-visible · Kokoro engine"),
         ReleaseAssetAttribution("wakeword:openwakeword-melspectrogram", "openWakeWord melspectrogram stage", "Wake-word audio preprocessing", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx", "CC BY-NC-SA 4.0, used as published", "Unmodified upstream v0.5.1 asset", "Bundled in release · CC BY-NC-SA 4.0"),
         ReleaseAssetAttribution("wakeword:openwakeword-embedding", "openWakeWord embedding stage", "Wake-word audio embedding", "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx", "CC BY-NC-SA 4.0, used as published", "Unmodified upstream v0.5.1 asset; upstream attributes the backbone to Google speech_embedding (Apache-2.0)", "Bundled in release · CC BY-NC-SA 4.0"),
         ReleaseAssetAttribution("wakeword:hey-jandal", "Hey Jandal wake-word classifier", "Wake-word detection", "Jandal training pipeline (bundled classifier)", "CC BY-NC-SA 4.0 (ShareAlike)", "Jandal-specific Stage 3 classifier; training used consented recordings plus Piper-generated synthetic clips", "Bundled in release · CC BY-NC-SA 4.0"),

@@ -17,8 +17,8 @@ enum class VoiceOutputEngine(
         debugOnly = false,
     ),
     KokoroExperimental(
-        displayName = "Kokoro",
-        description = "Kokoro-82M speech on this device. Optional download of about 351 MB. Falls back to Inflect Micro, then Android TTS.",
+        displayName = "Kokoro (experimental)",
+        description = "Experimental Kokoro-82M speech on this device. Optional download of about 351 MB; falls back to Inflect Micro, then Android TTS.",
         debugOnly = false,
     ),
     InflectMicroExperimental(

@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -46,6 +47,7 @@ import kotlinx.coroutines.withContext
 class KokoroVoiceOutputController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val voiceOutputPreferences: VoiceOutputPreferences,
+    private val loadMarker: KokoroLoadMarker,
     private val inferenceEngine: InferenceEngine,
 ) : VoiceOutputController {
     private val eventsFlow = MutableSharedFlow<VoiceOutputEvent>(extraBufferCapacity = 8)
@@ -73,9 +75,7 @@ class KokoroVoiceOutputController @Inject constructor(
 
     override suspend fun warmUp(): VoiceOutputResult = withContext(Dispatchers.IO) {
         val voice = voiceOutputPreferences.selectedKokoroVoice.first()
-        synthesisLock.withLock {
-            prepare(voice).also { if (it == VoiceOutputResult.Spoken) primeInference(voice) }
-        }
+        synthesisLock.withLock { prepare(voice) }
     }
 
     /** Settings "Test voice speed" (#2117): times a fixed passage without playing it. Waits behind a reply being made. */
@@ -188,7 +188,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 },
                 synthesize = { unit ->
                     handoff.synthesizeOrHandOff(unit) { chunk ->
-                        loaded?.let { synthesizeChunk(it, chunk, generation, timing) }
+                        loaded?.let { synthesizeChunk(it, voice, chunk, generation, timing) }
                     }
                 },
                 sink = timing.timed(sink),
@@ -222,11 +222,26 @@ class KokoroVoiceOutputController @Inject constructor(
         releaseAudioFocus()
     }
 
+    /**
+     * Frees the engine (about 0.95 GB resident) under memory pressure, after a switch to another voice engine, or before
+     * the pack is deleted. Runs after any chunk already synthesizing. A reply still playing finds its engine gone and
+     * hands its unspoken rest to Inflect Micro.
+     */
+    fun unloadEngine() {
+        playbackScope.launch(Dispatchers.IO) {
+            synthesisLock.withLock {
+                if (engine != null) Log.i(TAG, "Kokoro engine unloaded")
+                releaseEngine()
+            }
+        }
+    }
+
     private fun isCurrent(generation: Long): Boolean = !stopped && playbackGeneration.get() == generation
 
     /** Returns null when the reply was superseded before or during synthesis. */
     private suspend fun synthesizeChunk(
         loaded: KokoroEngine,
+        voice: KokoroVoice,
         chunk: String,
         generation: Long,
         timing: KokoroReplyTiming,
@@ -235,6 +250,9 @@ class KokoroVoiceOutputController @Inject constructor(
         return synthesisLock.withLock {
             // stop() bumps the generation before anything else, so a stop racing this check is caught by the next one.
             if (!isCurrent(generation)) return@withLock null
+            // The engine was unloaded or swapped to another voice after this reply opened: fail the chunk so the rest
+            // of the reply goes to Inflect Micro, rather than speak it with a closed engine or a different voice.
+            check(engine === loaded && engineVoice == voice) { "Kokoro engine changed mid-reply" }
             val started = System.currentTimeMillis()
             loaded.synthesizeChunk(chunk).takeIf { isCurrent(generation) }?.also { audio ->
                 val synthMs = System.currentTimeMillis() - started
@@ -250,64 +268,83 @@ class KokoroVoiceOutputController @Inject constructor(
         }
     }
 
-    /** Loads the engine for [voice] unless it is already loaded. Caller holds [synthesisLock]. */
+    /**
+     * Loads the engine for [voice] unless it is already loaded. A voice of the same locale swaps only its voice
+     * embedding, so the ExecuTorch programs and phonemiser stay loaded (Emma and Daniel reloads cost 2.6-6.6 s).
+     * A fresh load is primed with one throwaway chunk. Caller holds [synthesisLock].
+     */
     private fun prepare(voice: KokoroVoice, timing: KokoroReplyTiming? = null): VoiceOutputResult {
         KokoroModelFiles.firstMissing(context, voice)?.let { missing ->
             return VoiceOutputResult.Unavailable(
                 "Download ${missing.displayName} in Settings → Voice before selecting Kokoro.",
             )
         }
-        if (engine != null && engineVoice == voice) return VoiceOutputResult.Spoken
+        val current = engine
+        if (current != null && engineVoice == voice) return VoiceOutputResult.Spoken
+        if (current != null && engineVoice?.locale == voice.locale) {
+            return try {
+                current.loadVoice(KokoroModelFiles.voiceFile(context, voice))
+                engineVoice = voice
+                VoiceOutputResult.Spoken
+            } catch (error: Throwable) {
+                releaseEngine()
+                loadFailure("Kokoro voice failed to load", error)
+            }
+        }
+        releaseEngine()
+        // A native abort here cannot be caught; the marker keeps the next launch from repeating it (#1449).
+        loadMarker.loading()
+        try {
+            val phonemizer = try {
+                NativeKokoroPhonemizer(
+                    locale = voice.locale,
+                    lexiconFile = KokoroModelFiles.lexiconFile(context, voice),
+                    taggerFile = KokoroModelFiles.tagsFile(context),
+                )
+            } catch (error: LinkageError) {
+                return loadFailure("Kokoro native library is unavailable", error)
+            } catch (error: Throwable) {
+                return loadFailure("Kokoro phonemizer failed to start", error)
+            }
+            timing?.mark("phonemizerReady")
+            val candidate = KokoroEngine(
+                durationFile = KokoroModelFiles.durationFile(context),
+                synthesizerFile = KokoroModelFiles.synthesizerFile(context),
+                phonemizer = phonemizer,
+            )
+            try {
+                candidate.initialize(KokoroModelFiles.voiceFile(context, voice))
+            } catch (error: Throwable) {
+                // Loading two ExecuTorch programs is the memory-heavy step (#1449); fall back instead of crashing.
+                candidate.close()
+                return loadFailure("Kokoro model initialization failed", error)
+            }
+            timing?.mark("modelsLoaded")
+            engine = candidate
+            engineVoice = voice
+            primeInference(candidate, voice)
+            return VoiceOutputResult.Spoken
+        } finally {
+            loadMarker.loaded()
+        }
+    }
+
+    /** Closes the loaded engine and its phonemiser. Caller holds [synthesisLock]. */
+    private fun releaseEngine() {
         engine?.close()
         engine = null
         engineVoice = null
-        val phonemizer = try {
-            NativeKokoroPhonemizer(
-                locale = voice.locale,
-                lexiconFile = KokoroModelFiles.lexiconFile(context, voice),
-                taggerFile = KokoroModelFiles.tagsFile(context),
-            )
-        } catch (error: Exception) {
-            return loadFailure("Kokoro phonemizer failed to start", error)
-        } catch (error: LinkageError) {
-            return loadFailure("Kokoro native library is unavailable", error)
-        }
-        timing?.mark("phonemizerReady")
-        val candidate = KokoroEngine(
-            durationFile = KokoroModelFiles.durationFile(context),
-            synthesizerFile = KokoroModelFiles.synthesizerFile(context),
-            voiceFile = KokoroModelFiles.voiceFile(context, voice),
-            phonemizer = phonemizer,
-        )
-        try {
-            candidate.initialize()
-        } catch (error: Exception) {
-            candidate.close()
-            return loadFailure("Kokoro model initialization failed", error)
-        } catch (error: LinkageError) {
-            candidate.close()
-            return loadFailure("Kokoro runtime is unavailable", error)
-        } catch (error: OutOfMemoryError) {
-            // Loading two ExecuTorch programs is the memory-heavy step (#1449); fall back instead of crashing.
-            candidate.close()
-            return loadFailure("Kokoro needs more memory than is free", error)
-        }
-        timing?.mark("modelsLoaded")
-        engine = candidate
-        engineVoice = voice
-        return VoiceOutputResult.Spoken
     }
 
     /**
-     * One throwaway chunk after a load. The first inference on the S23U ran about 0.45 s slower than later ones
-     * (round 4), so this moves that cost out of the first reply. Caller holds [synthesisLock].
+     * One throwaway chunk after a fresh load: the first inference on the S23U ran about 0.45 s slower than later ones
+     * (round 4), so the cost moves out of the first reply. Caller holds [synthesisLock].
      */
-    private fun primeInference(voice: KokoroVoice) {
-        val loaded = engine ?: return
+    private fun primeInference(loaded: KokoroEngine, voice: KokoroVoice) {
         try {
             val chunks = loaded.splitText(KokoroTextFrontend.phonemizerInput(PRIME_TEXT, voice.locale))
             loaded.synthesizeChunk(chunks.first())
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             Log.w(TAG, "Kokoro warm-up inference failed: ${error.message}")
         }
     }

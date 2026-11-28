@@ -115,6 +115,7 @@ class VoiceViewModelTest {
     private val asr4allSwitchState = MutableStateFlow(Asr4allSwitchState())
     private val termsRecord = MutableStateFlow(TermsAcceptanceRecord())
     private val termsAcceptancePreferences: TermsAcceptancePreferences = mockk(relaxed = true)
+    private val kokoroVoiceOutputController: KokoroVoiceOutputController = mockk(relaxed = true)
     private val asr4allSizeSwitcher: Asr4allSizeSwitcher = mockk(relaxed = true) {
         every { state } returns asr4allSwitchState
     }
@@ -167,6 +168,7 @@ class VoiceViewModelTest {
         piperVoiceSetup,
         asr4allSizeSwitcher,
         termsAcceptancePreferences,
+        kokoroVoiceOutputController,
     )
 
     @BeforeEach
@@ -188,6 +190,8 @@ class VoiceViewModelTest {
         coEvery { voiceInputPreferences.setSelectedEngine(any()) } just Runs
         coEvery { voiceInputPreferences.setAutoStartAlertVoiceCommandsEnabled(any()) } just Runs
         every { voiceOutputPreferences.spokenResponsesEnabled } returns spokenResponsesEnabled
+        every { voiceOutputPreferences.placeDidYouMeanEnabled } returns MutableStateFlow(false)
+        coEvery { voiceOutputPreferences.setPlaceDidYouMeanEnabled(any()) } just Runs
         every { voiceOutputPreferences.selectedEngine } returns selectedOutputEngine
         every { voiceOutputPreferences.selectedSherpaVoice } returns selectedSherpaVoice
         every { voiceOutputPreferences.sherpaSpeed } returns sherpaSpeed
@@ -320,6 +324,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -355,6 +360,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -390,6 +396,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -498,6 +505,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
 
         testDispatcher.scheduler.advanceUntilIdle()
@@ -534,6 +542,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -616,6 +625,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -976,6 +986,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1028,6 +1039,7 @@ class VoiceViewModelTest {
             piperVoiceSetup,
             asr4allSizeSwitcher,
             termsAcceptancePreferences,
+            kokoroVoiceOutputController,
         )
         testDispatcher.scheduler.advanceUntilIdle()
 

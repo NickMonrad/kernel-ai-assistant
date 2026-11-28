@@ -85,6 +85,16 @@ class ReleaseAssetAttributionCatalogTest {
     }
 
     @Test
+    fun `Kokoro attribution identifies Apache export and Brown Corpus restriction`() {
+        val kokoro = release.single { it.id == "kokoro:pack" }
+        assertTrue(kokoro.licenceText.contains("Apache-2.0"))
+        assertFalse(kokoro.licenceText.contains("verify before release"))
+        assertTrue(kokoro.lineageText.contains("Brown Corpus"))
+        assertTrue(kokoro.lineageText.contains("non-commercial use only"))
+        assertTrue(kokoro.lineageText.contains("not cleared for commercial use"))
+        assertTrue(kokoro.lineageText.contains("Phonemis treats the tagger as optional"))
+    }
+    @Test
     fun releaseVisibleRowsCarryNoUnresolvedLicenceWording() {
         val pendingWording = listOf("under review", "unresolved")
         val offending = release.flatMap { row ->

@@ -60,6 +60,11 @@ import com.kernel.ai.core.skills.toSpokenSummary
 import com.kernel.ai.core.skills.natives.isPersonalMemoryRecallQuery
 import com.kernel.ai.core.skills.natives.isCurrentConversationRecallQuery
 import com.kernel.ai.core.skills.intent.IntentCandidate
+import com.kernel.ai.core.skills.intent.PendingPlaceDidYouMean
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanAnswer
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanReply
+import com.kernel.ai.core.skills.intent.PlaceDidYouMeanSuggester
+import com.kernel.ai.core.skills.intent.placeDidYouMeanQuestionWithin
 import com.kernel.ai.core.skills.intent.RecoveryResult
 import com.kernel.ai.core.skills.SkillResult
 import com.kernel.ai.core.skills.ToolPresentation
@@ -220,6 +225,7 @@ class ChatViewModel @Inject constructor(
     private val intentRecoveryOrchestrator: IntentRecoveryOrchestrator,
     private val intentContractRegistry: IntentContractRegistry,
     private val slotFillerManager: SlotFillerManager,
+    private val placeDidYouMeanSuggester: PlaceDidYouMeanSuggester? = null,
     private val slotValidationRegistry: SlotValidationRegistry,
     private val kernelAIToolSet: KernelAIToolSet,
     private val localToolDiagnosticCapture: LocalToolDiagnosticCapture = LocalToolDiagnosticCapture(kernelAIToolSet),
@@ -382,6 +388,12 @@ class ChatViewModel @Inject constructor(
      * See issue #621.
      */
     private var pendingConfirmationIntent: QuickIntentRouter.MatchedIntent? = null
+
+    /**
+     * #2079 experimental: the place-name question awaiting yes/no/silence. Set only when the
+     * "Did you mean" setting is on. Never acted on without an explicit yes.
+     */
+    private var pendingPlaceDidYouMean: PendingPlaceDidYouMean? = null
 
     /**
      * Set true by [submitInitialQueryIfNeeded] to signal [sendMessage] that the upcoming
@@ -819,6 +831,11 @@ class ChatViewModel @Inject constructor(
                 autoSpeakEnabled = enabled
             }
         }
+        viewModelScope.launch {
+            voiceOutputPreferences.placeDidYouMeanEnabled.collect { enabled ->
+                if (!enabled) pendingPlaceDidYouMean = null
+            }
+        }
         // #1850: warm the selected recognizer off the main thread as the chat opens. Holds no mic.
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { voiceInputController.prewarm() }
         viewModelScope.launch {
@@ -862,6 +879,7 @@ class ChatViewModel @Inject constructor(
                         val handedOff = chatVoiceSessionId?.let { voiceInputController.latestNoticeFor(it) } != null
                         // #2070: a pending slot question gets the slot budget (same as Actions); plain command gets one.
                         val slotPrompt = conversationId?.let { slotFillerManager.pendingRequestFor(it) }?.promptMessage
+                            ?: pendingPlaceDidYouMean?.prompt
                         val retryBudget = if (slotPrompt != null) SLOT_REPLY_MAX_VOICE_RETRIES else COMMAND_MAX_VOICE_RETRIES
                         if (chatCommandVoiceRetryCount < retryBudget && !handedOff) {
                             chatCommandVoiceRetryCount++
@@ -876,6 +894,20 @@ class ChatViewModel @Inject constructor(
                                     val retry = slotPrompt?.let { "Sorry, I didn't catch that. $it" }
                                         ?: "Sorry, I didn't catch that. Please try again."
                                     voiceOutputController.speak(VoiceSpeakRequest(retry))
+                                }
+                            }
+                        } else if (pendingPlaceDidYouMean != null) {
+                            // #2079: silence past the budget drops the question. Nothing is acted on without a yes.
+                            pendingPlaceDidYouMean = null
+                            _voiceMode.value = null
+                            _voiceCaptureState.value = VoiceCaptureState.Idle
+                            val dropped = "Okay, I didn't act on that."
+                            if (spokenResponsesEnabled) {
+                                viewModelScope.launch { voiceOutputController.speak(VoiceSpeakRequest(dropped)) }
+                            }
+                            conversationId?.let { id ->
+                                viewModelScope.launch {
+                                    appendAssistantMessage(id, dropped, shouldIndex = false, speak = false)
                                 }
                             }
                         } else {
@@ -1772,8 +1804,25 @@ class ChatViewModel @Inject constructor(
 
     /** Slot replies stay Command; any other chat mic press is a dictation (60 s cap, 1.5 s end silence). */
     private fun chatCaptureMode(): VoiceCaptureMode =
-        if (conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null) VoiceCaptureMode.Command
-        else VoiceCaptureMode.Dictation
+        if (conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null || pendingPlaceDidYouMean != null) {
+            VoiceCaptureMode.Command
+        } else {
+            VoiceCaptureMode.Dictation
+        }
+
+    /**
+     * #2079: the "Did you mean" question for a navigation or weather place that is a near miss of an NZ
+     * place name, or null. Nothing is rewritten here; the suggested utterance is used only after a yes.
+     */
+    private suspend fun placeDidYouMeanQuestionFor(
+        route: QuickIntentRouter.RouteResult,
+        text: String,
+    ): PendingPlaceDidYouMean? {
+        // Read the stored flag now: its collector may not have emitted yet on a freshly created view model.
+        if (voiceOutputPreferences.placeDidYouMeanEnabled.firstOrNull() != true) return null
+        val suggester = placeDidYouMeanSuggester ?: return null
+        return placeDidYouMeanQuestionWithin(suggester, route, text)
+    }
 
     private fun beginChatVoiceAttempt(): Long {
         val attemptId = ++chatVoiceAttemptId
@@ -2416,11 +2465,25 @@ class ChatViewModel @Inject constructor(
             // gracefully handles this (returns NotActionable → E4B fallback). Classifier picks
             // up subsequent messages once phrase vectors finish building.
 
+            // #2079: a reply to a pending "Did you mean" question routes as the suggested place (yes) or
+            // the heard text (no). Any other reply drops the question and routes as typed.
+            val placeQuestion = pendingPlaceDidYouMean
+            val placeAnswer = placeQuestion?.let { PlaceDidYouMeanReply.interpret(text) }
+            pendingPlaceDidYouMean = null
+            val routedText = placeQuestion?.let { question ->
+                when (placeAnswer) {
+                    PlaceDidYouMeanAnswer.Yes -> question.suggestedText
+                    PlaceDidYouMeanAnswer.No -> question.originalText
+                    else -> text
+                }
+            } ?: text
+            // Yes/No already answered the question: do not ask about the same place again this turn.
+            val placeCheckSkipped = placeAnswer == PlaceDidYouMeanAnswer.Yes || placeAnswer == PlaceDidYouMeanAnswer.No
             // Keep the exact DEBUG recovery follow-up on ordinary model generation, not QIR actions.
             val mealPlannerRoute = if (safeRunIntentTest || isLoadSkillAbortProbeFollowUp) {
                 QuickIntentRouter.RouteResult.FallThrough(input = text)
             } else {
-                quickIntentRouter.route(text)
+                quickIntentRouter.route(routedText)
             }
             logTurnStage("route_done")
             val explicitMealPlannerStart = when (mealPlannerRoute) {
@@ -2472,6 +2535,17 @@ class ChatViewModel @Inject constructor(
             // On a match: execute the skill immediately, then inject [System: ...] context so
             // E4B generates a natural conversational wrapper around the action result.
             // On failure or UnknownSkill: fall through to E4B unchanged.
+
+            // #2079 (experimental, off by default): a navigation or weather place that is a near miss of an
+            // NZ place name is confirmed first. Only a yes acts on the suggested place.
+            if (!safeRunIntentTest && !placeCheckSkipped) {
+                val question = placeDidYouMeanQuestionFor(mealPlannerRoute, text)
+                if (question != null) {
+                    pendingPlaceDidYouMean = question
+                    appendAssistantMessage(convId, question.prompt, shouldIndex = false)
+                    return@launch
+                }
+            }
 
             // Slot-fill shortcut: if the previous QIR match was paused awaiting a required
             // param for this conversation, route the user's reply here before touching QIR or the LLM.
@@ -4747,7 +4821,7 @@ class ChatViewModel @Inject constructor(
         awaitingVoicePlaybackCompletion = true
         // A spoken slot question reopens a one-shot mic once it has played (#2083).
         reopenMicAfterSpeech = _voiceMode.value == VoiceMode.OneShot &&
-            conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null
+            (conversationId?.let { slotFillerManager.pendingRequestFor(it) } != null || pendingPlaceDidYouMean != null)
         assistantSpeechJob?.cancel()
         assistantSpeechJob = viewModelScope.launch {
             val result = try {

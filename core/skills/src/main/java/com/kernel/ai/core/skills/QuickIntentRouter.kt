@@ -197,6 +197,21 @@ class QuickIntentRouter(
         """\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)*(?:it|that|this|them)\b|\b(?:create|make|start|new|add)\s+(?:(?:a|an|new|my)\s+)+to\s+""",
         RegexOption.IGNORE_CASE,
     )
+    // #2155 — a negated mention of a list noun in the same sentence ("no lists", "don't remove eggs
+    // from my list", "I can't add it to the list"). Vetoes mutating list intents only; status reads
+    // ("what's not done on my todo list") must still reach get_list_items.
+    private val NEGATED_LIST_MENTION_RE = Regex(
+        """\b(?:no\b(?!-)|without|never|not|don'?t|doesn'?t|do\s+not|does\s+not|can'?t|cannot|won'?t|will\s+not)\b[^.!?,;:]*\blists?\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    // #2155 — a list_name that spans a sentence or carries a negation is a mis-capture
+    // ("What's on your mind today? No lists." → "your mind today? No list"). Such matches are skipped.
+    private val UNSAFE_LIST_NAME_RE = Regex(
+        """[.!?](?:\s|$)|\b(?:no\b(?!-)|not|never|without|don'?t|doesn'?t|do\s+not|does\s+not|can'?t|cannot|won'?t|will\s+not)\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val MUTATING_LIST_INTENTS = setOf("add_to_list", "create_list", "remove_from_list")
+    private val LIST_INTENTS = MUTATING_LIST_INTENTS + "get_list_items"
 
 
     private val slotContracts: Map<String, Map<String, com.kernel.ai.core.skills.slot.SlotSpec>> = mapOf(
@@ -319,7 +334,7 @@ class QuickIntentRouter(
         .takeIf { it.isNotBlank() }
         ?.takeUnless { it.lowercase() in placeholderItems }
 
-    private fun normalizeReminderItem(raw: String): String = raw.trim()
+    private fun normalizeReminderItem(raw: String): String = raw.trim().trimEnd('.', '!', '?')
         .replace(Regex("""^buying\b\s*""", RegexOption.IGNORE_CASE), "buy ")
 
     private fun normalizeImportantDateLabel(raw: String): String = raw.trim()
@@ -670,15 +685,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+)""",
+                """^(?:(?:can|could|would)\s+you\s+|please\s+)?remind\s+me\s+(?:to|about)\s+(.+?)\s+(?:on\s+)?(today|tomorrow|tonight|this\s+evening|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
-                val dayToken = match.groupValues[2].trim().lowercase()
+                val dayToken = match.groupValues[2].trim().lowercase().let { if (it.startsWith("this")) "tonight" else it }
                 buildMap {
                     put("item", normalizeReminderItem(match.groupValues[1]))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[3].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[4].trim(), match.groupValues[3]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -731,15 +746,15 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_reminder",
             regex = Regex(
-                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
+                """^remind\s+me\s+(today|tomorrow|tonight|(?:next\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|thurs?|fri|sat|sun))(?:\s+(morning|afternoon|evening|night))?\s+(?:at|by)\s+(.+?)\s+to\s+(.+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input ->
                 val dayToken = match.groupValues[1].trim().lowercase()
                 buildMap {
-                    put("item", normalizeReminderItem(match.groupValues[3].trim()))
+                    put("item", normalizeReminderItem(match.groupValues[4].trim()))
                     put("day", normalizeDayName(dayToken))
-                    putAll(reminderTimeParams(match.groupValues[2].trim(), dayToken, input))
+                    putAll(reminderTimeParams(timeWithDayPart(match.groupValues[3].trim(), match.groupValues[2]), dayToken, input))
                 }
             },
             requiredSlots = slotContract("add_reminder"),
@@ -4026,7 +4041,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:add\s+(.+?)\s+to|put\s+(.+?)\s+on)\s+(?:(?:my|the)\s+)?list$""",
+                """^(?:add\s+((?:(?![.?!](?:\s|$)).)+?)\s+to|put\s+((?:(?![.?!](?:\s|$)).)+?)\s+on)\s+(?:(?:my|the)\s+)?list$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4040,7 +4055,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?list\s+(?:named|called)\s+(.+?)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^add\s+((?:(?![.?!](?:\s|$)).)+?)\s+to\s+(?:(?:my|the)\s+)?list\s+(?:named|called)\s+((?:(?![.?!](?:\s|$)).)+?)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4055,7 +4070,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^add\s+(.+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^add\s+((?:(?![.?!](?:\s|$)).)+?)\s+to\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)((?:(?![.?!](?:\s|$)).)+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4070,7 +4085,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^put\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^put\s+((?:(?![.?!](?:\s|$)).)+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)((?:(?![.?!](?:\s|$)).)+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4085,7 +4100,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?list$""",
+                """^(?:chuck|stick|bung|pop|toss)\s+((?:(?![.?!](?:\s|$)).)+?)\s+on\s+(?:(?:my|the)\s+)?list$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4098,7 +4113,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:chuck|stick|bung|pop|toss)\s+(.+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)(.+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
+                """^(?:chuck|stick|bung|pop|toss)\s+((?:(?![.?!](?:\s|$)).)+?)\s+on\s+(?:(?:my|the)\s+)?(?!(?:my|the)\b)((?:(?![.?!](?:\s|$)).)+?)\s+(list)(?:\s*,?\s*(?:please|pls))?[.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4114,7 +4129,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "add_to_list",
             regex = Regex(
-                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:(.+?)\s+)?(list)$""",
+                """^(?:add|put)\s+(?:something\s+)?to\s+(?:(?:my|the)\s+)?(?:((?:(?![.?!](?:\s|$)).)+?)\s+)?(list)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4138,7 +4153,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+)?(?:new\s+)?list\s+called\s+((?:(?![.?!](?:\s|$)).)+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
@@ -4149,7 +4164,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+(.+)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?:new\s+)?list\s+called\s+((?:(?![.?!](?:\s|$)).)+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
@@ -4158,7 +4173,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(?!list\b)(.+?)\s+(list)""",
+                """(?:create|make|start|new|add)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(?!list\b)((?:(?![.?!](?:\s|$)).)+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4170,7 +4185,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "create_list",
             regex = Regex(
-                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)(.+?)\s+(list)""",
+                """(?:create|make|start|add)\s+(?:a\s+|an\s+|my\s+)?(?!(?:it|that|this|them|to)\b)(?!.*\s+to\s+my\b)((?:(?![.?!](?:\s|$)).)+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4345,7 +4360,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "remove_from_list",
             regex = Regex(
-                """(?:remove|delete|take|cross off)\s+(.+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                """(?:remove|delete|take|cross off)\s+((?:(?![.?!](?:\s|$)).)+?)\s+(?:from|off)\s+(?:(?:my|the)\s+)?((?:(?![.?!](?:\s|$)).)+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4360,7 +4375,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """(?:display|show|read|get)\s+(?:the\s+)?list\s+called\s+(.+)""",
+                """\b(?:display|show|read|get)\s+(?:the\s+)?list\s+called\s+((?:(?![.?!](?:\s|$)).)+)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> mapOf("list_name" to match.groupValues[1].trim()) },
@@ -4369,7 +4384,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+(?:out|me))?|get|list)\s+(?:(?:my|the)\s+)?(.+?)\s+(list)""",
+                """\b(?:what(?:'s|\s+is)\s+(?:on|in)|show(?:\s+me)?|read(?:\s+(?:out|me))?|get|list)\s+(?:(?:my|the)\s+)?((?:(?![.?!](?:\s|$)).)+?)\s+(list)""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ -> listNameWithDescriptor(match.groupValues[1], match.groupValues[2]) },
@@ -4380,7 +4395,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "get_list_items",
             regex = Regex(
-                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?(.+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
+                """^what\s+do\s+(?:i|we)\s+need(?:\s+to\s+(?:get|buy))?\s+(?:from|at)\s+(?:(?:the|a|my|our)\s+)?((?:(?![.?!](?:\s|$)).)+?)(?:\s+(?:today|tonight|tomorrow|this\s+(?:week|weekend)|later|on\s+the\s+way\s+home))?[?.!]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -4804,6 +4819,8 @@ class QuickIntentRouter(
         for (pattern in candidates) {
             val match = pattern.regex.find(trimmed) ?: continue
             val extracted = pattern.paramExtractor(match, trimmed)
+            // #2155 — a list_name that spans a sentence or carries a negation is a mis-capture; keep trying.
+            if (pattern.intentName in LIST_INTENTS && extracted["list_name"]?.let { UNSAFE_LIST_NAME_RE.containsMatchIn(it) } == true) continue
             // #1453 — weather parameter-semantic normalisation: every deterministic
             // get_weather match shares one conservative normaliser so forecast
             // horizons, "tomorrow", "this week", and named locations survive
@@ -5077,8 +5094,15 @@ class QuickIntentRouter(
         // Today-anchored value patterns (sunrise/sunset, UV, AQI) are exempt — their answer
         // is consistent with the daypart qualifier, see IntentPattern.exemptFromDaypartVeto.
         val daypartWeatherBlocked = weatherUnsupportedDaypart.containsMatchIn(trimmed)
-        val specificPatterns = patterns.filter { !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
-        val fallbackPatterns = patterns.filter { it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) }
+        val negatedListMention = NEGATED_LIST_MENTION_RE.containsMatchIn(apostropheNormalized)
+        val specificPatterns = patterns.filter {
+            !it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) &&
+                !(negatedListMention && it.intentName in MUTATING_LIST_INTENTS)
+        }
+        val fallbackPatterns = patterns.filter {
+            it.isFallback && !(daypartWeatherBlocked && it.intentName == "get_weather" && !it.exemptFromDaypartVeto) &&
+                !(negatedListMention && it.intentName in MUTATING_LIST_INTENTS)
+        }
 
         tryMatchPatterns(fractionNormalized, specificPatterns)?.let { return it }
         tryMatchPatterns(fractionNormalized, fallbackPatterns)?.let { return it }
@@ -5090,6 +5114,13 @@ class QuickIntentRouter(
             // #1455 — same daypart guard as Stage 1: never let the classifier claim a
             // get_weather answer for wording the weather skill cannot represent.
             if (daypartWeatherBlocked && result?.intentName == "get_weather") {
+                return RouteResult.FallThrough(input = trimmed)
+            }
+            // #2155 — a negated list mention ("No lists.", "don't remove eggs from my list") is not a list
+            // write. Drop the classifier's mutating list claim so the LLM answers the prompt.
+            if (result != null && result.intentName in MUTATING_LIST_INTENTS &&
+                NEGATED_LIST_MENTION_RE.containsMatchIn(apostropheNormalized)
+            ) {
                 return RouteResult.FallThrough(input = trimmed)
             }
             if (result != null && result.confidence >= similarityThreshold) {
@@ -5381,9 +5412,16 @@ class QuickIntentRouter(
          * See issue #621 for the multi-turn confirmation fast-path design.
          */
         val AFFIRMATIONS = setOf(
-            "yes", "yeah", "yep", "yup", "sure", "ok", "okay",
+            "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "yes please",
             "go ahead", "go for it", "do it", "please", "please do",
             "aye", "absolutely", "definitely", "go on", "sounds good",
+            "correct", "that's right", "thats right",
+        )
+
+        /** Simple negations: an answer to a pending yes/no question that is not a yes. */
+        val NEGATIONS = setOf(
+            "no", "nope", "nah", "negative", "wrong", "incorrect", "not that",
+            "no that's wrong", "no thats wrong",
         )
 
         /** Returns true if [input] is a simple affirmation (case-insensitive, trims whitespace). */
@@ -5427,6 +5465,7 @@ class QuickIntentRouter(
         private val PM_DAY_PART_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?(?:in\s+the\s+(?:evening|afternoon)|evening|afternoon)\b""")
         private val AT_NIGHT_AFTER_HOUR = Regex("""^\s*(?:(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+)?at\s+night\b""")
         private val PM_DAY_PART_BEFORE_HOUR = Regex("""\b(?:evening|afternoon)\s+(?:at\s+)?$""")
+        private val NIGHT_BEFORE_HOUR = Regex("""\bnight\s+(?:at\s+)?$""")
         private val EVENING_CUE_BEFORE_HOUR = Regex("""\b(?:tonight|this\s+evening)\s+(?:at\s+|by\s+)?$""")
 
         /**
@@ -5494,14 +5533,14 @@ class QuickIntentRouter(
             // Convert to 24h
             if (meridiem == "pm" && hours < 12) hours += 12
             if (meridiem == "am" && hours == 12) hours = 0
-            // "7 in the evening", "evening at 7" and "7 at night" are pm (#2146). "at night" is pm only for hours 5 to 11:
+            // "7 in the evening", "evening at 7", "night at 9" and "7 at night" are pm (#2146). "at night" is pm only for hours 5 to 11:
             // "at 2 at night" stays 02:00 and "tonight at 2 at night" is asked which. "this evening at 2" is pm only
             // for hours 5 to 11; 1 to 4 are asked by bareHourIn.
             val afterHour = cleaned.substring(match.range.last + 1)
             val beforeHour = cleaned.substring(0, match.range.first)
             if (meridiem.isBlank() && hours in 1..11 && (
                     PM_DAY_PART_AFTER_HOUR.containsMatchIn(afterHour) ||
-                        (hours in 5..11 && AT_NIGHT_AFTER_HOUR.containsMatchIn(afterHour)) ||
+                        (hours in 5..11 && (AT_NIGHT_AFTER_HOUR.containsMatchIn(afterHour) || NIGHT_BEFORE_HOUR.containsMatchIn(beforeHour))) ||
                         (PM_DAY_PART_BEFORE_HOUR.containsMatchIn(beforeHour) &&
                             (hours in 5..11 || !EVENING_CUE_BEFORE_HOUR.containsMatchIn(beforeHour))))
             ) {

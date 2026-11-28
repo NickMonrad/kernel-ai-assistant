@@ -21,7 +21,6 @@ import kotlin.math.abs
 internal class KokoroEngine(
     private val durationFile: File,
     private val synthesizerFile: File,
-    private val voiceFile: File,
     private val phonemizer: KokoroPhonemizer,
     private val threads: Int = DEFAULT_THREADS,
 ) : Closeable {
@@ -30,11 +29,16 @@ internal class KokoroEngine(
     private var voice: FloatArray? = null
 
     /** Loads both programs and the voice embedding. Call once before [synthesizeChunk]. */
-    fun initialize() {
+    fun initialize(voiceFile: File) {
         check(durationModel == null && synthesizerModel == null) { "Kokoro engine already initialized" }
-        voice = KokoroTts.parseVoice(voiceFile.readBytes())
         durationModel = ExecuTorchModel.load(durationFile, threads)
         synthesizerModel = ExecuTorchModel.load(synthesizerFile, threads)
+        loadVoice(voiceFile)
+    }
+
+    /** Swaps the voice embedding. Programs and phonemiser stay loaded, so a same-locale voice switch skips the reload. */
+    fun loadVoice(voiceFile: File) {
+        voice = KokoroTts.parseVoice(voiceFile.readBytes())
     }
 
     /** Phonemizes [phonemizerInput] (already normalised text) and partitions it within the duration token limit. */
@@ -142,6 +146,7 @@ internal class KokoroEngine(
     override fun close() {
         durationModel?.close()
         synthesizerModel?.close()
+        phonemizer.close()
         durationModel = null
         synthesizerModel = null
         voice = null
