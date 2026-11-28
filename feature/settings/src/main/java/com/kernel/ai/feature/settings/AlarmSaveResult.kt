@@ -43,7 +43,7 @@ internal fun List<SchedulingWarning>.toWarningMessage(isTimer: Boolean): String?
         )
     }
     if (contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) {
-        messages.add("$savedPrefix It may appear as a high-priority notification instead of opening full-screen.")
+        messages.add("$savedPrefix Full-screen alerts are off, so it may appear as a notification instead of taking over the screen. Turn them on in Settings.")
     }
     if (contains(SchedulingWarning.BOOT_RESTORE_LIMITED)) {
         if (
@@ -57,3 +57,18 @@ internal fun List<SchedulingWarning>.toWarningMessage(isTimer: Boolean): String?
     
     return messages.joinToString(" ")
 }
+
+/** A Settings page that would fix a scheduling warning. */
+internal enum class AlarmSettingsOffer { EXACT_ALARMS, FULL_SCREEN_ALERTS }
+
+/** Settings pages to offer for the warnings, in the order the dialog shows them. */
+internal fun List<SchedulingWarning>.settingsOffers(): List<AlarmSettingsOffer> = buildList<AlarmSettingsOffer> {
+    if (this@settingsOffers.contains(SchedulingWarning.EXACT_ALARM_UNAVAILABLE)) add(AlarmSettingsOffer.EXACT_ALARMS)
+    if (this@settingsOffers.contains(SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE)) add(AlarmSettingsOffer.FULL_SCREEN_ALERTS)
+}
+
+/** A post-save dialog: the message plus the Settings pages that fix it. */
+internal data class SchedulingNotice(val message: String, val offers: List<AlarmSettingsOffer>)
+
+internal fun List<SchedulingWarning>.toSchedulingNotice(isTimer: Boolean): SchedulingNotice? =
+    toWarningMessage(isTimer)?.let { SchedulingNotice(it, settingsOffers()) }

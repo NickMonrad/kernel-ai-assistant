@@ -1,5 +1,8 @@
 package com.kernel.ai.alarm
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -24,6 +27,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.kernel.ai.MainActivity
 import com.kernel.ai.core.memory.clock.ClockEventType
 import com.kernel.ai.core.memory.clock.ClockRepository
@@ -90,6 +94,15 @@ internal suspend fun runSnoozeAction(
         dismiss()
     }
 }
+
+/**
+ * Runs the "+1 min" action from the notification or the full-screen alert. The alert stops ringing only once the
+ * extra minute is scheduled, so a failed add leaves it ringing. Same contract as [runSnoozeAction].
+ */
+internal suspend fun runAddOneMinuteAction(
+    addOneMinute: suspend () -> Boolean,
+    dismiss: () -> Unit,
+) = runSnoozeAction(snooze = addOneMinute, dismiss = dismiss)
 
 /**
  * Whether a voice event should trigger the clock-alert start-listening cue.
@@ -247,13 +260,41 @@ internal fun alertPendingIntentIdentity(action: String, alert: TriggeredClockAle
     "kernel-ai://clock-alert/${action}|${alert.type.name.lowercase()}|${alert.ownerId}|" +
         (alert.occurrenceTriggerAtMillis?.toString() ?: "none")
 
+/** The alert service's foreground notification, reduced to what teardown must do. */
+internal interface ClockAlertNotificationHost {
+    fun stopForegroundRemovingNotification()
+    fun cancelNotification(id: Int)
+}
+
+/**
+ * Removes the alert notification when the service stops or is destroyed. Cancels the id explicitly
+ * because `stopForeground(REMOVE)` alone left [ClockAlertContract.ALERT_NOTIFICATION_ID] posted on device.
+ */
+internal fun releaseAlertNotification(
+    host: ClockAlertNotificationHost,
+    notificationId: Int = ClockAlertContract.ALERT_NOTIFICATION_ID,
+) {
+    host.stopForegroundRemovingNotification()
+    host.cancelNotification(notificationId)
+}
+
 internal fun configuredSnoozeDurationMs(
-    configuredMs: Long,
-    fallbackMs: Long = ALARM_SNOOZE_MS,
+     configuredMs: Long,
+     fallbackMs: Long = ALARM_SNOOZE_MS,
 ): Long = configuredMs.takeIf { it > 0L } ?: fallbackMs
 
 @AndroidEntryPoint
 class ClockAlertService : Service() {
+    private fun serviceNotificationHost(): ClockAlertNotificationHost = object : ClockAlertNotificationHost {
+        override fun stopForegroundRemovingNotification() {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+
+        override fun cancelNotification(id: Int) {
+            NotificationManagerCompat.from(this@ClockAlertService).cancel(id)
+        }
+    }
+
     @Inject lateinit var startListeningCuePlayer: StartListeningCuePlayer
     @Inject lateinit var clockRepository: ClockRepository
     @Inject lateinit var voiceInputController: VoiceInputController
@@ -360,7 +401,12 @@ class ClockAlertService : Service() {
             ClockAlertContract.ACTION_ADD_MINUTE_ALERT -> {
                 val alert = intent.toTriggeredClockAlert()?.let { findActiveAlert(it.ownerId) } ?: currentAlert()
                 if (alert != null) {
-                    serviceScope.launch { performAddOneMinute(alert) }
+                    serviceScope.launch {
+                        runAddOneMinuteAction(
+                            addOneMinute = { performAddOneMinute(alert) },
+                            dismiss = { dismissAlert(alert) },
+                        )
+                    }
                 }
             }
 
@@ -423,6 +469,7 @@ class ClockAlertService : Service() {
         activeAlerts.clear()
         activeAlertConfigs.clear()
         syncActiveAlertSnapshot()
+        releaseAlertNotification(serviceNotificationHost())
         super.onDestroy()
     }
 
@@ -468,7 +515,7 @@ class ClockAlertService : Service() {
                     buildServicePendingIntent(ClockAlertContract.ACTION_START_VOICE_CONTROL, alert),
                 )
                 if (notificationManager.canUseFullScreenIntent()) {
-                    setFullScreenIntent(buildOpenAppPendingIntent(), true)
+                    setFullScreenIntent(buildFullScreenAlertPendingIntent(alert), true)
                 }
             }
             .build()
@@ -541,7 +588,7 @@ class ClockAlertService : Service() {
         voiceStatusMessage = null
         voiceInputController.stopListening()
         stopPlayback()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        releaseAlertNotification(serviceNotificationHost())
         stopSelf()
     }
 
@@ -633,19 +680,16 @@ class ClockAlertService : Service() {
         PendingIntent.getService(
             this,
             0,
-            Intent(this, ClockAlertService::class.java).apply {
-                this.action = action
-                data = Uri.parse(alertPendingIntentIdentity(action, alert))
-                putExtra(ClockAlertContract.EXTRA_OWNER_ID, alert.ownerId)
-                putExtra(ClockAlertContract.EXTRA_LABEL, alert.label)
-                putExtra(ClockAlertContract.EXTRA_TITLE, alert.title)
-                putExtra(ClockAlertContract.EXTRA_EVENT_TYPE, alert.type.name)
-                putExtra(
-                    ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
-                    alert.occurrenceTriggerAtMillis ?: -1L,
-                )
-                putExtra(ClockAlertContract.EXTRA_SOUND_URI, alert.soundUri)
-            },
+            clockAlertServiceIntent(this, action, alert),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    /** Full-screen takeover for a ringing alert; the activity can show over a locked screen. */
+    private fun buildFullScreenAlertPendingIntent(alert: TriggeredClockAlert): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            0,
+            ClockAlertActivity.createIntent(this),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -675,6 +719,7 @@ class ClockAlertService : Service() {
 
     private fun syncActiveAlertSnapshot() {
         activeAlertSnapshot = activeAlerts.toSet()
+        ringingAlertsFlow.value = activeAlerts.toList()
     }
 
     /** Resolves the snooze duration for an alert from its captured config,
@@ -937,35 +982,13 @@ class ClockAlertService : Service() {
             restorePlaybackAfterVoiceCapture()
         }
     }
-    private fun Intent.toTriggeredClockAlert(): TriggeredClockAlert? {
-        val ownerId = getStringExtra(ClockAlertContract.EXTRA_OWNER_ID) ?: return null
-        val label = getStringExtra(ClockAlertContract.EXTRA_LABEL) ?: return null
-        val title = getStringExtra(ClockAlertContract.EXTRA_TITLE) ?: return null
-        val type = getStringExtra(ClockAlertContract.EXTRA_EVENT_TYPE)
-            ?.let(ClockEventType::valueOf)
-            ?: ClockEventType.ALARM
-        val occurrenceTriggerAtMillis = getLongExtra(
-            ClockAlertContract.EXTRA_OCCURRENCE_TRIGGER_AT_MILLIS,
-            -1L,
-        ).takeIf { it > 0L }
-        val soundUri = getStringExtra(ClockAlertContract.EXTRA_SOUND_URI)
-        val autoSnoozeCount = getIntExtra(
-            ClockAlertContract.EXTRA_AUTO_SNOOZE_COUNT,
-            0,
-        )
-        return TriggeredClockAlert(
-            ownerId = ownerId,
-            label = label,
-            title = title,
-            type = type,
-            occurrenceTriggerAtMillis = occurrenceTriggerAtMillis,
-            soundUri = soundUri,
-            autoSnoozeCount = autoSnoozeCount,
-        )
-    }
     companion object {
         @Volatile
         private var activeAlertSnapshot: Set<TriggeredClockAlert> = emptySet()
+        private val ringingAlertsFlow = MutableStateFlow<List<TriggeredClockAlert>>(emptyList())
+
+        /** Alerts currently ringing, oldest first. The full-screen alert shows the newest and closes when none rings. */
+        internal val ringingAlerts: StateFlow<List<TriggeredClockAlert>> = ringingAlertsFlow.asStateFlow()
 
         internal fun hasActiveTimerAlerts(): Boolean =
             activeAlertSnapshot.any { it.type == ClockEventType.TIMER }

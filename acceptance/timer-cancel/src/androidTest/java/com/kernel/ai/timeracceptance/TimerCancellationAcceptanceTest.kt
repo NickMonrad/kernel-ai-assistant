@@ -100,7 +100,6 @@ class TimerCancellationAcceptanceTest {
             "android.permission.ACCESS_COARSE_LOCATION",
             "android.permission.ACCESS_FINE_LOCATION",
             "android.permission.CALL_PHONE",
-            "android.permission.USE_FULL_SCREEN_INTENT",
             "android.permission.ACCESS_NOTIFICATION_POLICY",
             "android.permission.WRITE_SETTINGS",
             "android.permission.PACKAGE_USAGE_STATS",

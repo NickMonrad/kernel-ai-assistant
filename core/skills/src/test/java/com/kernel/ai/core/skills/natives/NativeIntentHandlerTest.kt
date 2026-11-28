@@ -1909,6 +1909,23 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `remove_from_list cancels the removed item's reminder`() {
+        stubMixedCaseMealPlan()
+        val item = ListItemEntity(id = 8L, listId = 42L, text = "Dessert", createdAt = 0L, updatedAt = 0L)
+        val mutations = mockk<ListMutationRepository>(relaxed = true)
+        coEvery { mutations.deleteItem(8L) } returns com.kernel.ai.core.memory.lists.CheckedStateMutation()
+        coEvery { listItemDao.getByList(42L) } returnsMany listOf(listOf(item), emptyList())
+
+        handleIntent(
+            handlerWithListMutations(mutations),
+            "remove_from_list",
+            mapOf("item" to "dessert", "list_name" to "meal plan"),
+        )
+
+        verify(exactly = 1) { listNotificationScheduler.cancel(8L) }
+    }
+
+    @Test
     fun `remove_from_list targets existing mixed-case custom list`() {
         stubMixedCaseMealPlan()
         val item = ListItemEntity(id = 8L, listId = 42L, text = "Dessert", createdAt = 0L, updatedAt = 0L)
@@ -4883,7 +4900,7 @@ class NativeIntentHandlerTest {
             }
             val result = handleIntent("add_reminder", mapOf("item" to "dentist", "day" to "tomorrow", "time" to "9:00"))
             assertEquals(
-                "Reminder set: \"dentist\" tomorrow at 9:00 AM.",
+                "Added \"dentist\" to your to-do list, with a reminder tomorrow at 9 am.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }
@@ -4899,7 +4916,32 @@ class NativeIntentHandlerTest {
             val reply = assertInstanceOf(SkillResult.DirectReply::class.java, result)
             val card = assertInstanceOf(ToolPresentation.Status::class.java, reply.presentation)
             assertEquals("call mum", card.title)
-            assertEquals("Tomorrow at 7:00 PM", card.subtitle)
+            assertEquals("Tomorrow at 7 pm", card.subtitle)
+            assertEquals("To-do list", card.detail)
+        }
+
+        @Test
+        fun `add_reminder confirmation names the list it was added to`() {
+            val shoppingList = com.kernel.ai.core.memory.entity.ListNameEntity(
+                id = 7L,
+                name = "shopping list",
+                createdAt = 0L,
+                updatedAt = 0L,
+            )
+            val insertedItemSlot = slot<ListItemEntity>()
+            coEvery { listNameDao.getByName("shopping list") } returns shoppingList
+            coEvery { listItemDao.insert(capture(insertedItemSlot)) } just Runs
+            coEvery { listItemDao.getByList(7L) } answers {
+                if (insertedItemSlot.isCaptured) listOf(insertedItemSlot.captured.copy(id = 42L)) else emptyList()
+            }
+            val result = handleIntent(
+                "add_reminder",
+                mapOf("item" to "milk", "list_name" to "shopping list", "day" to "tomorrow", "time" to "9:00"),
+            )
+            assertEquals(
+                "Added \"milk\" to your shopping list, with a reminder tomorrow at 9 am.",
+                assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
+            )
         }
 
         @Test
@@ -4911,7 +4953,7 @@ class NativeIntentHandlerTest {
             }
             val result = handleIntent("add_reminder", mapOf("item" to "dentist", "day" to "monday", "time" to "9:00"))
             assertEquals(
-                "Reminder set: \"dentist\" on Monday at 9:00 AM.",
+                "Added \"dentist\" to your to-do list, with a reminder on Monday at 9 am.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }
@@ -4926,7 +4968,7 @@ class NativeIntentHandlerTest {
             val result = handleIntent("add_reminder", mapOf("item" to "dentist", "time" to "9:00"))
             val expectedDay = if (defaultReminderDate(LocalTime.of(9, 0), LocalDateTime.now()) == LocalDate.now()) "today" else "tomorrow"
             assertEquals(
-                "Reminder set: \"dentist\" $expectedDay at 9:00 AM.",
+                "Added \"dentist\" to your to-do list, with a reminder $expectedDay at 9 am.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }
@@ -4989,7 +5031,7 @@ class NativeIntentHandlerTest {
             val now = LocalDateTime.of(2026, 11, 27, 14, 0)
             val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "19:00"))
             assertEquals(
-                "Reminder set: \"bins\" today at 7:00 PM.",
+                "Added \"bins\" to your to-do list, with a reminder today at 7 pm.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }
@@ -5005,7 +5047,7 @@ class NativeIntentHandlerTest {
             // 01:30 AEDT on 2026-04-05; 02:30 that day is still ahead on the real timeline.
             val now = LocalDateTime.of(2026, 4, 5, 1, 30)
             val result = handleIntent(handlerAt(now, zone), "add_reminder", mapOf("item" to "bins", "day" to "today", "time" to "02:30"))
-            assertTrue(assertInstanceOf(SkillResult.DirectReply::class.java, result).content.startsWith("Reminder set"))
+            assertTrue(assertInstanceOf(SkillResult.DirectReply::class.java, result).content.startsWith("Added \"bins\""))
         }
 
         @Test
@@ -5018,7 +5060,7 @@ class NativeIntentHandlerTest {
             val now = LocalDateTime.of(2026, 11, 27, 19, 0)
             val result = handleIntent(handlerAt(now), "add_reminder", mapOf("item" to "bins", "time" to "06:00"))
             assertEquals(
-                "Reminder set: \"bins\" tomorrow at 6:00 AM.",
+                "Added \"bins\" to your to-do list, with a reminder tomorrow at 6 am.",
                 assertInstanceOf(SkillResult.DirectReply::class.java, result).content,
             )
         }

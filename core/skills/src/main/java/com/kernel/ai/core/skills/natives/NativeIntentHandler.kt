@@ -550,7 +550,7 @@ class NativeIntentHandler @Inject constructor(
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This event is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // full-screen access is off; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The alarm may not persist across device restarts."
                     }
@@ -595,7 +595,7 @@ class NativeIntentHandler @Inject constructor(
                     when (warning) {
                         SchedulingWarning.EXACT_ALARM_UNAVAILABLE ->
                             "Exact-alarm access is off. This timer is scheduled inexactly and may ring later; enable Alarms & reminders in Settings for more precise timing."
-                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // not declared in the manifest; never shown to the model
+                        SchedulingWarning.FULL_SCREEN_INTENT_UNAVAILABLE -> null // full-screen access is off; never shown to the model
                         SchedulingWarning.BOOT_RESTORE_LIMITED ->
                             "The timer may not persist across device restarts."
                     }
@@ -2489,6 +2489,7 @@ class NativeIntentHandler @Inject constructor(
         val remaining = runBlocking {
             if (listId == null) return@runBlocking emptyList()
             listMutations?.deleteItem(match.id) ?: listItemDao.deleteItem(match.id)
+            listNotificationScheduler.cancel(match.id)
             listItemDao.getByList(listId)
         }
         ListsDataChanged.broadcast(context)
@@ -2628,16 +2629,24 @@ class NativeIntentHandler @Inject constructor(
         } else {
             "on ${dayRaw.replaceFirstChar { it.uppercase() }}"
         }
-        val timeDisplay = targetTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))
+        val timeDisplay = formatReminderTime(targetTime)
+        val listPhrase = if (persistedListName.endsWith("list", ignoreCase = true)) persistedListName else "$persistedListName list"
         ListsDataChanged.broadcast(context)
         return SkillResult.DirectReply(
-            "Reminder set: \"$item\" $dayPhrase at $timeDisplay.",
+            "Added \"$item\" to your $listPhrase, with a reminder $dayPhrase at $timeDisplay.",
             presentation = ToolPresentation.Status(
                 icon = "⏰",
                 title = item,
                 subtitle = "${dayPhrase.replaceFirstChar { it.uppercase() }} at $timeDisplay",
+                detail = persistedListName.replaceFirstChar { it.uppercase() },
             ),
         )
+    }
+
+    /** Spoken-style reminder time: "7 pm" on the hour, "7:30 pm" otherwise. */
+    private fun formatReminderTime(time: LocalTime): String {
+        val pattern = if (time.minute == 0) "h a" else "h:mm a"
+        return time.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH)).lowercase(Locale.ENGLISH)
     }
 
     private data class ReminderInsertResult(

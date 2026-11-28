@@ -319,6 +319,13 @@ private fun StatusPresentationCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
+                presentation.detail?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
             }
         }
     }
