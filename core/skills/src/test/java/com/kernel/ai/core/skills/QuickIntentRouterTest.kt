@@ -496,6 +496,30 @@ class QuickIntentRouterTest {
             assertEquals("set_timer", needsSlot.intent.intentName, "intent for '$input'")
             assertEquals("duration_seconds", needsSlot.missingSlot.name, "missing slot for '$input'")
         }
+
+        @ParameterizedTest(name = "Not set_timer: \"{0}\"")
+        @ValueSource(strings = [
+            "set a time for 5pm", "set a time to meet", "set the time on the oven",
+            "set the time", "set time", "see the time", "see the timer", "start time", "Start time.",
+            "create a time", "See Tim.", "can you set the time",
+        ])
+        fun `whole-utterance timer rule does not claim non-timer phrases`(input: String) {
+            val result = regexOnlyRouter.route(input)
+            val routed = when (result) {
+                is QuickIntentRouter.RouteResult.NeedsSlot -> result.intent.intentName
+                is QuickIntentRouter.RouteResult.RegexMatch -> result.intent.intentName
+                else -> null
+            }
+            assertNotEquals("set_timer", routed, "set_timer must not claim '$input'")
+        }
+
+        @Test
+        fun `set a timer for 5 minutes still routes to set_timer with its duration`() {
+            val result = regexOnlyRouter.route("set a timer for 5 minutes")
+            assertRegexMatch(result, "set_timer", "set a timer for 5 minutes")
+            val intent = (result as QuickIntentRouter.RouteResult.RegexMatch).intent
+            assertEquals("300", intent.params["duration_seconds"])
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -3904,6 +3928,12 @@ class QuickIntentRouterTest {
         fun setTimerNeedsSlotPhrases(): Stream<Arguments> = Stream.of(
             Arguments.of("set a timer"),
             Arguments.of("start a timer"),
+            Arguments.of("set a time"),
+            Arguments.of("set a tim"),
+            Arguments.of("see a timer"),
+            Arguments.of("set timer"),
+            Arguments.of("Set a time."),
+            Arguments.of("SET A TIMER!"),
         )
 
         @JvmStatic
