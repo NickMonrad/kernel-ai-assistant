@@ -236,4 +236,40 @@ class ChunkedSpeechTest {
     fun `a spaced dash between words becomes a comma pause`() {
         assertEquals("Yes, no.", normalizeChatTextForSpeech("Yes – no."))
     }
+
+    @Test
+    fun `a forced chunk ending in a curly closing quote gets no second full stop`() {
+        assertEquals("He said the ground.\u201D", finalizeChatTextForSpeech("He said the ground.\u201D"))
+    }
+
+    @Test
+    fun `a forced chunk ending in a curly closing apostrophe gets no second full stop`() {
+        assertEquals("it's mine.\u2019", finalizeChatTextForSpeech("it's mine.\u2019"))
+    }
+
+    @Test
+    fun `a forced chunk ending in a curly quote with no stop gets its full stop before the quote`() {
+        assertEquals("He said the ground.\u201D", finalizeChatTextForSpeech("He said the ground\u201D"))
+    }
+
+    @Test
+    fun `a whitespace boundary after a curly-quoted sentence adds no comma`() {
+        assertEquals(
+            "the ground.\u201D",
+            shapeSpeechChunkForPlayback("the ground.\u201D", SpeechChunkBoundaryType.WHITESPACE),
+        )
+    }
+
+    @Test
+    fun `a whitespace boundary after a curly-quoted word adds the comma before the quote`() {
+        assertEquals(
+            "the ground,\u201D",
+            shapeSpeechChunkForPlayback("the ground\u201D", SpeechChunkBoundaryType.WHITESPACE),
+        )
+    }
+
+    @Test
+    fun `a closing brace after a full stop gets no second full stop`() {
+        assertEquals("it is ready.}", shapeSpeechChunkForPlayback("it is ready.}", SpeechChunkBoundaryType.FORCED))
+    }
 }

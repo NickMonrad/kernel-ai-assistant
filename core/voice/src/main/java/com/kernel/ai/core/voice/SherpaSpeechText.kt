@@ -51,8 +51,7 @@ internal object SherpaSpeechText {
     private val clockTime = Regex(
         """(?<![\w.:/])([01]?\d|2[0-3]):([0-5]\d)(?:\s?([AaPp])\.?[Mm](\.)?)?(?![\w:]|[.,]\d)""",
     )
-    private val terminalPause = Regex("""[.!?]["')\]]*$""")
-    private val trailingSoftPause = Regex("""[,;:]+(["')\]]*)$""")
+    private val trailingSoftPause = Regex("""[,;:]+(["'”’)\]]*)$""")
 
     private val ones = arrayOf(
         "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
@@ -101,7 +100,7 @@ internal object SherpaSpeechText {
         value = value.replace(Regex(""",\s*,+"""), ",").replace(Regex("""\s+([,.;:!?])"""), "$1")
             .replace(Regex(""",([.!?])"""), "$1").replace(Regex("""([.!?;:]),"""), "$1")
             .replace(Regex("""\s+"""), " ").trim().removePrefix(",").trim()
-        if (chunkEnd && !terminalPause.containsMatchIn(value)) {
+        if (chunkEnd && !SpeechTerminalPunctuation.endsWith(value, ".!?")) {
             value = if (trailingSoftPause.containsMatchIn(value)) {
                 trailingSoftPause.replace(value) { m -> ".${m.groupValues[1]}" }
             } else {

@@ -10,14 +10,17 @@ import com.kernel.ai.core.voice.isLocaleReadyForWarning
 import com.kernel.ai.core.voice.VoiceCapabilities
 import com.kernel.ai.core.voice.readVoiceCapabilities
 import com.kernel.ai.core.inference.hardware.HardwareProfileDetector
+import com.kernel.ai.core.voice.kokoro.KokoroAutoCheck
 import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.kokoro.KokoroVoiceOutputController
 import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroSpeedCheckCache
 import com.kernel.ai.core.memory.usecase.ChatModelLoadResult
 import com.kernel.ai.core.memory.usecase.ChatModelLoader
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.kokoro.KokoroSpeedResult
 import com.kernel.ai.core.voice.kokoro.KOKORO_SELECT_MAX_MEDIAN_RTF
+import com.kernel.ai.core.voice.kokoro.KOKORO_SPEED_TEST_RUNS
 import java.util.Locale
 import com.kernel.ai.core.voice.InflectMicroModelSpec
 import com.kernel.ai.core.voice.wakeVerifierKernelModels
@@ -25,6 +28,8 @@ import com.kernel.ai.core.voice.InflectMicroSetup
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.PiperVoiceSetup
 import com.kernel.ai.core.voice.SherpaOnnxVoiceOutputController
+import com.kernel.ai.core.voice.AndroidTextToSpeechController
+import com.kernel.ai.core.voice.InflectMicroVoiceOutputController
 import com.kernel.ai.core.voice.SherpaVoicePackDownloadManager
 import com.kernel.ai.core.voice.VoiceOutputResult
 import com.kernel.ai.core.voice.VoiceSpeakRequest
@@ -60,6 +65,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -108,8 +115,12 @@ data class VoiceUiState(
     val selectedOutputEngine: VoiceOutputEngine = VoiceOutputEngine.AndroidTts,
     val availableOutputEngines: List<VoiceOutputEngine> = VoiceOutputEngine.entries,
     val selectedSherpaVoice: SherpaPiperVoice = SherpaPiperVoice.JennyDioco,
-    /** Why the last Play sample did not speak; null when it spoke or was never played. */
-    val sherpaSampleError: String? = null,
+    /** Why the last sample did not speak; null when it spoke or was never played. */
+    val voiceSampleError: String? = null,
+    /** The card whose sample is playing. Only one plays at a time; null when none is (#2174). */
+    val activeVoiceSample: VoiceSampleCard? = null,
+    /** The Piper voice the playing sample speaks with; a Piper sample does not change the saved voice (#2173). */
+    val activeSampleVoice: SherpaPiperVoice? = null,
     val sherpaSpeed: Float = 0.85f,
     val sherpaPitch: Float = 1.0f,
     val sherpaGain: Float = 1.5f,
@@ -319,6 +330,9 @@ internal fun sherpaSttDownloadState(
     )
 }
 
+/** The voice cards that can play a sample in Settings › Voice (#2174). */
+enum class VoiceSampleCard { PIPER, INFLECT, KOKORO, PHONE }
+
 private data class SttSnapshot(
     val states: Map<KernelModel, DownloadState>,
     val waiting: Set<KernelModel>,
@@ -344,9 +358,16 @@ class VoiceViewModel @Inject constructor(
     private val termsAcceptancePreferences: TermsAcceptancePreferences,
     private val kokoroVoiceOutputController: KokoroVoiceOutputController,
     private val chatModelLoader: ChatModelLoader,
+    private val inflectMicroVoiceOutputController: InflectMicroVoiceOutputController,
+    private val androidTextToSpeechController: AndroidTextToSpeechController,
+    private val kokoroSpeedCheckCache: KokoroSpeedCheckCache,
+    private val kokoroAutoCheck: KokoroAutoCheck,
 ) : ViewModel() {
     /** Set once a Kokoro download is seen in progress, so only a finished download (not opening the screen) runs the check. */
     private var kokoroDownloadSeen = false
+    /** Set while the Kokoro check the setup pick started is shown here, so its end clears the checking card (#2173). */
+    private var autoKokoroCheckShown = false
+    private var sampleJob: Job? = null
     private val isReleaseBuild: Boolean =
         (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0
     private val inflectReleaseEligible: Boolean =
@@ -374,6 +395,18 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             termsAcceptancePreferences.record.collect { record ->
                 _uiState.update { it.copy(termsAccepted = record.isAccepted()) }
+            }
+        }
+        viewModelScope.launch {
+            // A check the setup pick started shows here too, so Delete and the samples wait for it (#2173).
+            kokoroAutoCheck.progress.collect { progress ->
+                if (progress == null && !autoKokoroCheckShown) return@collect
+                autoKokoroCheckShown = progress != null
+                _uiState.update {
+                    it.copy(
+                        kokoroSpeed = progress?.let { p -> KokoroSpeedUiState.Checking(p.run, p.runs) } ?: KokoroSpeedUiState.Idle,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -765,6 +798,8 @@ class VoiceViewModel @Inject constructor(
         _uiState.update { it.copy(selectedOutputEngine = engine).withInflectAvailability() }
         viewModelScope.launch {
             voiceOutputPreferences.setSelectedEngine(engine)
+            // A plain choice here replaces a setup Kokoro pick still waiting for its check (#2173).
+            voiceOutputPreferences.setPendingKokoroCheck(false)
             // Re-tapping the selected engine must not re-run the Piper start logic.
             if (engine != previous) piperVoiceSetup.onEngineChosen(engine)
         }
@@ -780,17 +815,32 @@ class VoiceViewModel @Inject constructor(
 
     /**
      * Kokoro card check (#2170): loads what the check needs, including the chat model, measures, then selects Kokoro and
-     * plays a sample, or says why it could not. Runs when a download finishes or on a tap of a downloaded pack.
+     * plays a sample, or says why it could not. Runs when a download finishes or a downloaded pack is picked. A pass
+     * already taken on this build, pack and threshold selects Kokoro straight away with no measurement (#2174).
      */
-    fun checkKokoroSpeed() {
-        if (_uiState.value.kokoroSpeed == KokoroSpeedUiState.Checking || !kokoroPackReady()) return
+    fun checkKokoroSpeed() = runKokoroCheck(force = false)
+
+    /** Check again (#2174): measures even when a pass is cached. */
+    fun checkKokoroSpeedAgain() = runKokoroCheck(force = true)
+
+    private fun runKokoroCheck(force: Boolean) {
+        if (_uiState.value.kokoroSpeed is KokoroSpeedUiState.Checking || !kokoroPackReady()) return
         val previous = _uiState.value.selectedOutputEngine
-        _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Checking, kokoroSampleError = null) }
+        _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Checking(), kokoroSampleError = null) }
         viewModelScope.launch {
+            // A Settings check takes over a setup pick still waiting for its automatic check (#2173).
+            voiceOutputPreferences.setPendingKokoroCheck(false)
+            if (!force && kokoroSpeedCheckCache.hasValidPass()) {
+                _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Idle) }
+                // Only select when the user has not picked another engine while the cache was read.
+                if (_uiState.value.selectedOutputEngine == previous) selectKokoroEngine()
+                return@launch
+            }
             try {
-                val loadResult = chatModelLoader.ensureLoaded()
-                val result = when (loadResult) {
-                    ChatModelLoadResult.Loaded -> kokoroVoiceOutputController.measureSpeed()
+                val result = when (val loadResult = chatModelLoader.ensureLoaded()) {
+                    ChatModelLoadResult.Loaded -> kokoroVoiceOutputController.measureSpeed { run, runs ->
+                        _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Checking(run, runs)) }
+                    }
                     ChatModelLoadResult.NoModelDownloaded -> KokoroSpeedResult.Unavailable(KOKORO_NO_CHAT_MODEL_MESSAGE)
                     is ChatModelLoadResult.Failed -> {
                         Log.w(KOKORO_CHECK_LOG_TAG, "Kokoro check: chat model failed to load", loadResult.cause)
@@ -811,6 +861,12 @@ class VoiceViewModel @Inject constructor(
     }
 
     private suspend fun applyKokoroCheckResult(result: KokoroSpeedResult, previous: VoiceOutputEngine) {
+        // The measurement is a fact even if the user changed the engine meanwhile, so it is cached either way (#2174).
+        if (result is KokoroSpeedResult.Measured && result.allowsKokoro) {
+            kokoroSpeedCheckCache.recordPass()
+        } else {
+            kokoroSpeedCheckCache.recordNotPassed()
+        }
         val current = _uiState.value.selectedOutputEngine
         when {
             result is KokoroSpeedResult.Unavailable && result.memoryShort ->
@@ -822,15 +878,8 @@ class VoiceViewModel @Inject constructor(
             // The user picked another engine during the check; their choice stands, so a pass is not applied.
             current != previous -> _uiState.update { it.copy(kokoroSpeed = KokoroSpeedUiState.Idle) }
             result is KokoroSpeedResult.Measured && result.allowsKokoro -> {
-                _uiState.update {
-                    it.copy(
-                        selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
-                        kokoroSpeed = KokoroSpeedUiState.Idle,
-                    ).withInflectAvailability()
-                }
-                voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
-                piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
-                val sample = kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = KOKORO_SAMPLE_TEXT))
+                selectKokoroEngine()
+                val sample = kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
                 _uiState.update {
                     it.copy(kokoroSampleError = if (sample is VoiceOutputResult.Unavailable) KOKORO_SAMPLE_FAILED_MESSAGE else null)
                 }
@@ -844,6 +893,16 @@ class VoiceViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    /** Selects Kokoro after a pass, from the check or the cache. */
+    private suspend fun selectKokoroEngine() {
+        _uiState.update {
+            it.copy(selectedOutputEngine = VoiceOutputEngine.KokoroExperimental, kokoroSpeed = KokoroSpeedUiState.Idle)
+                .withInflectAvailability()
+        }
+        voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
+        piperVoiceSetup.onEngineChosen(VoiceOutputEngine.KokoroExperimental)
     }
 
     /** Frees the engine a speed test or gate loaded, unless Kokoro is the selected engine. Safe during cancellation. */
@@ -864,19 +923,85 @@ class VoiceViewModel @Inject constructor(
         sherpaVoicePackDownloadManager.startDownload(voice, restartRunning = true, allowMobileData = true)
     }
 
-    /** Speaks a fixed sample through the selected output engine. Only for a downloaded voice; never automatic. */
-    fun playSherpaSample(voice: SherpaPiperVoice) {
-        val row = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }
-        if (row?.downloadState !is VoicePackDownloadState.Downloaded) return
-        viewModelScope.launch {
-            val result = sherpaVoiceOutputController.speak(VoiceSpeakRequest(text = SHERPA_SAMPLE_TEXT))
-            _uiState.update {
-                it.copy(
-                    sherpaSampleError = if (result is VoiceOutputResult.Unavailable) SAMPLE_FAILED_MESSAGE else null,
+    /**
+     * Hear a sample on a downloaded voice card (#2174). It plays through that card's own engine, not the selected one.
+     * One sample plays at a time: a tap on another card switches to it, and a tap on the playing card stops it.
+     */
+    fun toggleVoiceSample(card: VoiceSampleCard) {
+        val wasPlaying = _uiState.value.activeVoiceSample
+        stopVoiceSample()
+        if (wasPlaying == card || !isCardReady(card)) return
+        startSample(card)
+    }
+
+    /**
+     * A downloaded Piper row's sample (#2174). It plays through that row's voice without changing the saved one (#2173):
+     * a sample previews a voice, so tapping one does not select it.
+     */
+    fun togglePiperSample(voice: SherpaPiperVoice) {
+        val wasPlaying = _uiState.value.activeVoiceSample == VoiceSampleCard.PIPER && _uiState.value.activeSampleVoice == voice
+        stopVoiceSample()
+        val downloaded = _uiState.value.sherpaVoices.firstOrNull { it.voice == voice }?.downloadState is
+            VoicePackDownloadState.Downloaded
+        if (wasPlaying || !downloaded || samplesBlocked()) return
+        startSample(VoiceSampleCard.PIPER, sherpaVoice = voice)
+    }
+
+    private fun startSample(card: VoiceSampleCard, sherpaVoice: SherpaPiperVoice? = null) {
+        _uiState.update { it.copy(activeVoiceSample = card, activeSampleVoice = sherpaVoice, voiceSampleError = null) }
+        sampleJob = viewModelScope.launch {
+            val result = when (card) {
+                VoiceSampleCard.PIPER -> sherpaVoiceOutputController.speak(
+                    VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT, sherpaVoice = sherpaVoice),
                 )
+                VoiceSampleCard.INFLECT -> inflectMicroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+                VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+                VoiceSampleCard.PHONE -> androidTextToSpeechController.speak(VoiceSpeakRequest(text = VOICE_SAMPLE_TEXT))
+            }
+            // A cancelled sample ends silently: its tap already cleared the state, and a newer sample must not be cleared.
+            if (!isActive) return@launch
+            _uiState.update {
+                if (it.activeVoiceSample != card) {
+                    it
+                } else {
+                    it.copy(
+                        activeVoiceSample = null,
+                        activeSampleVoice = null,
+                        voiceSampleError = if (result is VoiceOutputResult.Unavailable) SAMPLE_FAILED_MESSAGE else null,
+                    )
+                }
             }
         }
     }
+
+    /** Stops the sample that is playing, if any (#2174). */
+    fun stopVoiceSample() {
+        val playing = _uiState.value.activeVoiceSample ?: return
+        sampleJob?.cancel()
+        sampleJob = null
+        when (playing) {
+            VoiceSampleCard.PIPER -> sherpaVoiceOutputController.stop()
+            VoiceSampleCard.INFLECT -> inflectMicroVoiceOutputController.stop()
+            VoiceSampleCard.KOKORO -> kokoroVoiceOutputController.stop()
+            VoiceSampleCard.PHONE -> androidTextToSpeechController.stop()
+        }
+        _uiState.update { it.copy(activeVoiceSample = null, activeSampleVoice = null) }
+    }
+
+    override fun onCleared() {
+        stopVoiceSample()
+        super.onCleared()
+    }
+
+    private fun isCardReady(card: VoiceSampleCard): Boolean = !samplesBlocked() && when (card) {
+        VoiceSampleCard.PIPER -> _uiState.value.hasDownloadedSherpaVoice
+        VoiceSampleCard.INFLECT -> _uiState.value.isInflectMicroReady
+        VoiceSampleCard.KOKORO -> kokoroPackReady()
+        VoiceSampleCard.PHONE -> true
+    }
+
+    /** Samples wait while a Kokoro check runs: the check times the phone, and a sample would play over it (#2173). */
+    private fun samplesBlocked(): Boolean = _uiState.value.kokoroSpeed is KokoroSpeedUiState.Checking
 
     fun setSherpaVoice(voice: SherpaPiperVoice) {
         if (isReleaseBuild && !voice.releaseVisible) {
@@ -1043,7 +1168,7 @@ class VoiceViewModel @Inject constructor(
     }
 }
 
-private const val SHERPA_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
+private const val VOICE_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
 
 internal const val SAMPLE_FAILED_MESSAGE =
     "Couldn't play the sample. Delete the voice and download it again, then retry."
@@ -1051,14 +1176,13 @@ internal const val SAMPLE_FAILED_MESSAGE =
 /** Kokoro card check state (#2170). A pass selects Kokoro and returns to Idle. */
 sealed interface KokoroSpeedUiState {
     data object Idle : KokoroSpeedUiState
-    data object Checking : KokoroSpeedUiState
+    data class Checking(val run: Int = 0, val runs: Int = KOKORO_SPEED_TEST_RUNS) : KokoroSpeedUiState
     /** Too slow, or not enough free memory ([memoryShort]); [stayingOn] is the title of the engine that stays selected. */
     data class Failed(val stayingOn: String, val memoryShort: Boolean = false, val details: String? = null) : KokoroSpeedUiState
     /** The check could not run; [reason] is one plain sentence, [details] the numbers behind it. */
     data class CannotRun(val reason: String, val details: String? = null) : KokoroSpeedUiState
 }
 
-private const val KOKORO_SAMPLE_TEXT = "Hi, this is Jandal. This is how this voice sounds."
 internal const val KOKORO_NO_CHAT_MODEL_MESSAGE = "Kokoro can't be checked until a chat model is downloaded."
 internal const val KOKORO_CHECK_UNAVAILABLE_MESSAGE = "Couldn't prepare the check on this phone."
 internal const val KOKORO_SAMPLE_FAILED_MESSAGE = "Couldn't play the sample with Kokoro."

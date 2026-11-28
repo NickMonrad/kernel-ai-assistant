@@ -8,6 +8,8 @@ data class VoiceSpeakRequest(
     val text: String,
     val locale: Locale = Locale.getDefault(),
     val utteranceId: String? = null,
+    /** The Piper voice a sample speaks with, instead of the saved one; null for the saved voice (#2173). */
+    val sherpaVoice: SherpaPiperVoice? = null,
 )
 
 interface VoiceOutputStreamingSession {
