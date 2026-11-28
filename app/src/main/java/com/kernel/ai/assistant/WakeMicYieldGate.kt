@@ -19,6 +19,10 @@ internal class WakeMicYieldGate(
     private val releaseMic: () -> Unit,
     private val rearmMic: () -> Unit,
     private val rearmAllowed: () -> Boolean,
+    /** Runs when the session that owns the yield stops, before the re-arm (#2178). */
+    private val onOwnSessionEnded: () -> Unit,
+    /** Reports a Stopped for a session that does not own the yield, which is ignored; owner and stop ids (#2178). */
+    private val onStaleStop: (ownerSessionId: Long, stopSessionId: Long) -> Unit,
 ) {
     /** Session id that currently holds the yield; null while the wake detector is armed. */
     private var owner: Long? = null
@@ -37,8 +41,13 @@ internal class WakeMicYieldGate(
 
             is VoiceInputEvent.ListeningStopped -> {
                 val current = owner
-                if (current != null && current != event.captureSessionId) return
+                if (current != null && current != event.captureSessionId) {
+                    onStaleStop(current, event.captureSessionId)
+                    return
+                }
                 owner = null
+                // The owning session ended: any SILENCED back-off taken while it held the mic no longer applies (#2178).
+                if (current != null) onOwnSessionEnded()
                 if (rearmAllowed()) rearmMic()
             }
 

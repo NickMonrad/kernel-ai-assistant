@@ -8,6 +8,12 @@ internal data class MicRecordingClient(val sessionId: Int, val source: Int, val 
 /** Why the gate released the wake mic: another app's recording, or the audio server silencing our capture (#2109). */
 internal enum class MicContention { OTHER_APP, SILENCED }
 
+/** The source that ended an other-app contention pause, reported on resume (#2178 diagnostics). */
+internal enum class ContentionResumeSource { RECORDING_CHANGED, HOLD_EXPIRED, USER_RESUME }
+
+/** How a SILENCED back-off run ended (#2178 diagnostics). */
+internal enum class SilenceRunEnd { PROBE_SURVIVED, USER_RESUME, OWN_CAPTURE_ENDED }
+
 /**
  * Steps wake capture aside while another app records, and re-arms when that ends (#2108).
  *
@@ -35,10 +41,20 @@ internal class WakeMicContentionGate(
     private val clockMs: () -> Long,
     /** Asks for a later [onRecordingClients] with the current clients, so a time-based hold can end without a callback. */
     private val scheduleRecheck: (delayMs: Long) -> Unit,
+    /** Reports each other-app resume: the source that ended the pause and how long the wake mic was held (#2178). */
+    private val onOtherAppResumed: (source: ContentionResumeSource, heldMs: Long) -> Unit,
+    /** Reports the start of a SILENCED back-off run, once; a failed probe is part of the same run (#2178). */
+    private val onSilenceRunStarted: () -> Unit,
+    /** Reports the end of a SILENCED back-off run: how it ended, its probe count and wall time from the first silence. */
+    private val onSilenceRunEnded: (end: SilenceRunEnd, probeCount: Int, heldMs: Long) -> Unit,
 ) {
     /** True while another app holds the microphone, so the wake detector must not capture. */
     @Volatile var paused: Boolean = false
         private set
+
+    /** Cause and start time of the current pause, for the resume report (#2178). */
+    private var pausedCause: MicContention = MicContention.OTHER_APP
+    private var pausedAtMs: Long = 0L
 
     /** Clock time of the release caused by the audio server silencing our capture; null for other pauses. */
     private var silencedAtMs: Long? = null
@@ -49,13 +65,34 @@ internal class WakeMicContentionGate(
     /** Clock time the current probe re-arm started; null when no probe is pending survival. */
     private var probeStartedAtMs: Long? = null
 
+    /** Clock time the current SILENCED back-off run began; null when no run is active (#2178 diagnostics). */
+    private var silenceRunStartedAtMs: Long? = null
+
+    /** Probes started in the current back-off run. */
+    private var silenceRunProbes: Int = 0
+
     /** Called with the full active-client list on every recording-configuration change, and on re-sync. */
-    fun onRecordingClients(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = false)
+    fun onRecordingClients(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.RECORDING_CHANGED)
+
+    /** A scheduled recheck ran, so a time-based hold may have ended. */
+    fun onHoldRecheck(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.HOLD_EXPIRED)
 
     /** The user pressed Resume: re-arm now unless another recorder holds the mic (#2109). */
-    fun onResumeRequested(clients: List<MicRecordingClient>) = evaluate(clients, probeNow = true)
+    fun onResumeRequested(clients: List<MicRecordingClient>) = evaluate(clients, ContentionResumeSource.USER_RESUME)
 
-    private fun evaluate(clients: List<MicRecordingClient>, probeNow: Boolean) {
+    /**
+     * Our own in-app voice capture ended (#2178). A SILENCED hold taken while that capture held the mic is
+     * attributed to it, so the hold, its back-off and the back-off run are dropped. The next recording update
+     * then re-arms at once.
+     */
+    fun onOwnVoiceCaptureEnded() {
+        silencedAtMs = null
+        silenceHoldMs = SILENCE_BACKOFF_MS
+        probeStartedAtMs = null
+        endSilenceRun(SilenceRunEnd.OWN_CAPTURE_ENDED)
+    }
+
+    private fun evaluate(clients: List<MicRecordingClient>, source: ContentionResumeSource) {
         val own = ownSessionIds()
         val ownClients = clients.filter { it.sessionId in own }
         val others = clients.filter { it.sessionId !in own }
@@ -64,15 +101,19 @@ internal class WakeMicContentionGate(
 
         if (!paused) {
             if (contended) {
+                val cause = if (silenced) MicContention.SILENCED else MicContention.OTHER_APP
                 paused = true
-                if (silenced) holdAfterSilence() else silencedAtMs = null
-                releaseMic(if (silenced) MicContention.SILENCED else MicContention.OTHER_APP)
+                pausedCause = cause
+                pausedAtMs = clockMs()
+                if (silenced) silencedPause() else silencedAtMs = null
+                releaseMic(cause)
                 return
             }
             probeStartedAtMs?.let { started ->
                 if (clockMs() - started >= silenceHoldMs) {
                     silenceHoldMs = SILENCE_BACKOFF_MS
                     probeStartedAtMs = null
+                    endSilenceRun(SilenceRunEnd.PROBE_SURVIVED)
                 }
             }
             return
@@ -80,17 +121,37 @@ internal class WakeMicContentionGate(
         if (contended) return
         silencedAtMs?.let { since ->
             val remainingMs = since + silenceHoldMs - clockMs()
-            if (remainingMs > 0 && !probeNow) {
+            if (remainingMs > 0 && source != ContentionResumeSource.USER_RESUME) {
                 scheduleRecheck(remainingMs)
                 return
             }
             // The hold has passed (or the user asked): probe. The survival check resets the hold later.
             probeStartedAtMs = clockMs()
+            silenceRunProbes++
             scheduleRecheck(silenceHoldMs)
         }
         paused = false
         silencedAtMs = null
+        if (pausedCause == MicContention.OTHER_APP) onOtherAppResumed(source, clockMs() - pausedAtMs)
+        if (source == ContentionResumeSource.USER_RESUME) endSilenceRun(SilenceRunEnd.USER_RESUME)
         if (rearmAllowed()) rearmMic()
+    }
+
+    /** A SILENCED pause. The first one starts a back-off run; a failed probe only extends the hold (#2178). */
+    private fun silencedPause() {
+        if (silenceRunStartedAtMs == null) {
+            silenceRunStartedAtMs = clockMs()
+            silenceRunProbes = 0
+            onSilenceRunStarted()
+        }
+        holdAfterSilence()
+    }
+
+    /** Ends the back-off run, if one is active, and reports how it ended with its probe count and wall time. */
+    private fun endSilenceRun(end: SilenceRunEnd) {
+        val startedAt = silenceRunStartedAtMs ?: return
+        silenceRunStartedAtMs = null
+        onSilenceRunEnded(end, silenceRunProbes, clockMs() - startedAt)
     }
 
     private fun holdAfterSilence() {

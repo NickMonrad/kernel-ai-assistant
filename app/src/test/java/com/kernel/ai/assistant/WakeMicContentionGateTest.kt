@@ -26,6 +26,9 @@ class WakeMicContentionGateTest {
     private val scheduled = mutableListOf<Long>()
     private var ownIds: Set<Int> = setOf(own)
     private lateinit var gate: WakeMicContentionGate
+    private val otherResumes = mutableListOf<Pair<ContentionResumeSource, Long>>()
+    private var silenceStarts = 0
+    private val silenceRuns = mutableListOf<Triple<SilenceRunEnd, Int, Long>>()
 
     @BeforeEach
     fun setUp() {
@@ -36,6 +39,9 @@ class WakeMicContentionGateTest {
             ownSessionIds = { ownIds },
             clockMs = { now },
             scheduleRecheck = { scheduled += it },
+            onOtherAppResumed = { source, heldMs -> otherResumes += source to heldMs },
+            onSilenceRunStarted = { silenceStarts++ },
+            onSilenceRunEnded = { end, probes, heldMs -> silenceRuns += Triple(end, probes, heldMs) },
         )
     }
 
@@ -235,5 +241,87 @@ class WakeMicContentionGateTest {
         gate.onRecordingClients(listOf(otherClient(mic)))
         assertTrue(gate.paused)
         assertEquals(2, released)
+    }
+
+    @Test
+    fun `a SILENCED back-off run logs one start, then one end when a probe survives its hold`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onHoldRecheck(emptyList())
+        now = 2 * WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(emptyList())
+
+        assertEquals(1, silenceStarts)
+        assertEquals(
+            listOf(Triple(SilenceRunEnd.PROBE_SURVIVED, 1, 2 * WakeMicContentionGate.SILENCE_BACKOFF_MS)),
+            silenceRuns,
+        )
+        assertTrue(otherResumes.isEmpty())
+    }
+
+    @Test
+    fun `a probe silenced again within its hold adds no pause or resume event`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onHoldRecheck(emptyList())
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        assertEquals(2, released)
+        assertEquals(1, silenceStarts)
+        assertTrue(silenceRuns.isEmpty())
+
+        now = 3 * WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onHoldRecheck(emptyList())
+        now = 5 * WakeMicContentionGate.SILENCE_BACKOFF_MS
+        gate.onRecordingClients(emptyList())
+
+        assertEquals(1, silenceStarts)
+        assertEquals(
+            listOf(Triple(SilenceRunEnd.PROBE_SURVIVED, 2, 5 * WakeMicContentionGate.SILENCE_BACKOFF_MS)),
+            silenceRuns,
+        )
+    }
+
+    @Test
+    fun `a user Resume ends the back-off run with the probes it made`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 1_000L
+        gate.onResumeRequested(emptyList())
+
+        assertFalse(gate.paused)
+        assertEquals(listOf(Triple(SilenceRunEnd.USER_RESUME, 1, 1_000L)), silenceRuns)
+    }
+
+    @Test
+    fun `an own in-app capture ending ends the back-off run at once, with no other-app resume`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 1_000L
+        gate.onOwnVoiceCaptureEnded()
+        gate.onRecordingClients(emptyList())
+
+        assertFalse(gate.paused)
+        assertEquals(1, rearmed)
+        assertEquals(listOf(Triple(SilenceRunEnd.OWN_CAPTURE_ENDED, 0, 1_000L)), silenceRuns)
+        assertTrue(otherResumes.isEmpty())
+    }
+
+    @Test
+    fun `a silence after an ended run starts a new run`() {
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        now = 1_000L
+        gate.onOwnVoiceCaptureEnded()
+        gate.onRecordingClients(emptyList())
+        gate.onRecordingClients(listOf(ownClient(silenced = true)))
+        assertEquals(2, silenceStarts)
+    }
+
+    @Test
+    fun `an other-app pause keeps its own resume event and starts no back-off run`() {
+        gate.onRecordingClients(listOf(otherClient(mic)))
+        now = 500L
+        gate.onRecordingClients(emptyList())
+
+        assertEquals(listOf(ContentionResumeSource.RECORDING_CHANGED to 500L), otherResumes)
+        assertEquals(0, silenceStarts)
+        assertTrue(silenceRuns.isEmpty())
     }
 }
