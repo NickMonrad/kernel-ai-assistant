@@ -3804,7 +3804,11 @@ class NativeIntentHandlerTest {
         val result = handleIntent("calculate_arithmetic", mapOf("expression" to "2 + )"))
 
         assertEquals(
-            SkillResult.Failure("calculate_arithmetic", "Unexpected token ')'"),
+            SkillResult.Failure(
+                "calculate_arithmetic",
+                "I didn't expect ')' in that calculation.",
+                technicalDetail = "Unexpected token ')'",
+            ),
             result,
         )
     }
@@ -3917,8 +3921,67 @@ class NativeIntentHandlerTest {
         assertEquals(
             SkillResult.Failure(
                 "convert_units",
-                "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'.",
+                "I don't know the unit 'parsecs'.",
                 technicalDetail = "Unsupported unit 'parsecs'",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains units that measure different things`() {
+        val result = handleIntent("convert_units", mapOf("value" to "5", "from_unit" to "kg", "to_unit" to "km"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "I can't convert kilograms to kilometers; they measure different things.",
+                technicalDetail = "Cannot convert kilograms to kilometers",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains temperatures below absolute zero`() {
+        val result = handleIntent(
+            "convert_units",
+            mapOf("value" to "-500", "from_unit" to "celsius", "to_unit" to "fahrenheit"),
+        )
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "That temperature is below absolute zero, the lowest possible temperature.",
+                technicalDetail = "Temperature cannot be below absolute zero",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `convert_units explains negative values`() {
+        val result = handleIntent("convert_units", mapOf("value" to "-5", "from_unit" to "miles", "to_unit" to "km"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_units",
+                "I can't convert a negative value.",
+                technicalDetail = "Conversion value must be non-negative",
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `calculate_arithmetic explains division by zero`() {
+        val result = handleIntent("calculate_arithmetic", mapOf("expression" to "5 / 0"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "calculate_arithmetic",
+                "I can't divide by zero.",
+                technicalDetail = "Division by zero is undefined",
             ),
             result,
         )
@@ -4211,15 +4274,27 @@ class NativeIntentHandlerTest {
     @Test
     fun `convert_cooking_measure validates required params`() {
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking conversion amount provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking conversion amount provided",
+            ),
             handleIntent("convert_cooking_measure", emptyMap()),
         )
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking source unit provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking source unit provided",
+            ),
             handleIntent("convert_cooking_measure", mapOf("amount" to "3", "ingredient" to "butter")),
         )
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "No cooking ingredient provided"),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                FriendlyFailureReplies.COOKING_GENERIC,
+                technicalDetail = "No cooking ingredient provided",
+            ),
             handleIntent("convert_cooking_measure", mapOf("amount" to "3", "from_unit" to "tbsp")),
         )
     }
@@ -4236,7 +4311,11 @@ class NativeIntentHandlerTest {
         )
 
         assertEquals(
-            SkillResult.Failure("convert_cooking_measure", "Unsupported cooking ingredient 'unicorn dust'."),
+            SkillResult.Failure(
+                "convert_cooking_measure",
+                "I don't have a built-in cooking conversion for 'unicorn dust'.",
+                technicalDetail = "Unsupported cooking ingredient 'unicorn dust'.",
+            ),
             result,
         )
     }
@@ -4278,7 +4357,8 @@ class NativeIntentHandlerTest {
         assertEquals(
             SkillResult.Failure(
                 "convert_currency",
-                "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
+                "The latest AUD to NZD rate I can get is from 2026-05-01, which is too old to use.",
+                technicalDetail = "Latest available AUD to NZD rate is from 2026-05-01, which is too stale to use.",
             ),
             result,
         )
@@ -4299,6 +4379,7 @@ class NativeIntentHandlerTest {
             SkillResult.Failure(
                 "convert_currency",
                 "Currency rates are unavailable right now. I can't do a truthful conversion offline.",
+                technicalDetail = "socket timeout",
             ),
             result,
         )
@@ -4323,15 +4404,27 @@ class NativeIntentHandlerTest {
     @Test
     fun `convert_currency validates required params`() {
         assertEquals(
-            SkillResult.Failure("convert_currency", "No currency amount provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No currency amount provided",
+            ),
             handleIntent("convert_currency", emptyMap()),
         )
         assertEquals(
-            SkillResult.Failure("convert_currency", "No source currency provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No source currency provided",
+            ),
             handleIntent("convert_currency", mapOf("amount" to "100", "to_currency" to "NZD")),
         )
         assertEquals(
-            SkillResult.Failure("convert_currency", "No target currency provided"),
+            SkillResult.Failure(
+                "convert_currency",
+                FriendlyFailureReplies.CURRENCY_GENERIC,
+                technicalDetail = "No target currency provided",
+            ),
             handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD")),
         )
     }
