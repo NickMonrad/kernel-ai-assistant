@@ -99,11 +99,35 @@ class EnglishSpeechTextNormaliserTest {
     }
 
     @Test
+    fun bare_in_after_spelled_feet_is_a_word_not_inches() {
+        assertEquals("She was five feet four in nineteen ninety.", kokoroText("She was 5 feet 4 in 1990."))
+        assertEquals("He was six feet two in the photo.", kokoroText("He was 6 feet 2 in the photo."))
+        assertEquals("five feet ten in tall", kokoroText("5 feet 10 in tall"))
+    }
+
+    @Test
+    fun bare_in_after_ft_is_inches() {
+        assertEquals("five feet four inches", kokoroText("5 ft 4 in"))
+    }
+
+    @Test
     fun fractions_of_imperial_units_spell_the_unit() {
         assertEquals("half a mile", kokoroText("1/2 mi"))
         assertEquals("three quarters of a mile", kokoroText("3/4 mi"))
         assertEquals("one and a half miles", kokoroText("1 1/2 mi"))
         assertEquals("half a pound", kokoroText("1/2 lb"))
+    }
+
+    @Test
+    fun plural_measure_words_after_a_fraction_take_the_singular() {
+        assertEquals("three quarters of a foot", kokoroText("3/4 feet"))
+        assertEquals("half a yard", kokoroText("1/2 yards"))
+        assertEquals("half an ounce", kokoroText("1/2 ounces"))
+        assertEquals("half a mile", kokoroText("1/2 miles"))
+        assertEquals("three quarters of a mile", kokoroText("3/4 miles"))
+        assertEquals("half a cup", kokoroText("1/2 cups"))
+        assertEquals("half an hour", kokoroText("1/2 hours"))
+        assertEquals("one and a half yards", kokoroText("1 1/2 yards"))
     }
 
     @Test

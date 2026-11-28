@@ -34,7 +34,7 @@ import java.util.Locale
  *   two three", "1080p" → "ten eighty p", "Qwen2.5" → "Qwen two point five", "Llama3.1" → "Llama three point one".
  * - Imperial units after a number: "14 mi" → "fourteen miles", "1 ft" → "one foot", "2 lb" → "two pounds", "8 oz" → "eight
  *   ounces", "100 yd" → "one hundred yards", "60 mph" → "sixty miles per hour". "in" is glued only: "12in" → "twelve inches".
- *   A spaced "in" stays a word: "They let 4 in." → "They let four in.". Feet and inches: "5 ft 10 in tall" → "five feet ten inches tall".
+ *   A spaced "in" stays a word: "They let 4 in." → "They let four in.". Feet and inches: "5 ft 10 in tall" → "five feet ten inches tall". After spelled "feet" or "foot" only "inch" or "inches" makes a height: "5 feet 10 inches tall" → "five feet ten inches tall", but "5 feet 4 in 1990" → "five feet four in nineteen ninety".
  * - Fractions with an imperial unit: "1/2 mi" → "half a mile", "1 1/2 mi" → "one and a half miles" ("mi", "ft", "lb", "oz", "yd").
  * - Bracketed conversions: [SpeechCardText] drops the bracketed unit, so "23 km (14 mi)" is spoken as "twenty three
  *   kilometres" (#2192). The screen keeps both.
@@ -158,9 +158,12 @@ object EnglishSpeechTextNormaliser {
     /** An NZ area code in brackets: "(09) 123 4567" → "09 123 4567", read as grouped digits. */
     private val bracketedArea = Regex("""\((0\d{1,2})\)\s*""")
     private val slashDateShortYear = Regex("""(?<![\p{N}.,:/-])(\d{1,2})/(\d{1,2})/(\d{2})(?![\p{N}/])""")
-    /** Day/month or fraction, read after the date and money rules. The optional following word decides "of a/an". */
+    /**
+     * Day/month or fraction, read after the date and money rules. The following whitespace and word are captured so a measure
+     * word can be spoken in its singular form; [expandSlashFraction] writes any other following word back as it was.
+     */
     private val slashDayMonth = Regex(
-        """(?<![\p{N}.,:/$])(\d{1,2})/(\d{1,2})(?![\p{N}/])(?:(?=\s+([A-Za-z]+)))?""",
+        """(?<![\p{N}.,:/$])(\d{1,2})/(\d{1,2})(?![\p{N}/])(?:(\s+)([A-Za-z]+)(?!\p{L}))?""",
     )
 
     /** "1 1/2 cups" → "one and a half cups"; "2 1/4 tsp" → "two and a quarter tsp". Runs before [slashDayMonth]. */
@@ -210,8 +213,12 @@ object EnglishSpeechTextNormaliser {
         """(?<![\p{L}\p{N}.,:/$])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+($spacedUnitAlternatives)(?![\p{L}\p{N}/])""",
     )
     /** "5 ft 10 in tall" → "five feet ten inches tall": a height in feet and inches. Runs before the glued and spaced units, which would split it (#2192). */
-    private val feetInches = Regex(
-        """(?<![\p{L}\p{N}.,:/$])(\d{1,2})\s*(?:ft|feet|foot)\s*(\d{1,2})\s*(?:in|inches|inch)(?!\p{L})""",
+    private val feetInchesAbbreviated = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(\d{1,2})\s*ft\s*(\d{1,2})\s*(?:inches|inch|in)(?!\p{L})""",
+    )
+    /** After spelled "feet" or "foot" only "inch" or "inches" makes a height: "5 feet 4 in 1990" keeps "in" as a word. */
+    private val feetInchesSpelled = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(\d{1,2})\s*(?:feet|foot)\s*(\d{1,2})\s*inch(?:es)?(?!\p{L})""",
     )
     private val yearBeforeVerb = Regex("""(?<![\p{L}\p{N}.,:/$])((?:10|1[1-9]|20)\d{2})(?=\s+(?:was|were|is)\b)""")
     /** "a", "an" or "the" as a whole word right before a number, or before an "N to " range: "Japan 5 km" has no article. */
@@ -224,16 +231,20 @@ object EnglishSpeechTextNormaliser {
         6 to ("sixth" to "sixths"), 8 to ("eighth" to "eighths"),
     )
 
-    /** Measure words that take "of a/an" after a fraction: "three quarters of a cup". "Half" takes no "of": "half a cup". */
+    /**
+     * Measure words that take "of a/an" after a fraction: "three quarters of a cup". "Half" takes no "of": "half a cup".
+     * Singular only: a plural after a fraction is spoken as its singular ([singularMeasure]): "1/2 yards" → "half a yard".
+     */
     private val fractionMeasures = setOf(
-        "cup", "cups", "tsp", "tbsp", "teaspoon", "teaspoons", "teaspoonful", "tablespoon", "tablespoons",
-        "litre", "litres", "liter", "liters", "ml", "kg", "g", "gram", "grams", "kilo", "kilos", "lb", "pound", "pounds",
-        "hour", "hours", "mile", "miles", "km", "kilometre", "kilometres", "metre", "metres", "inch", "inches",
+        "cup", "tsp", "tbsp", "teaspoon", "teaspoonful", "tablespoon",
+        "litre", "liter", "ml", "kg", "g", "gram", "kilo", "lb", "pound",
+        "hour", "mile", "km", "kilometre", "metre", "inch",
         "pizza", "glass", "bottle", "tank",
-        "foot", "feet", "yard", "yards", "ounce", "ounces",
+        "foot", "yard", "ounce",
     )
-    /** Fraction measure words as a regex alternation, see [fractionMeasures]. */
-    private val fractionMeasureWords = fractionMeasures.joinToString("|") { Regex.escape(it) }
+    /** Fraction measure words as a regex alternation, singular or plural: "cups", "feet", "inches". See [singularMeasure]. */
+    private val fractionMeasureWords =
+        "(?:(?:${fractionMeasures.joinToString("|") { Regex.escape(it) }})(?:e?s)?|feet)"
     /** A numbered place in a sequence: "Step 2/4" reads "step two of four". A measure word after the pair makes it a fraction: "Set 1/2 cup". */
     private val sequenceFraction = Regex(
         """(?i)\b(step|page|score|question|q|round|part|level|chapter|episode|game|set|rep)\s+([0-9]{1,3})/([0-9]{1,3})(?![0-9/])(?!\s+(?:$fractionMeasureWords)(?!\p{L}))""",
@@ -414,7 +425,8 @@ object EnglishSpeechTextNormaliser {
         value = timesPair.replace(value) { match ->
             "${dimensionWords(match.groupValues[1])} by ${dimensionWords(match.groupValues[2])}"
         }
-        value = feetInches.replace(value) { match -> expandFeetInches(match) }
+        value = feetInchesAbbreviated.replace(value) { match -> expandFeetInches(match) }
+        value = feetInchesSpelled.replace(value) { match -> expandFeetInches(match) }
         val glued = value
         value = gluedUnit.replace(glued) { match -> expandUnit(glued, match) }
         val spaced = value
@@ -434,32 +446,47 @@ object EnglishSpeechTextNormaliser {
 
     /**
      * A slash number no date or sequence rule took: "1/2" → "half", "3/4" → "three quarters", "1/8 teaspoon" → "an eighth of a
-     * teaspoon", "1/2 hour" → "half an hour", "10/10" → "ten out of ten". "of a/an" comes only before a [fractionMeasures]
-     * word; after "a" or "an" that the text already says, nothing is added. Denominators outside [fractionNames] read "N out
-     * of D". A day-first date over 12 ("26/11") is still read as a date.
+     * teaspoon", "1/2 hour" → "half an hour", "1/2 yards" → "half a yard", "10/10" → "ten out of ten". "of a/an" comes only
+     * before a [fractionMeasures] word, which is spoken in its singular form. After "a" or "an" that the text already says,
+     * nothing is added. Denominators outside [fractionNames] read "N out of D". A day-first date over 12 ("26/11") is still
+     * read as a date. A following word that is not a measure is kept as written.
      */
     private fun expandSlashFraction(match: MatchResult): String {
         val first = match.groupValues[1].toInt()
         val second = match.groupValues[2].toInt()
-        if (first > 12) spokenDayMonth(first, second)?.let { return it }
-        return spokenFraction(first, second, match.groupValues[3])
+        val following = match.groupValues[3] + match.groupValues[4]
+        if (first > 12) spokenDayMonth(first, second)?.let { return it + following }
+        if (fractionNames[second] == null || first == 0 || first >= second) {
+            return "${cardinal(first.toLong())} out of ${cardinal(second.toLong())}$following"
+        }
+        val measure = singularMeasure(match.groupValues[4])
+        return spokenFraction(first, second, measure) + if (measure == null) following else " $measure"
     }
 
-    /** The words for a fraction. "of a/an" comes only before a [fractionMeasures] word; see [expandSlashFraction]. */
-    private fun spokenFraction(first: Int, second: Int, following: String): String {
-        val names = fractionNames[second]
-        if (names == null || first == 0 || first >= second) {
-            return "${cardinal(first.toLong())} out of ${cardinal(second.toLong())}"
-        }
-        val (single, plural) = names
-        val isHalf = second == 2
+    /** The words for a fraction with a denominator in [fractionNames]. A [measure] (singular) takes "of a/an" first. */
+    private fun spokenFraction(first: Int, second: Int, measure: String?): String {
+        val (single, plural) = fractionNames.getValue(second)
         val head = when {
-            isHalf -> "half"
+            second == 2 -> "half"
             first == 1 -> "${indefiniteArticle(single)} $single"
             else -> "${cardinal(first.toLong())} $plural"
         }
-        if (following.lowercase(Locale.US) !in fractionMeasures) return head
-        return if (isHalf) "$head ${indefiniteArticle(following)}" else "$head of ${indefiniteArticle(following)}"
+        if (measure == null) return head
+        return if (second == 2) "$head ${indefiniteArticle(measure)}" else "$head of ${indefiniteArticle(measure)}"
+    }
+
+    /**
+     * The singular of a [fractionMeasures] word, or null for any other word: "cup" and "cups" → "cup", "miles" → "mile",
+     * "inches" → "inch", "feet" → "foot".
+     */
+    private fun singularMeasure(word: String): String? {
+        val lower = word.lowercase(Locale.US)
+        return when {
+            lower == "feet" -> "foot"
+            lower in fractionMeasures -> lower
+            else -> lower.removeSuffix("es").takeIf { it in fractionMeasures }
+                ?: lower.removeSuffix("s").takeIf { it in fractionMeasures }
+        }
     }
 
     /** "1 1/2 cups" → "one and a half cups": a whole number and a fraction; "a half" for halves, "two thirds" for plurals. */
