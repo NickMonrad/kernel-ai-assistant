@@ -4386,6 +4386,24 @@ class NativeIntentHandlerTest {
     }
 
     @Test
+    fun `convert_currency explains a rate it could not get for the pair`() {
+        coEvery {
+            currencyConversionService.convert("100", "AUD", "NZD", any())
+        } throws IllegalArgumentException("Could not find a AUD to NZD exchange rate.")
+
+        val result = handleIntent("convert_currency", mapOf("amount" to "100", "from_currency" to "AUD", "to_currency" to "NZD"))
+
+        assertEquals(
+            SkillResult.Failure(
+                "convert_currency",
+                "I couldn't get a AUD to NZD rate right now.",
+                technicalDetail = "Could not find a AUD to NZD exchange rate.",
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `convert_currency propagates CancellationException`() {
         coEvery {
             currencyConversionService.convert("100", "AUD", "NZD", any())

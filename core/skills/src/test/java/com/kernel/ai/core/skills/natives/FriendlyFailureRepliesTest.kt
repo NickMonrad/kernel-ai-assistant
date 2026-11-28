@@ -100,6 +100,10 @@ class FriendlyFailureRepliesTest {
             FriendlyFailureReplies.arithmetic("round() scale must be a whole number"),
         )
         assertEquals(
+            "round() takes 0 to 16 decimal places.",
+            FriendlyFailureReplies.arithmetic("round() scale must be between 0 and 16"),
+        )
+        assertEquals(
             "I don't know a function called 'foo'.",
             FriendlyFailureReplies.arithmetic("Unsupported function 'foo'"),
         )
@@ -233,14 +237,30 @@ class FriendlyFailureRepliesTest {
     }
 
     @Test
-    fun `currency conversion says rates are unavailable for rate and network failures`() {
+    fun `currency conversion explains a rate it could not get for the pair`() {
         assertEquals(
-            FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
+            "I couldn't get a AUD to NZD rate right now.",
             FriendlyFailureReplies.currencyConversion("Could not find a AUD to NZD exchange rate."),
         )
         assertEquals(
+            "I couldn't get a AUD to NZD rate right now.",
+            FriendlyFailureReplies.currencyConversion("Currency conversion failed for AUD to NZD: upstream unavailable"),
+        )
+    }
+
+    @Test
+    fun `currency conversion keeps the rates-unavailable reply for the service's own message`() {
+        assertEquals(
             FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
-            FriendlyFailureReplies.currencyConversion("socket timeout"),
+            FriendlyFailureReplies.currencyConversion(FriendlyFailureReplies.CURRENCY_UNAVAILABLE),
+        )
+    }
+
+    @Test
+    fun `unrecognised currency messages fall back to the generic reply`() {
+        assertEquals(
+            FriendlyFailureReplies.CURRENCY_GENERIC,
+            FriendlyFailureReplies.currencyConversion("Something the service never says"),
         )
     }
 }

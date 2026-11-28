@@ -2,8 +2,8 @@ package com.kernel.ai.core.skills.natives
 
 // Spoken replies for failures in the unit, arithmetic, cooking and currency intents (#2176).
 // Each function maps the technical message from its evaluator or service to the sentence the user hears.
-// The caller keeps the raw message as technicalDetail. Missing or unparseable input gets the intent's
-// generic reply, and so does any message not listed here. Currency falls back to the rates-unavailable reply.
+// The caller keeps the raw message as technicalDetail. Missing, unparseable and unrecognised input gets the
+// intent's generic reply. Network and IO failures are decided by the caller and use the rates-unavailable reply.
 internal object FriendlyFailureReplies {
     const val UNIT_CONVERSION_GENERIC = "Sorry, I couldn't work out that conversion. Try 'convert 3/4 cup to ml'."
     const val ARITHMETIC_GENERIC = "Sorry, I couldn't work out that calculation."
@@ -26,7 +26,6 @@ internal object FriendlyFailureReplies {
     private val invalidNumber = Regex("""Invalid number '(.+)'""")
     private val expectedOpenParen = Regex("""Expected '\(' after (\w+)""")
     private val singleArgumentFunction = Regex("""(\w+)\(\) takes exactly 1 argument""")
-    private val roundScale = Regex("""round\(\) scale must .*""")
     private val unsupportedFunction = Regex("""Unsupported function '(.+)'""")
 
     private val unsupportedCookingUnit = Regex("""Unsupported cooking (?:source|target) unit '(.+?)'\. (Use .+)""")
@@ -34,6 +33,8 @@ internal object FriendlyFailureReplies {
 
     private val unsupportedCurrency = Regex("""Unsupported or ambiguous (source|target) currency '(.+?)'\. (.+)""")
     private val staleRate = Regex("""Latest available (\w+) to (\w+) rate is from (.+), which is too stale to use\.""")
+    private val couldNotFindRate = Regex("""Could not find a (\w+) to (\w+) exchange rate\.""")
+    private val conversionFailed = Regex("""Currency conversion failed for (\w+) to (\w+): .*""")
 
     fun unitConversion(message: String): String {
         unsupportedUnit.captures(message)?.let { return "I don't know the unit '${it[0]}'." }
@@ -60,7 +61,6 @@ internal object FriendlyFailureReplies {
         singleArgumentFunction.captures(message)?.let { return "${it[0]}() takes exactly one value." }
         unsupportedFunction.captures(message)?.let { return "I don't know a function called '${it[0]}'." }
         if (missingClosingParen.matches(message)) return "A bracket is missing its closing ')'."
-        if (roundScale.matches(message)) return "round() needs a whole number of decimal places."
         return when (message) {
             "Expression is too long" -> "That expression is too long for me to work out."
             "Unexpected end of expression" -> "That calculation stops before it's finished."
@@ -70,6 +70,8 @@ internal object FriendlyFailureReplies {
             "Exponent must be a whole number" -> "I can only raise numbers to whole-number powers."
             "Exponent is too large" -> "That power is too large for me to work out."
             "round() takes 1 or 2 arguments" -> "round() takes one or two values."
+            "round() scale must be a whole number" -> "round() needs a whole number of decimal places."
+            "round() scale must be between 0 and 16" -> "round() takes 0 to 16 decimal places."
             else -> ARITHMETIC_GENERIC
         }
     }
@@ -95,13 +97,18 @@ internal object FriendlyFailureReplies {
         staleRate.captures(message)?.let { (from, to, date) ->
             return "The latest $from to $to rate I can get is from $date, which is too old to use."
         }
+        couldNotFindRate.captures(message)?.let { (from, to) -> return rateNotFound(from, to) }
+        conversionFailed.captures(message)?.let { (from, to) -> return rateNotFound(from, to) }
         return when {
             message == "Currency amount is too long" -> "That amount is too long for me to convert."
             message == "Currency amount must be non-negative" -> "I can't convert a negative amount."
             message in MISSING_CURRENCY_INPUT || message.startsWith("Could not parse currency amount") -> CURRENCY_GENERIC
-            else -> CURRENCY_UNAVAILABLE
+            message == CURRENCY_UNAVAILABLE -> CURRENCY_UNAVAILABLE
+            else -> CURRENCY_GENERIC
         }
     }
+
+    private fun rateNotFound(from: String, to: String): String = "I couldn't get a $from to $to rate right now."
 
     private fun Regex.captures(message: String): List<String>? = matchEntire(message)?.groupValues?.drop(1)
 }

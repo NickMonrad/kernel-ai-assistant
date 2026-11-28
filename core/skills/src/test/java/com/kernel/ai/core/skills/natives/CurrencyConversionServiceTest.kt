@@ -130,7 +130,7 @@ class CurrencyConversionServiceTest {
         }
 
         assertEquals(
-            "Currency conversion failed: upstream unavailable",
+            "Currency conversion failed for AUD to NZD: upstream unavailable",
             error.message,
         )
     }

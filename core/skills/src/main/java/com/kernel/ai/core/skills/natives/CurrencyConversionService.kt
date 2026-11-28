@@ -234,7 +234,7 @@ class CurrencyConversionService @Inject constructor(
         }.use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw IllegalArgumentException(parseApiError(body))
+                throw IllegalArgumentException(parseApiError(body, fromCurrency.code, toCurrency.code, response.code))
             }
             val json = JSONObject(body)
             val date = LocalDate.parse(
@@ -272,13 +272,10 @@ class CurrencyConversionService @Inject constructor(
         }
     }
 
-    private fun parseApiError(body: String): String {
-        val message = runCatching { JSONObject(body).optString("message") }
+    private fun parseApiError(body: String, from: String, to: String, httpCode: Int): String {
+        val apiMessage = runCatching { JSONObject(body).optString("message") }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
-        return when {
-            message != null -> "Currency conversion failed: $message"
-            else -> "Currency rates are unavailable right now. I can't do a truthful conversion offline."
-        }
+        return "Currency conversion failed for $from to $to: ${apiMessage ?: "HTTP $httpCode"}"
     }
 }

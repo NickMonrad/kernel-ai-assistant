@@ -3072,8 +3072,11 @@ class NativeIntentHandler @Inject constructor(
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: IllegalArgumentException) {
             friendlyFailure("convert_currency", e.message ?: "Could not convert currency", FriendlyFailureReplies::currencyConversion)
+        } catch (e: Exception) {
+            // Non-IAE failures are network or IO errors, so the rates really are unavailable.
+            friendlyFailure("convert_currency", e.message ?: "Could not convert currency") { FriendlyFailureReplies.CURRENCY_UNAVAILABLE }
         }
     }
     private fun buildListPreview(
