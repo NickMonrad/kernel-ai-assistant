@@ -462,7 +462,7 @@ class ChatTextUtilsTest {
             val first = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
             val second = popNextStreamingSpeechChunk(buffer = buffer, minChunkLength = 10, preferredChunkLength = 200)
 
-            assertEquals("Walk up the slopes of Mt. Ruapehu before lunch.", first)
+            assertEquals("Walk up the slopes of Mount Ruapehu before lunch.", first)
             assertEquals("Then head down the Great North Rd. to the cafe.", second)
         }
 
@@ -485,7 +485,7 @@ class ChatTextUtilsTest {
                 popNextStreamingSpeechChunk(buffer = bracketed, minChunkLength = 10, preferredChunkLength = 200),
             )
             assertEquals(
-                "The sign read \"Mt. Ruapehu\" today.",
+                "The sign read \"Mount Ruapehu\" today.",
                 popNextStreamingSpeechChunk(buffer = quoted, minChunkLength = 10, preferredChunkLength = 200),
             )
         }

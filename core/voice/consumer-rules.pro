@@ -3,6 +3,9 @@
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawFile { *; }
 -keep class com.kernel.ai.core.voice.PronunciationLexicon$RawEntry { *; }
 
+# phonemis's JNI builds PhonemizedText from native code; R8 would drop its constructor otherwise (#2175).
+-keep class com.kernel.ai.core.voice.kokoro.PhonemizedText { <init>(java.lang.String, int[]); }
+
 # Gson reads these private data classes by reflection when parsing stt_glossary.json (#2063). Without this R8
 # renames the fields and every entry parses as null, so the glossary silently empties.
 -keep class com.kernel.ai.core.voice.SttGlossary$RawFile { *; }

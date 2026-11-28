@@ -17,7 +17,7 @@ internal class NativeKokoroPhonemizer(
     }
 
     @Synchronized
-    override fun phonemize(text: String): String {
+    override fun phonemize(text: String): PhonemizedText {
         check(nativeHandle != 0L) { "Phonemizer is closed" }
         return nativePhonemize(nativeHandle, text)
     }
@@ -32,7 +32,7 @@ internal class NativeKokoroPhonemizer(
     }
 
     private external fun nativeCreate(locale: String, lexiconPath: String, taggerPath: String): Long
-    private external fun nativePhonemize(handle: Long, text: String): String
+    private external fun nativePhonemize(handle: Long, text: String): PhonemizedText
     private external fun nativeClose(handle: Long)
 
     companion object {

@@ -44,7 +44,7 @@ internal class KokoroEngine(
     /** Phonemizes [phonemizerInput] (already normalised text) and partitions it within the duration token limit. */
     fun splitText(phonemizerInput: String): List<String> {
         require(phonemizerInput.isNotBlank()) { "Kokoro input text is blank" }
-        val phonemes = phonemizer.phonemize(phonemizerInput)
+        val phonemes = KokoroOovFallback.phonemize(phonemizer, phonemizerInput)
         val chunks = KokoroTts.partition(phonemes, KokoroTts.MAX_TOKENS - 2)
         require(chunks.isNotEmpty()) { "Kokoro phonemization produced no chunks" }
         return chunks

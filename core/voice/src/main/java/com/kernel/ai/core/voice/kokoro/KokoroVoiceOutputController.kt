@@ -7,6 +7,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.util.Log
 import com.kernel.ai.core.voice.AudioTrackVoicePcmSink
+import com.kernel.ai.core.voice.PronunciationLexicon
 import com.kernel.ai.core.voice.SpeakingStopGate
 import com.kernel.ai.core.voice.VoiceOutputController
 import com.kernel.ai.core.voice.VoiceOutputEvent
@@ -312,6 +313,7 @@ class KokoroVoiceOutputController @Inject constructor(
                 loadFailure("Kokoro voice failed to load", error)
             }
         }
+        PronunciationLexicon.ensureLoaded(context)
         releaseEngine()
         // A native abort here cannot be caught; the marker keeps the next launch from repeating it (#1449).
         loadMarker.loading()

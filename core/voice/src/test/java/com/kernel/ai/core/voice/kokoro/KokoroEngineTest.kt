@@ -9,9 +9,10 @@ class KokoroEngineTest {
     private class RecordingPhonemizer : KokoroPhonemizer {
         val inputs = mutableListOf<String>()
 
-        override fun phonemize(text: String): String {
+        /** One located word spanning the whole input, with a single vowel phoneme. */
+        override fun phonemize(text: String): PhonemizedText {
             inputs += text
-            return "a"
+            return PhonemizedText("a", intArrayOf(0, text.length, 0, 1))
         }
 
         override fun close() = Unit
