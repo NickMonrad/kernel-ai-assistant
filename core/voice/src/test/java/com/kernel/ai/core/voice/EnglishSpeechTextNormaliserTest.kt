@@ -62,6 +62,40 @@ class EnglishSpeechTextNormaliserTest {
     }
 
     @Test
+    fun miles_after_a_number_read_as_miles_not_my() {
+        assertEquals("Walk fourteen miles north.", kokoroText("Walk 14 mi north."))
+        assertEquals("one mile", kokoroText("1 mi"))
+        assertEquals("twenty three miles.", kokoroText("23mi."))
+        assertEquals("Walk five miles.", kokoroText("Walk 5 mi."))
+        assertEquals("Mi amigo is here.", kokoroText("Mi amigo is here."))
+    }
+
+    @Test
+    fun imperial_units_read_as_words_after_a_number() {
+        assertEquals("three feet", kokoroText("3 ft"))
+        assertEquals("one foot", kokoroText("1 ft"))
+        assertEquals("two pounds", kokoroText("2 lb"))
+        assertEquals("eight ounces", kokoroText("8 oz"))
+        assertEquals("one hundred yards", kokoroText("100 yd"))
+        assertEquals("sixty miles per hour", kokoroText("60 mph"))
+    }
+
+    @Test
+    fun inches_read_only_when_the_unit_ends_the_phrase_or_is_glued() {
+        assertEquals("The screen is twelve inches.", kokoroText("The screen is 12 in."))
+        assertEquals("twelve inches", kokoroText("12in"))
+        assertEquals("Pick three in a row", kokoroText("Pick 3 in a row"))
+        assertEquals("one in three chance", kokoroText("1 in 3 chance"))
+    }
+
+    @Test
+    fun bracketed_conversion_speaks_only_the_first_unit() {
+        assertEquals("twenty three kilometres northeast of Ohakune.", kokoroText("23 km (14 mi) northeast of Ohakune."))
+        assertEquals("six feet tall", kokoroText("6 ft (1.8 m) tall"))
+        assertEquals("five kilometres", kokoroText("5 km (3.1 mi)"))
+    }
+
+    @Test
     fun ranges_read_to() {
         assertEquals("three to five days", kokoroText("3-5 days"))
         assertEquals("five to ten kilometres", kokoroText("5–10 km"))

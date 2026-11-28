@@ -32,6 +32,11 @@ import java.util.Locale
  * - Glued units and mixed tokens: "5km" → "five kilometres", "1.5km" → "one point five kilometres", "2.4GHz" → "two point
  *   four gigahertz", "0.75x" → "zero point seven five times", "4B" → "four bee", "5G" → "five gee", "NZ123" → "en zed one
  *   two three", "1080p" → "ten eighty p", "Qwen2.5" → "Qwen two point five", "Llama3.1" → "Llama three point one".
+ * - Imperial units after a number: "14 mi" → "fourteen miles", "1 ft" → "one foot", "2 lb" → "two pounds", "8 oz" → "eight
+ *   ounces", "100 yd" → "one hundred yards", "60 mph" → "sixty miles per hour". "in" is a unit only before a phrase end
+ *   or a glued "12in" ("12 in." → "twelve inches"; "3 in a row" stays words, #2192).
+ * - Bracketed conversions: [SpeechCardText] drops the bracketed unit, so "23 km (14 mi)" is spoken as "twenty three
+ *   kilometres" (#2192). The screen keeps both.
  * - Decades: "the 90s" and "'90s" → "the nineties", "the 1990s" → "the nineteen nineties".
  * - Phone numbers: NZ groups are read digit by digit with "oh" for every zero, in groups: "021-123-4567" → "oh two one,
  *   one two three, four five six seven", "+64 21 123 4567" → "plus six four, two one, one two three, four five six
@@ -118,10 +123,19 @@ object EnglishSpeechTextNormaliser {
         "sec" to ("second" to "seconds"),
         "secs" to ("second" to "seconds"),
         "x" to ("time" to "times"),
+        "mi" to ("mile" to "miles"),
+        "ft" to ("foot" to "feet"),
+        "in" to ("inch" to "inches"),
+        "yd" to ("yard" to "yards"),
+        "yds" to ("yard" to "yards"),
+        "lb" to ("pound" to "pounds"),
+        "lbs" to ("pound" to "pounds"),
+        "oz" to ("ounce" to "ounces"),
     )
     private val unitAlternatives = units.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
     private val spacedUnitAlternatives = listOf(
         "km/h", "mph", "km", "kms", "cm", "mm", "kg", "mg", "ml", "mL", "kW", "GB", "MB", "TB",
+        "mi", "ft", "lb", "lbs", "oz", "yd", "yds",
         "kHz", "MHz", "GHz", "Hz", "hPa", "min", "mins", "hr", "hrs", "sec", "secs",
     ).sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) }
 
@@ -189,6 +203,10 @@ object EnglishSpeechTextNormaliser {
     private val spacedRange = Regex("""(?<![\p{L}\p{N}/:.,$])(\d+)\s+[-\u2212\u2013]\s+(\d+)(?![\p{N}/:.,])""")
     private val spacedUnit = Regex(
         """(?<![\p{L}\p{N}.,:/$])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+($spacedUnitAlternatives)(?![\p{L}\p{N}/])""",
+    )
+    /** "12 in." and "12 in," are inches. "3 in a row" and "1 in 3" stay words, so "in" is a spaced unit only at a phrase end (#2192). */
+    private val spacedInch = Regex(
+        """(?<![\p{L}\p{N}.,:/$])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+(in)(?=\s*(?:[.,;:)\]!?]|\z))""",
     )
     private val yearBeforeVerb = Regex("""(?<![\p{L}\p{N}.,:/$])((?:10|1[1-9]|20)\d{2})(?=\s+(?:was|were|is)\b)""")
     /** "a", "an" or "the" as a whole word right before a number, or before an "N to " range: "Japan 5 km" has no article. */
@@ -393,6 +411,8 @@ object EnglishSpeechTextNormaliser {
         value = gluedUnit.replace(glued) { match -> expandUnit(glued, match) }
         val spaced = value
         value = spacedUnit.replace(spaced) { match -> expandUnit(spaced, match) }
+        val inches = value
+        value = spacedInch.replace(inches) { match -> expandUnit(inches, match) }
         value = decimal.replace(value) { match ->
             // "Qwen2.5" → "Qwen two point five": a letter directly before the number needs a space.
             val lead = if (match.range.first > 0 && value[match.range.first - 1].isLetter()) " " else ""
