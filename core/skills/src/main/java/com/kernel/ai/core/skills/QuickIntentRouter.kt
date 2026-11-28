@@ -355,6 +355,11 @@ class QuickIntentRouter(
     private val unitConversionUnitPattern = UnitConversionEvaluator.supportedRouterRegexPattern()
     private val ingredientQualifiedMassUnitPattern = UnitConversionEvaluator.supportedMassRouterRegexPattern()
     private val ingredientQualifiedVolumeUnitPattern = UnitConversionEvaluator.supportedVolumeRouterRegexPattern()
+    // STT renders "ml" as "mills", "mils", "mls" or "mill litres" (#2176). These are accepted only by the
+    // convert_units patterns below; normalizeUnitConversionPhrase maps them to "ml".
+    private val millilitreAsrPattern = """mills?|mils?|mls?|mill\s+(?:litres?|liters?)"""
+    private val millilitreAsrRegex = Regex("""^(?:$millilitreAsrPattern)$""", RegexOption.IGNORE_CASE)
+    private val convertUnitPattern = "(?:$unitConversionUnitPattern|$millilitreAsrPattern)"
 
     private val mixedUnitConversionTargetPattern = UnitConversionEvaluator.supportedMixedUnitRouterRegexPattern()
     private val feetAndInchesInputPattern = "(-?\\d+(?:\\.\\d+)?)\\s*(?:ft|foot|feet)\\s+(-?\\d+(?:\\.\\d+)?)\\s*(?:in|inch|inches)"
@@ -388,6 +393,7 @@ class QuickIntentRouter(
     )
 
     private fun normalizeUnitConversionPhrase(raw: String): String = raw.trim()
+        .let { trimmed -> if (millilitreAsrRegex.matches(trimmed)) "ml" else trimmed }
         .replace(Regex("""\bkm\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
         .replace(Regex("""\bkm\s+a\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
         .replace(Regex("""\bkilometers?\s+an\s+hour\b""", RegexOption.IGNORE_CASE), "kilometers per hour")
@@ -512,6 +518,59 @@ class QuickIntentRouter(
                 match.value
             } else {
                 fractionToDecimalString(numerator, denominator)?.let { "$it " } ?: match.value
+            }
+        }
+    }
+
+    // "N and <fraction> of a <unit>" is a mixed number only when a number directly precedes "and":
+    // "3 and three quarters of a cup" → "3.75 cup" (#2176). After a conversion lead ("how many ml and
+    // three quarters of a cup") the STT "and" means "in", so the phrase reads "in three quarters of a cup".
+    private val cookingFractionWordPattern =
+        """(?:(?:one|two|three|four|five|six|seven|eight|nine|an?)[\s-]+)?(?:halves|half|quarters|quarter|thirds|third|fourths|fourth|fifths|fifth|sixths|sixth|eighths|eighth)"""
+    private val cookingNumericFractionPattern = """\d+\s*/\s*\d+"""
+    private val mixedAndWrittenFractionRegex = Regex(
+        """\b(\d+)\s+and\s+(?:(one|two|three|four|five|six|seven|eight|nine|an?)[\s-]+)?""" +
+            """(halves|half|quarters|quarter|thirds|third|fourths|fourth|fifths|fifth|sixths|sixth|eighths|eighth)""" +
+            """\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val mixedAndNumericFractionRegex = Regex(
+        """\b(\d+)\s+and\s+(\d+)\s*/\s*(\d+)\s+(?:of\s+)?(?:an?\s+)?(?=$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val andBeforeFractionRegex = Regex(
+        """(\D)\s+and\s+(?=(?:$cookingFractionWordPattern|$cookingNumericFractionPattern)\s+(?:of\s+)?(?:an?\s+)?$cookingFractionUnitLookaheadPattern\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val conversionLeadRegex = Regex("""^(?:how\s+many|convert|what(?:'s|\s+is))\b""", RegexOption.IGNORE_CASE)
+
+    private fun normalizeAndFractions(input: String): String {
+        val mixedNormalized = normalizeMixedAndFractions(input)
+        if (!conversionLeadRegex.containsMatchIn(input.trim())) return mixedNormalized
+        return andBeforeFractionRegex.replace(mixedNormalized) { match -> "${match.groupValues[1]} in " }
+    }
+
+    private fun normalizeMixedAndFractions(input: String): String {
+        val writtenNormalized = mixedAndWrittenFractionRegex.replace(input) { match ->
+            val whole = match.groupValues[1].toIntOrNull()
+            val numerator = match.groupValues[2].lowercase().let { word ->
+                if (word.isEmpty()) 1 else writtenFractionNumeratorWords[word]
+            }
+            val denominator = writtenFractionDenominatorWords[match.groupValues[3].lowercase()]
+            if (whole == null || numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator, whole)?.let { "$it " } ?: match.value
+            }
+        }
+        return mixedAndNumericFractionRegex.replace(writtenNormalized) { match ->
+            val whole = match.groupValues[1].toIntOrNull()
+            val numerator = match.groupValues[2].toIntOrNull()
+            val denominator = match.groupValues[3].toIntOrNull()
+            if (whole == null || numerator == null || denominator == null) {
+                match.value
+            } else {
+                fractionToDecimalString(numerator, denominator, whole)?.let { "$it " } ?: match.value
             }
         }
     }
@@ -1071,6 +1130,17 @@ class QuickIntentRouter(
             intentName = "set_timer",
             regex = Regex(
                 """(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+.*?timer""",
+                RegexOption.IGNORE_CASE,
+            ),
+            paramExtractor = { match, input -> parseTimerDuration(match, input) },
+        ),
+
+        // STT drops the "r" from "timer" ("set of 30 second time", #2176). Only a duration directly before
+        // "time" after set/start/create counts, so "set a time for 5pm" and "what time is it" stay out.
+        IntentPattern(
+            intentName = "set_timer",
+            regex = Regex(
+                """^(?:set|start|create)\s+(?:(?:a|an|of|the)\s+)?(\d+)(?:\s*|-)(hours?|hrs?|minutes?|mins?|seconds?|secs?|h|m|s)\s+time[\s.!?]*$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, input -> parseTimerDuration(match, input) },
@@ -3744,7 +3814,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($unitConversionUnitPattern)$""",
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($convertUnitPattern)\s+(?:to|in|into)\s+($convertUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3759,7 +3829,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^how\s+many\s+($unitConversionUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($unitConversionUnitPattern)$""",
+                """^how\s+many\s+($convertUnitPattern)\s+(?:(?:is|are)(?:\s+in)?|in)\s+($unitConversionValuePattern)\s*($convertUnitPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -3773,7 +3843,7 @@ class QuickIntentRouter(
         IntentPattern(
             intentName = "convert_units",
             regex = Regex(
-                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($unitConversionUnitPattern)\s+(?:to|in|into)\s+($mixedUnitConversionTargetPattern)$""",
+                """^(?:(?:convert|what(?:'s|\s+is))\s+)?($unitConversionValuePattern)\s*($convertUnitPattern)\s+(?:to|in|into)\s+($mixedUnitConversionTargetPattern)$""",
                 RegexOption.IGNORE_CASE,
             ),
             paramExtractor = { match, _ ->
@@ -5081,7 +5151,7 @@ class QuickIntentRouter(
         // Numeric slash fractions ("2/3 of a cup", "1 1/2 cups") are handled too, since STT often
         // transcribes spoken fractions as glyphs.
         val fractionNormalized = normalizeNumericCookingFractions(
-            normalizeWrittenCookingFractions(listTailFixed),
+            normalizeWrittenCookingFractions(normalizeAndFractions(listTailFixed)),
         )
 
         // Stage 1: Regex — two-pass to prevent catch-all patterns from stealing matches.

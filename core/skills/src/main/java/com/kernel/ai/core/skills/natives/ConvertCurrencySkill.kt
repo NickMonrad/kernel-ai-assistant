@@ -48,11 +48,11 @@ class ConvertCurrencySkill @Inject constructor(
 
     override suspend fun execute(call: SkillCall): SkillResult {
         val amountRaw = call.arguments["amount"]?.trim()
-            ?: return SkillResult.Failure(name, "No currency amount provided")
+            ?: return missingInput("No currency amount provided")
         val fromCurrencyRaw = call.arguments["from_currency"]?.trim()
-            ?: return SkillResult.Failure(name, "No source currency provided")
+            ?: return missingInput("No source currency provided")
         val toCurrencyRaw = call.arguments["to_currency"]?.trim()
-            ?: return SkillResult.Failure(name, "No target currency provided")
+            ?: return missingInput("No target currency provided")
 
         return try {
             val result = currencyConversionService.convert(
@@ -78,12 +78,19 @@ class ConvertCurrencySkill @Inject constructor(
             SkillResult.DirectReply(content, spokenSummary = spokenSummary)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: IllegalArgumentException) {
+            val message = e.message ?: "Could not convert currency"
+            SkillResult.Failure(name, FriendlyFailureReplies.currencyConversion(message), technicalDetail = message)
         } catch (e: Exception) {
-            val errorMessage = when (e) {
-                is IllegalArgumentException -> e.message
-                else -> "Currency rates are unavailable right now. I can't do a truthful conversion offline."
-            }
-            SkillResult.Failure(name, errorMessage ?: "Could not convert currency")
+            // Network and IO failures: the rate service could not be reached.
+            SkillResult.Failure(
+                name,
+                FriendlyFailureReplies.CURRENCY_UNAVAILABLE,
+                technicalDetail = e.message ?: "Could not convert currency",
+            )
         }
     }
+
+    private fun missingInput(technicalDetail: String): SkillResult.Failure =
+        SkillResult.Failure(name, FriendlyFailureReplies.CURRENCY_GENERIC, technicalDetail = technicalDetail)
 }

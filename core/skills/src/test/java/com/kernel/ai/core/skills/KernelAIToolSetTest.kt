@@ -292,6 +292,19 @@ class KernelAIToolSetTest {
     }
 
     @Test
+    fun `runIntent passes a JSON numeric value to the skill as its decimal string`() = runTest {
+        val skill = mockk<Skill>()
+        val call = slot<SkillCall>()
+        every { skill.name } returns "run_intent"
+        coEvery { skill.execute(capture(call)) } returns SkillResult.DirectReply("ok")
+        every { registry.get("run_intent") } returns skill
+
+        toolSet.runIntent("convert_units", "{\"value\":3.75}")
+
+        assertEquals("3.75", call.captured.arguments["value"])
+    }
+
+    @Test
     fun `runIntent fails closed on invalid JSON parameters`() = runTest {
         val result = toolSet.runIntent("set_alarm", "not json")
         assertEquals("error", result["status"])

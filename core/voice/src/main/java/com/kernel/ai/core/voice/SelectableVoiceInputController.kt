@@ -636,10 +636,12 @@ class SelectableVoiceInputController @Inject constructor(
         // Correct only because the terminal route and this wedge wait both run on Main and outbound is
         // UNLIMITED (tryEmit never suspends), so the terminal's emit-then-retire cannot interleave with
         // this retire-then-emit. Revisit if either assumption changes.
-        retireAdmission(ownerSessionId) ?: return
-        val stopped = VoiceInputEvent.ListeningStopped(capture.mode, ownerSessionId, cancelled = true)
-        outbound.tryEmit(stopped)
-        micLifecycle.tryEmit(stopped)
+        val retired = retireAdmission(ownerSessionId) ?: return
+        outbound.tryEmit(VoiceInputEvent.ListeningStopped(capture.mode, ownerSessionId, cancelled = true))
+        // Mic arbitration keys lifecycle events by the backend id that started them (see route()). A hand-off
+        // re-keys the admission to the new backend id, so the owner id never matches the wake gate's owner and
+        // the wake detector stays released until Pause/Resume (#2178).
+        micLifecycle.tryEmit(VoiceInputEvent.ListeningStopped(retired.mode, retired.backendSessionId, cancelled = true))
     }
 
     private suspend fun startListeningInternal(
