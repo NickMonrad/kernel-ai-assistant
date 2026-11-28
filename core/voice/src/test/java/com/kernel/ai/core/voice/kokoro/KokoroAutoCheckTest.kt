@@ -38,7 +38,7 @@ class KokoroAutoCheckTest {
     private val idle = flowOf(true)
 
     @Test
-    fun `a pass selects Kokoro with Emma`() {
+    fun `a pass selects Kokoro`() {
         val decision = decideKokoroAutoCheck(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.SherpaExperimental, fastRun)
 
         assertTrue(decision.selectKokoro)
@@ -84,7 +84,7 @@ class KokoroAutoCheckTest {
     }
 
     @Test
-    fun `a run selects Emma, clears the pending flag and never plays a sample`() = runBlocking {
+    fun `a run selects Kokoro, keeps the picked voice, clears the pending flag and never plays a sample`() = runBlocking {
         val preferences = mockk<VoiceOutputPreferences>(relaxed = true)
         val controller = mockk<KokoroVoiceOutputController>()
         val cache = mockk<KokoroSpeedCheckCache>(relaxed = true)
@@ -96,7 +96,7 @@ class KokoroAutoCheckTest {
         val result = check.runOnce({ KokoroChatModelState.READY }, idle)
 
         assertInstanceOf(KokoroAutoCheckResult.Passed::class.java, result)
-        coVerify { preferences.setSelectedKokoroVoice(KokoroVoice.EMMA) }
+        coVerify(exactly = 0) { preferences.setSelectedKokoroVoice(any()) }
         coVerify { preferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental) }
         coVerify { preferences.setPendingKokoroCheck(false) }
         verify(exactly = 0) { controller.unloadEngine() }
@@ -137,7 +137,7 @@ class KokoroAutoCheckTest {
     }
 
     @Test
-    fun `a cached pass selects Emma with no measurement and no chat model load`() = runBlocking {
+    fun `a cached pass selects Kokoro with no measurement and no chat model load`() = runBlocking {
         val preferences = mockk<VoiceOutputPreferences>(relaxed = true)
         val controller = mockk<KokoroVoiceOutputController>(relaxed = true)
         val cache = mockk<KokoroSpeedCheckCache>(relaxed = true)
@@ -149,7 +149,7 @@ class KokoroAutoCheckTest {
         val result = check.runOnce({ error("the chat model must not load on a cached pass") }, idle)
 
         assertInstanceOf(KokoroAutoCheckResult.Passed::class.java, result)
-        coVerify { preferences.setSelectedKokoroVoice(KokoroVoice.EMMA) }
+        coVerify(exactly = 0) { preferences.setSelectedKokoroVoice(any()) }
         coVerify { preferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental) }
         coVerify(exactly = 0) { controller.measureSpeed(any()) }
         coVerify(exactly = 0) { cache.recordPass() }

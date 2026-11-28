@@ -425,6 +425,11 @@ class SetupWizardViewModel @Inject constructor(
         }
     }
 
+    override fun onCleared() {
+        stopKokoroSample()
+        super.onCleared()
+    }
+
     /** Stops a playing Kokoro sample: when the step is left, when a voice is picked, and when the sample is tapped again. */
     private fun stopKokoroSample() {
         if (!_uiState.value.kokoroSamplePlaying) return

@@ -1173,6 +1173,20 @@ class SetupWizardViewModelTest {
     }
 
     @Test
+    fun `a voice picked for Kokoro is not saved when another output is chosen before Finish`() {
+        val vm = viewModel()
+        vm.atSpeechStep()
+        vm.onOutputSelected(VoiceOutputEngine.KokoroExperimental)
+        vm.onKokoroVoiceSelected(KokoroVoice.HEART)
+        vm.onOutputSelected(VoiceOutputEngine.AndroidTts)
+        vm.onContinue {}
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.finishFromDownloadStep()
+        dispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { voiceOutputPreferences.setSelectedKokoroVoice(any()) }
+    }
+
+    @Test
     fun `the Kokoro sample speaks the picked voice before it is saved`() {
         val vm = viewModel()
         dispatcher.scheduler.advanceUntilIdle()

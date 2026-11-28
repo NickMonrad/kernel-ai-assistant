@@ -2,8 +2,10 @@ package com.kernel.ai.core.ui.voice
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -40,6 +42,7 @@ fun KokoroVoicePicker(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RadioButton(selected = voice == selected, onClick = null)
+                Spacer(Modifier.width(10.dp))
                 Text(
                     text = "${voice.displayName}: ${voice.description}",
                     style = MaterialTheme.typography.bodyMedium,

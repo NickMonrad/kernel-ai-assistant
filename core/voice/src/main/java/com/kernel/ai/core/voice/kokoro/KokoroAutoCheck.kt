@@ -25,7 +25,7 @@ data class KokoroCheckProgress(val run: Int, val runs: Int)
 
 /** Outcome of the automatic check from setup (#2173). Shown once, on the chat screen or in Settings › Voice. */
 sealed interface KokoroAutoCheckResult {
-    /** Kokoro was selected with Emma. */
+    /** Kokoro was selected on a pass. The voice is whichever the user picked, so the copy does not name one. */
     data object Passed : KokoroAutoCheckResult
 
     /** The phone is too slow for Kokoro; the voice stays on [stayingOn]. */
@@ -38,7 +38,7 @@ sealed interface KokoroAutoCheckResult {
     data class CannotRun(val unavailable: KokoroSpeedResult.Unavailable) : KokoroAutoCheckResult
 
     fun message(): String = when (this) {
-        is Passed -> "Kokoro is on. This phone speaks it smoothly, so the voice is Emma."
+        is Passed -> "Kokoro is on. This phone speaks it smoothly."
         is TooSlow -> "This phone isn't fast enough for Kokoro; replies would stutter. Staying on $stayingOn."
         is MemoryShort -> "$KOKORO_LOW_MEMORY_MESSAGE Staying on $stayingOn."
         is CannotRun -> unavailable.message
@@ -73,8 +73,8 @@ internal fun decideKokoroAutoCheck(
 
 /**
  * The once-only check that runs after a Kokoro pick in setup (#2173). It waits until the pack is on disk and the chat
- * model is ready, measures speed with no sample, then selects Kokoro with Emma on a pass and keeps the current voice
- * otherwise. The pending flag is cleared after the run, so it never repeats.
+ * model is ready, measures speed with no sample, then selects Kokoro on a pass, keeping the voice the user already chose
+ * (Emma by default). Otherwise it keeps the current voice. The pending flag is cleared after the run, so it never repeats.
  */
 @Singleton
 class KokoroAutoCheck @Inject constructor(
@@ -131,7 +131,6 @@ class KokoroAutoCheck @Inject constructor(
         val engineNow = voiceOutputPreferences.selectedEngine.first()
         val decision = decideKokoroAutoCheck(engineAtStart, engineNow, measured)
         if (decision.selectKokoro) {
-            voiceOutputPreferences.setSelectedKokoroVoice(KokoroVoice.EMMA)
             voiceOutputPreferences.setSelectedEngine(VoiceOutputEngine.KokoroExperimental)
         } else if (engineNow != VoiceOutputEngine.KokoroExperimental) {
             // Frees the engine the check loaded. A voice the user chose as Kokoro during the check keeps it loaded.
