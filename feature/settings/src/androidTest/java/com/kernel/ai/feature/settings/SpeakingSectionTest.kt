@@ -20,7 +20,9 @@ import androidx.compose.ui.test.performScrollTo
 import com.kernel.ai.core.model.availability.ActionReason
 import com.kernel.ai.core.model.availability.ModelAvailabilityState
 import com.kernel.ai.core.ui.theme.KernelAITheme
-import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.inference.download.DownloadState
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import com.kernel.ai.core.voice.VoicePackDownloadState
@@ -380,21 +382,19 @@ class SpeakingSectionTest {
     }
 
     @Test
-    fun tappingDownloadedKokoroCardSelectsVoiceThenEngine() {
+    fun tappingDownloadedKokoroCardOnlySelectsEngine() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Downloaded("")),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
             ),
         )
 
         tapCard(kokoroCardTag)
 
-        assertEquals(listOf("kokoroVoice(KokoroMultiLangInt8)", "engine(KokoroExperimental)"), calls)
+        assertEquals(listOf("engine(KokoroExperimental)"), calls)
     }
 
     @Test
@@ -409,7 +409,7 @@ class SpeakingSectionTest {
 
         tapCard(kokoroCardTag)
 
-        assertEquals(listOf("engine(KokoroExperimental)", "downloadKokoro(KokoroMultiLangInt8)"), calls)
+        assertEquals(listOf("engine(KokoroExperimental)", "downloadKokoro"), calls)
     }
 
     @Test
@@ -419,15 +419,13 @@ class SpeakingSectionTest {
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Error("network")),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Error("network")),
             ),
         )
 
         tapCard(kokoroCardTag)
 
-        assertEquals(listOf("engine(KokoroExperimental)", "downloadKokoro(KokoroMultiLangInt8)"), calls)
+        assertEquals(listOf("engine(KokoroExperimental)", "downloadKokoro"), calls)
     }
 
     @Test
@@ -437,9 +435,7 @@ class SpeakingSectionTest {
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
                 sherpaVoices = emptyList(),
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Downloading(progress = 0.3f)),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Downloading(progress = 0.3f)),
             ),
         )
 
@@ -460,7 +456,62 @@ class SpeakingSectionTest {
 
         cardButton(kokoroCardTag, "Download").performScrollTo().performClick()
 
-        assertEquals(listOf("downloadKokoro(KokoroMultiLangInt8)"), calls)
+        assertEquals(listOf("downloadKokoro"), calls)
+    }
+
+    @Test
+    fun kokoroCardUsesExperimentalLabelAndDescription() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                sherpaVoices = emptyList(),
+            ),
+        )
+
+        composeTestRule.onNode(hasText("Kokoro (experimental)") and hasAnyAncestor(hasTestTag(kokoroCardTag)))
+            .assertExists()
+        composeTestRule.onNode(
+            hasText("Kokoro-82M speech on this device.", substring = true) and hasAnyAncestor(hasTestTag(kokoroCardTag)),
+        ).assertExists()
+    }
+
+    @Test
+    fun kokoroPackProgressCombinesAllFileBytes() {
+        val models = KokoroSetup.kernelModels()
+        val states = kokoroStates(DownloadState.NotDownloaded).toMutableMap()
+        states[models.first()] = DownloadState.Downloaded("first")
+        states[models[1]] = DownloadState.Downloading(progress = 0.5f)
+        val expectedBytes = models.first().approxSizeBytes + (models[1].approxSizeBytes * 0.5f).toLong()
+        val expectedPercent = (expectedBytes.toFloat() / models.sumOf { it.approxSizeBytes } * 100).toInt()
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = states,
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Downloading $expectedPercent%").assertExists()
+        composeTestRule.onNodeWithText("Downloading 100%").assertDoesNotExist()
+    }
+
+    @Test
+    fun kokoroWaitingForWifiOffersPackOnlyMobileData() {
+        setSection(
+            VoiceUiState(
+                availableOutputEngines = listOf(VoiceOutputEngine.KokoroExperimental),
+                selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
+                sherpaVoices = emptyList(),
+                kokoroStates = kokoroStates(DownloadState.Downloading(progress = 0f)),
+                kokoroWaitingForWifi = true,
+            ),
+        )
+
+        composeTestRule.onNodeWithText("Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.")
+            .assertExists()
+        cardButton(kokoroCardTag, "Use mobile data").performScrollTo().performClick()
+        assertEquals(listOf("mobileDataKokoro"), calls)
     }
 
     @Test
@@ -483,9 +534,7 @@ class SpeakingSectionTest {
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Downloaded("")),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
             ),
         )
 
@@ -502,7 +551,7 @@ class SpeakingSectionTest {
             ),
         )
 
-        composeTestRule.onNode(hasText("Download this voice first", substring = true), useUnmergedTree = true).assertExists()
+        composeTestRule.onNode(hasText("Download the pack first", substring = true), useUnmergedTree = true).assertExists()
     }
 
     @Test
@@ -515,39 +564,37 @@ class SpeakingSectionTest {
             ),
         )
 
-        composeTestRule.onNode(hasText("Download this voice first", substring = true), useUnmergedTree = true).assertDoesNotExist()
+        composeTestRule.onNode(hasText("Download the pack first", substring = true), useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test
-    fun kokoroSpeakerSelectorShownWhileKokoroSelectedAndDownloaded() {
+    fun kokoroVoicePickerShownWhileKokoroSelectedAndDownloaded() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.KokoroExperimental,
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Downloaded("")),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
             ),
         )
 
-        composeTestRule.onNodeWithText("Kokoro speaker").assertExists()
+        KokoroVoice.entries.forEach { voice ->
+            composeTestRule.onNodeWithText(voice.displayName, substring = true).assertExists()
+        }
     }
 
     @Test
-    fun kokoroSpeakerSelectorHiddenWhilePiperSelected() {
+    fun kokoroVoicePickerHiddenWhilePiperSelected() {
         setSection(
             VoiceUiState(
                 availableOutputEngines = listOf(VoiceOutputEngine.SherpaExperimental, VoiceOutputEngine.KokoroExperimental),
                 sherpaVoices = emptyList(),
                 selectedOutputEngine = VoiceOutputEngine.SherpaExperimental,
-                kokoroVoices = listOf(
-                    KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8, VoicePackDownloadState.Downloaded("")),
-                ),
+                kokoroStates = kokoroStates(DownloadState.Downloaded("")),
             ),
         )
 
-        composeTestRule.onNodeWithText("Kokoro speaker").assertDoesNotExist()
+        composeTestRule.onNodeWithText(KokoroVoice.EMMA.displayName, substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -636,9 +683,9 @@ class SpeakingSectionTest {
     }
 
     private val inflectCardTag = speakingCardTestTag(SpeakingOption.InflectMicro)
-    private val kokoroCardTag = speakingCardTestTag(
-        SpeakingOption.KokoroVoice(KokoroVoiceRowUiState(SherpaKokoroVoice.KokoroMultiLangInt8)),
-    )
+    private val kokoroCardTag = speakingCardTestTag(SpeakingOption.KokoroPack)
+
+    private fun kokoroStates(state: DownloadState) = KokoroSetup.kernelModels().associateWith { state }
 
     private fun cardButton(tag: String, text: String) =
         composeTestRule.onNode(hasText(text) and hasAnyAncestor(hasTestTag(tag)), useUnmergedTree = true)
@@ -657,15 +704,15 @@ class SpeakingSectionTest {
                         onSherpaGainChanged = {},
                         onActiveSpeakerIdChanged = {},
                         onKokoroVoiceSelected = { calls += "kokoroVoice(${it.name})" },
-                        onKokoroActiveSpeakerIdChanged = {},
                         onDownloadSherpaVoice = { calls += "download(${it.name})" },
                         onCancelSherpaVoice = { calls += "cancel(${it.name})" },
                         onDeleteSherpaVoice = { calls += "delete(${it.name})" },
                         onPlaySherpaSample = { calls += "sample(${it.name})" },
                         onUseMobileDataForVoice = { calls += "mobileData(${it.name})" },
-                        onDownloadKokoroVoice = { calls += "downloadKokoro(${it.name})" },
-                        onCancelKokoroVoice = { calls += "cancelKokoro(${it.name})" },
-                        onDeleteKokoroVoice = { calls += "deleteKokoro(${it.name})" },
+                        onDownloadKokoroPack = { calls += "downloadKokoro" },
+                        onCancelKokoroPack = { calls += "cancelKokoro" },
+                        onDeleteKokoroPack = { calls += "deleteKokoro" },
+                        onUseMobileDataForKokoro = { calls += "mobileDataKokoro" },
                         onDownloadInflectMicro = { calls += "downloadInflect" },
                         onCancelInflectMicro = { calls += "cancelInflect" },
                         onDeleteInflectMicro = { calls += "deleteInflect" },

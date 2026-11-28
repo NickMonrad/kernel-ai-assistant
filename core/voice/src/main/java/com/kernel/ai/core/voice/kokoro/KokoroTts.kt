@@ -1,4 +1,4 @@
-package com.kernel.ai.debug.tts.kokoro
+package com.kernel.ai.core.voice.kokoro
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

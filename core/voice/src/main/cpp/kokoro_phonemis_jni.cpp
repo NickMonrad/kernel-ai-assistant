@@ -96,7 +96,7 @@ NativePipeline* from_handle(jlong handle) {
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_kernel_ai_debug_tts_kokoro_NativeKokoroPhonemizer_nativeCreate(
+Java_com_kernel_ai_core_voice_kokoro_NativeKokoroPhonemizer_nativeCreate(
     JNIEnv* env, jobject, jstring locale, jstring lexicon_path, jstring tagger_path) {
   try {
     if (locale == nullptr || lexicon_path == nullptr || tagger_path == nullptr) {
@@ -131,39 +131,14 @@ Java_com_kernel_ai_debug_tts_kokoro_NativeKokoroPhonemizer_nativeCreate(
   }
 }
 
-extern "C" JNIEXPORT jobject JNICALL
-Java_com_kernel_ai_debug_tts_kokoro_NativeKokoroPhonemizer_nativePhonemize(
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_kernel_ai_core_voice_kokoro_NativeKokoroPhonemizer_nativePhonemize(
     JNIEnv* env, jobject, jlong handle, jstring input) {
   try {
     if (input == nullptr) throw std::invalid_argument("Input text must not be null");
     const std::string input_utf8 = to_utf8(env, input);
     const auto result = from_handle(handle)->pipeline.phonemize_words(input_utf8);
-    jstring phoneme_string = to_java_string(env, result.phonemes);
-    if (phoneme_string == nullptr) return nullptr;
-    const jsize word_count = static_cast<jsize>(result.words.size());
-    jlongArray words = env->NewLongArray(word_count * 4);
-    if (words == nullptr) {
-      env->DeleteLocalRef(phoneme_string);
-      return nullptr;
-    }
-    std::vector<jlong> values;
-    values.reserve(result.words.size() * 4);
-    for (const auto& word : result.words) {
-      values.push_back(static_cast<jlong>(word.offset));
-      values.push_back(static_cast<jlong>(word.length));
-      values.push_back(static_cast<jlong>(word.phoneme_offset));
-      values.push_back(static_cast<jlong>(word.phoneme_length));
-    }
-    if (!values.empty()) env->SetLongArrayRegion(words, 0, static_cast<jsize>(values.size()), values.data());
-    jclass result_class = env->FindClass("com/kernel/ai/debug/tts/kokoro/NativePhonemizedText");
-    if (result_class == nullptr) return nullptr;
-    jmethodID constructor = env->GetMethodID(result_class, "<init>", "(Ljava/lang/String;[J)V");
-    if (constructor == nullptr) return nullptr;
-    jobject output = env->NewObject(result_class, constructor, phoneme_string, words);
-    env->DeleteLocalRef(phoneme_string);
-    env->DeleteLocalRef(words);
-    env->DeleteLocalRef(result_class);
-    return output;
+    return to_java_string(env, result.phonemes);
   } catch (const std::exception& error) {
     throw_java(env, "java/lang/IllegalArgumentException", error.what());
     return nullptr;
@@ -174,7 +149,7 @@ Java_com_kernel_ai_debug_tts_kokoro_NativeKokoroPhonemizer_nativePhonemize(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_kernel_ai_debug_tts_kokoro_NativeKokoroPhonemizer_nativeClose(
+Java_com_kernel_ai_core_voice_kokoro_NativeKokoroPhonemizer_nativeClose(
     JNIEnv* env, jobject, jlong handle) {
   try {
     delete from_handle(handle);

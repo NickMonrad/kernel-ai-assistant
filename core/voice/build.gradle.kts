@@ -7,13 +7,25 @@ plugins {
 android {
     namespace = "com.kernel.ai.core.voice"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    ndkVersion = "28.2.13676358"
+
+    // Kokoro phonemis JNI (#2117): the ExecuTorch lane's phonemizer, built into every variant.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()
         consumerProguardFiles("consumer-rules.pro")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            // ExecuTorch 1.5.1 supplies only these ABIs; other native libraries retain their own ABI set.
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

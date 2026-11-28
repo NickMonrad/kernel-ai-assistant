@@ -1,6 +1,5 @@
 package com.kernel.ai.feature.settings
 
-import com.kernel.ai.core.voice.SherpaKokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceOutputEngine
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -58,7 +57,7 @@ class SpeakingOptionsTest {
 
         val expected = piper.map { "speaking_piper_${it.name}" } +
             "speaking_inflect_micro" +
-            SherpaKokoroVoice.entries.map { "speaking_kokoro_${it.name}" } +
+            "speaking_kokoro" +
             "speaking_phone_voice"
         assertEquals(expected, options.map(::speakingCardTestTag))
     }

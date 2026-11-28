@@ -4,6 +4,10 @@ import android.content.Context
 import com.kernel.ai.core.inference.hardware.HardwareTier
 import java.io.File
 
+private const val KOKORO_HF_BASE =
+    "https://huggingface.co/software-mansion/react-native-executorch-kokoro/resolve/v0.11.0/"
+private const val KOKORO_LICENCE_URL = "https://huggingface.co/hexgrad/Kokoro-82M"
+
 /**
  * Catalogue of all on-device models that Kernel AI can download and use.
  *
@@ -361,6 +365,115 @@ enum class KernelModel(
         isGated = false,
         licenceUrl = "https://huggingface.co/owensong/Inflect-Micro-v2-ONNX",
         showInModelManagement = false,
+    ),
+
+    // ── Kokoro-82M (ExecuTorch, #2117) ──────────────────────────────────────
+    //
+    // Apache-2.0 Kokoro-82M, exported for ExecuTorch by Software Mansion (react-native-executorch-kokoro v0.11.0,
+    // MIT). Settings › Voice owns these eight files; Kokoro is an optional on-demand download, not bundled.
+    // Voice files are 510 x 256 float32 embeddings (522,240 bytes each).
+    KOKORO_DURATION(
+        displayName = "Kokoro duration predictor",
+        fileName = "kokoro_duration_predictor.pte",
+        downloadUrl = KOKORO_HF_BASE + "xnnpack/standard/duration_predictor_std_xnnpack_fp32.pte",
+        approxSizeBytes = 59_307_208L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "781a6e6de5c13cf2c97c4a486c766c92c107ff8ac99d7ae8e991bfb81d701334",
+    ),
+
+    KOKORO_SYNTHESIZER(
+        displayName = "Kokoro synthesizer",
+        fileName = "kokoro_synthesizer.pte",
+        downloadUrl = KOKORO_HF_BASE + "xnnpack/standard/synthesizer_std_xnnpack_fp32.pte",
+        approxSizeBytes = 272_463_344L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "1f4ce2b8dcf396b1bc0125d7dbccadd79a4c3dc104bb8776dbcc85c482bcd000",
+    ),
+
+    KOKORO_LEXICON_EN_US(
+        displayName = "Kokoro en-US lexicon",
+        fileName = "kokoro_lexicon_en_us.json",
+        downloadUrl = KOKORO_HF_BASE + "phonemizer/en-us/lexicon.json",
+        approxSizeBytes = 6_254_348L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "b29e9c13190cf211979e8d9c38258cc1cb8e701e5ca1102a0c1f00acd4f55f8e",
+    ),
+
+    KOKORO_LEXICON_EN_GB(
+        displayName = "Kokoro en-GB lexicon",
+        fileName = "kokoro_lexicon_en_gb.json",
+        downloadUrl = KOKORO_HF_BASE + "phonemizer/en-gb/lexicon.json",
+        approxSizeBytes = 6_664_571L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "f4ad98b7725c681be79df533288e20df71db40a89d0cfdead2192f0d61449399",
+    ),
+
+    KOKORO_TAGS(
+        displayName = "Kokoro phonemizer tags",
+        fileName = "kokoro_tags.json",
+        downloadUrl = KOKORO_HF_BASE + "phonemizer/en-us/tags.json",
+        approxSizeBytes = 2_161_196L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "028f7d6a0ee7638d91fab27ef8809c0b36de312e6409b6b8e844bffd0871e3e7",
+    ),
+
+    KOKORO_VOICE_BF_EMMA(
+        displayName = "Kokoro voice Emma",
+        fileName = "kokoro_voice_bf_emma.bin",
+        downloadUrl = KOKORO_HF_BASE + "voices/bf_emma.bin",
+        approxSizeBytes = 522_240L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73",
+    ),
+
+    KOKORO_VOICE_BM_DANIEL(
+        displayName = "Kokoro voice Daniel",
+        fileName = "kokoro_voice_bm_daniel.bin",
+        downloadUrl = KOKORO_HF_BASE + "voices/bm_daniel.bin",
+        approxSizeBytes = 522_240L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "6b3194bbceffb746733cbc22c8f593dd44e401a71d53895a2dca891bc595a1e8",
+    ),
+
+    KOKORO_VOICE_AF_HEART(
+        displayName = "Kokoro voice Heart",
+        fileName = "kokoro_voice_af_heart.bin",
+        downloadUrl = KOKORO_HF_BASE + "voices/af_heart.bin",
+        approxSizeBytes = 522_240L,
+        isRequired = false,
+        preferredForTier = null,
+        isGated = false,
+        licenceUrl = KOKORO_LICENCE_URL,
+        showInModelManagement = false,
+        sha256 = "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b",
     );
     /**
      * Stable, single-sourced identifier for this model, used as the Room primary key in

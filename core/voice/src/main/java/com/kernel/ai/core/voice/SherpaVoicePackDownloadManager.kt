@@ -51,7 +51,6 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     private val workManager = WorkManager.getInstance(context)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val observerJobs = ConcurrentHashMap<SherpaPiperVoice, Job>()
-    private val observerJobsKokoro = ConcurrentHashMap<SherpaKokoroVoice, Job>()
     /** Voices the user let download over mobile data, for that pack only. Cleared on success, cancel or delete (#1868). */
     private val mobileDataVoices: MutableSet<SherpaPiperVoice> = ConcurrentHashMap.newKeySet()
     private val isReleaseBuild: Boolean =
@@ -71,20 +70,6 @@ class SherpaVoicePackDownloadManager @Inject constructor(
     val downloadStates: StateFlow<Map<SherpaPiperVoice, VoicePackDownloadState>> =
         _downloadStates.asStateFlow()
 
-    private val _kokoroDownloadStates: MutableStateFlow<Map<SherpaKokoroVoice, VoicePackDownloadState>> =
-        MutableStateFlow(
-            SherpaKokoroVoice.entries.associateWith { voice ->
-                if (voice.isDownloaded(context)) {
-                    VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath)
-                } else {
-                    VoicePackDownloadState.NotDownloaded
-                }
-            }
-        )
-
-    val kokoroDownloadStates: StateFlow<Map<SherpaKokoroVoice, VoicePackDownloadState>> =
-        _kokoroDownloadStates.asStateFlow()
-
     init {
         // Cancel any legacy Semaine downloads in release builds (not release-visible)
         if (isReleaseBuild) {
@@ -92,7 +77,6 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         }
         // Resume observing any in-progress workers from a previous process lifecycle
         SherpaPiperVoice.entries.forEach { voice -> ensureObserving(voice) }
-        SherpaKokoroVoice.entries.forEach { voice -> ensureObservingKokoro(voice) }
         // Any change to the download network choice re-queues unfinished voice packs (#1855). The first value
         // the collector reads is treated as the launch state and skipped, so launches do not re-queue running
         // work. Residual: a choice saved before this first read (adoptLegacyChoice) is missed until next launch.
@@ -113,9 +97,6 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         SherpaPiperVoice.entries
             .filter { hasUnfinished(it.workerTag) }
             .forEach { startDownload(it, restartRunning = true) }
-        SherpaKokoroVoice.entries
-            .filter { hasUnfinished(it.kokoroWorkerTag) }
-            .forEach { startKokoroDownload(it, restartRunning = true) }
     }
 
     private suspend fun hasUnfinished(workerTag: String): Boolean = withContext(Dispatchers.IO) {
@@ -231,95 +212,16 @@ class SherpaVoicePackDownloadManager @Inject constructor(
         updateState(voice, newState)
     }
 
-    // ── Kokoro public API ─────────────────────────────────────────────────────
-
-    fun startKokoroDownload(voice: SherpaKokoroVoice, force: Boolean = false, restartRunning: Boolean = false) {
-        if (!force && voice.isDownloaded(context)) {
-            updateKokoroState(voice, VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath))
-            return
-        }
-
-        Log.i(TAG, "Enqueuing Kokoro voice pack download: ${voice.displayName}")
-
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                val existingInfos = workManager.getWorkInfosForUniqueWork(voice.kokoroWorkerTag).get()
-                val policy = when {
-                    force || restartRunning -> ExistingWorkPolicy.REPLACE
-                    existingInfos.any { it.state == WorkInfo.State.RUNNING } -> ExistingWorkPolicy.KEEP
-                    else -> ExistingWorkPolicy.REPLACE
-                }
-
-                if (policy == ExistingWorkPolicy.REPLACE) {
-                    updateKokoroState(voice, VoicePackDownloadState.Downloading())
-                }
-
-                val network = DownloadConsent.effectiveForManualDownload(downloadNetworkPreferences.choice.first())
-                val request = OneTimeWorkRequestBuilder<VoicePackDownloadWorker>()
-                    .setInputData(
-                        Data.Builder()
-                            .putString(KEY_VOICE_NAME, voice.name)
-                            .putString(KEY_VOICE_DISPLAY_NAME, voice.displayName)
-                            .putString(KEY_VOICE_DOWNLOAD_URL, voice.downloadUrl)
-                            .putLong(KEY_VOICE_TOTAL_BYTES, voice.approxDownloadBytes)
-                            .build()
-                    )
-                    .addTag(voice.kokoroWorkerTag)
-                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                    .setConstraints(
-                        Constraints.Builder()
-                            .setRequiredNetworkType(network.requiredNetworkType)
-                            .build()
-                    )
-                    .build()
-
-                workManager.enqueueUniqueWork(voice.kokoroWorkerTag, policy, request)
-            }
-        }
-
-        ensureObservingKokoro(voice)
-    }
-
-    fun cancelKokoroDownload(voice: SherpaKokoroVoice) {
-        workManager.cancelUniqueWork(voice.kokoroWorkerTag)
-        updateKokoroState(voice, VoicePackDownloadState.NotDownloaded)
-        Log.i(TAG, "Cancelled Kokoro voice pack download: ${voice.displayName}")
-    }
-
-    fun deleteKokoroVoice(voice: SherpaKokoroVoice) {
-        scope.launch {
-            withContext(Dispatchers.IO) {
-                val dir = voice.voiceDir(context)
-                if (dir.exists()) {
-                    dir.deleteRecursively()
-                    Log.i(TAG, "Deleted Kokoro voice pack: ${dir.absolutePath}")
-                }
-            }
-            updateKokoroState(voice, VoicePackDownloadState.NotDownloaded)
-        }
-    }
-
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private fun updateState(voice: SherpaPiperVoice, state: VoicePackDownloadState) {
         _downloadStates.value = _downloadStates.value.toMutableMap().apply { put(voice, state) }
     }
 
-    private fun updateKokoroState(voice: SherpaKokoroVoice, state: VoicePackDownloadState) {
-        _kokoroDownloadStates.value = _kokoroDownloadStates.value.toMutableMap().apply { put(voice, state) }
-    }
-
     private fun ensureObserving(voice: SherpaPiperVoice) {
         observerJobs.compute(voice) { _, existing ->
             if (existing?.isActive == true) existing
             else scope.launch { observeWorkInfo(voice) }
-        }
-    }
-
-    private fun ensureObservingKokoro(voice: SherpaKokoroVoice) {
-        observerJobsKokoro.compute(voice) { _, existing ->
-            if (existing?.isActive == true) existing
-            else scope.launch { observeKokoroWorkInfo(voice) }
         }
     }
 
@@ -400,68 +302,6 @@ class SherpaVoicePackDownloadManager @Inject constructor(
             }
     }
 
-    private suspend fun observeKokoroWorkInfo(voice: SherpaKokoroVoice) {
-        workManager
-            .getWorkInfosByTagFlow(voice.kokoroWorkerTag)
-            .collect { infoList ->
-                val info = infoList.firstOrNull() ?: return@collect
-                val newState: VoicePackDownloadState = when (info.state) {
-                    WorkInfo.State.RUNNING, WorkInfo.State.ENQUEUED -> {
-                        if (voice.isDownloaded(context)) {
-                            workManager.cancelUniqueWork(voice.kokoroWorkerTag)
-                            return@collect
-                        }
-                        val progress = info.progress
-                        val totalBytes = voice.approxDownloadBytes
-                        val downloadedBytes = progress.getLong(KEY_VOICE_PROGRESS_BYTES, 0L)
-                        val bps = progress.getLong(KEY_VOICE_DOWNLOAD_RATE, 0L)
-                        val remainingMs = progress.getLong(KEY_VOICE_REMAINING_MS, 0L)
-                        val fraction = if (totalBytes > 0) {
-                            (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f) * 0.9f
-                        } else 0f
-                        VoicePackDownloadState.Downloading(
-                            progress = fraction,
-                            downloadedBytes = downloadedBytes,
-                            bytesPerSecond = bps,
-                            remainingMs = remainingMs,
-                        )
-                    }
-
-                    WorkInfo.State.SUCCEEDED -> {
-                        val dir = withContext(Dispatchers.IO) { voice.voiceDir(context) }
-                        Log.i(TAG, "Kokoro voice pack download succeeded: ${dir.absolutePath}")
-                        sherpaController.markKokoroVoiceAvailable(voice)
-                        VoicePackDownloadState.Downloaded(dir.absolutePath)
-                    }
-
-                    WorkInfo.State.FAILED -> {
-                        val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
-                        if (isPresent) {
-                            Log.i(TAG, "Kokoro worker failed but pack present — treating as Downloaded: ${voice.displayName}")
-                            sherpaController.markKokoroVoiceAvailable(voice)
-                            VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath)
-                        } else {
-                            val msg = info.outputData.getString(KEY_VOICE_ERROR_MESSAGE) ?: "Download failed"
-                            Log.w(TAG, "Kokoro voice pack download failed for ${voice.displayName}: $msg")
-                            VoicePackDownloadState.Error(msg)
-                        }
-                    }
-
-                    WorkInfo.State.CANCELLED -> {
-                        val isPresent = withContext(Dispatchers.IO) { voice.isDownloaded(context) }
-                        if (isPresent) {
-                            VoicePackDownloadState.Downloaded(voice.voiceDir(context).absolutePath)
-                        } else {
-                            VoicePackDownloadState.NotDownloaded
-                        }
-                    }
-
-                    else -> return@collect
-                }
-                updateKokoroState(voice, newState)
-            }
-    }
-
     companion object {
         /**
          * Returns true if [voice] can be downloaded in the current build type.
@@ -474,7 +314,4 @@ class SherpaVoicePackDownloadManager @Inject constructor(
 
 /** Unique WorkManager work name for this Piper voice. */
 private val SherpaPiperVoice.workerTag: String get() = "voice_pack_${name.lowercase()}"
-
-/** Unique WorkManager work name for this Kokoro voice. Uses a distinct prefix to avoid collisions with Piper. */
-private val SherpaKokoroVoice.kokoroWorkerTag: String get() = "kokoro_voice_pack_${name.lowercase()}"
 

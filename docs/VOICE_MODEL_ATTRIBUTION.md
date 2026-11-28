@@ -28,7 +28,7 @@ The app downloads TTS voice packs from Sherpa-ONNX GitHub release assets under t
 | Piper/VITS voices | Sherpa-ONNX GitHub `tts-models/<asset>.tar.bz2` release assets | ~64-116 MB each | Upstream `rhasspy/piper-voices` makes no licence grant over voice weights; the repository's `mit` tag is not a per-voice clearance. Per-voice dataset and base-model lineage decides. | All Piper/VITS voices, including CoriHigh, are debug/internal only for v0.1 under the #1263 exclusion rule. The other catalogue entries are reviewed in [docs/legal/piper-voice-review.md](legal/piper-voice-review.md). None is releasable as downloaded. Each Sherpa archive was weight-compared against upstream, and each contains the older pre-retrain weights. Ten of them were fine-tuned from Lessac (research-only data) or Ryan (non-commercial data). LessacHigh and RyanHigh are themselves trained from scratch on those restricted datasets, so no retrain can clear them. Jenny, Alba, Aru, VCTK and Joe have upstream retrains on clean bases. They could be reconsidered only after Jandal downloads those retrained weights, repackaged for Sherpa, with their attribution added to `NOTICE`. Semaine, Amy, Alan, Lessac, Ryan, Southern English Female and Northern English Male have no clean path. |
 | Semaine Piper/VITS | Sherpa-ONNX GitHub `tts-models/vits-piper-en_GB-semaine-medium.tar.bz2` | ~70 MB | Non-commercial: the [DFKI SEMAINE dataset](https://github.com/marytts/dfki-semaine-data/blob/cbeb97b9bb0deecf4355220fcfba280a7b30983a/README.md) is CC BY-NC-SA 4.0 | Excluded from release builds under #1258; retained for debug/internal use. CoriHigh remains available for debug/internal development; its model card identifies LibriVox as its dataset. |
 | Cori high-quality (en_GB-cori-high) | Jandal package: [Sherpa-ONNX release asset](https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_GB-cori-high.tar.bz2); upstream files: [`rhasspy/piper-voices` at revision `5041a7a49ae5b3a0f30e6837769eb03fdbb231bd`](https://huggingface.co/rhasspy/piper-voices/tree/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/en/en_GB/cori/high) | ~116 MB | The pinned [model card](https://huggingface.co/rhasspy/piper-voices/blob/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/en/en_GB/cori/high/MODEL_CARD) records a UK English female voice "Trained from scratch" on LibriVox, `License: public domain`. The trainer's page, [brycebeattie.com/files/tts](https://brycebeattie.com/files/tts/), lists Cori (high) as "License: public domain" and adds "Feel free to use these for any legal and ethical purpose". The repository's `license: mit` tag is not a grant over voice weights (see [piper-voice-review.md](legal/piper-voice-review.md)), so it is not a basis for clearance. | Excluded from v0.1 release with the Sherpa/Piper/eSpeak runtime path. By value, the archive's ONNX initializers equal 100% of the parameters in the upstream `.onnx` at the pinned revision (LFS oid `470b4dd634c98f8a4850d7626ffc3dfc90774628eeef6605a6dd8f88f30a5903`, unchanged through `e929968`); only Sherpa metadata differs. #1474 (closed) accepted the eSpeak-ng GPL posture, but source-to-binary provenance for the archive's `espeak-ng-data` is not established. |
-| Kokoro experimental | Sherpa-ONNX GitHub `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2` | ~130 MB | Kokoro upstream `hexgrad/Kokoro-82M` is Apache-2.0; NVIDIA's ONNX optimisation card is also Apache-2.0 and points back to `hexgrad/Kokoro-82M` | Not release-visible for v0.1; #1014 scopes Kokoro to debug/post-launch. This attribution trace is not a release-signoff conclusion. |
+| Kokoro (experimental) | `software-mansion/Kokoro-82M-ExecuTorch` at `v0.11.0` on Hugging Face (ExecuTorch FP32 export, optional on-demand download) | ~351 MB | Hugging Face card lists Apache-2.0 for the export; Apache-2.0 upstream Kokoro model and misaki lexicon | Release-visible as an optional on-demand download (#2117). The optional Brown Corpus-derived tagger is for non-commercial use only, not cleared for commercial use, and treated as optional by Phonemis. The pack is not bundled in the APK. |
 
 ## SenseVoice source notes
 
@@ -59,12 +59,14 @@ For release attribution, cite:
 
 ## Kokoro source notes
 
-Jandal does not download `nvidia/kokoro-82M-onnx-opt` directly. The app downloads the Sherpa-ONNX `kokoro-int8-multi-lang-v1_0.tar.bz2` release asset. The NVIDIA card is still useful attribution evidence because it points to the same upstream Kokoro 82M model family and records Apache-2.0 terms for the ONNX optimisation.
+The release Kokoro pack is downloaded on demand from the `software-mansion/Kokoro-82M-ExecuTorch` Hugging Face repository at tag `v0.11.0`, not from Sherpa-ONNX. The Hugging Face card lists Apache-2.0. It is an ExecuTorch export of `hexgrad/Kokoro-82M` with misaki phonemiser lexicons. It is not bundled in the APK.
 
-For release attribution, cite both:
+`KOKORO_TAGS` (`phonemizer/en-us/tags.json`) is an optional part-of-speech tagger derived from the Brown Corpus. The Brown Corpus is for non-commercial use only; the tagger is not cleared for commercial use. Phonemis treats the tagger as optional.
 
-- app package source: Sherpa-ONNX `tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2`;
-- upstream model lineage: `hexgrad/Kokoro-82M` / `nvidia/kokoro-82M-onnx-opt`, Apache-2.0.
+For release attribution, cite:
+
+- app package source: `software-mansion/Kokoro-82M-ExecuTorch` at `v0.11.0`, Apache-2.0;
+- upstream model lineage: `hexgrad/Kokoro-82M`, Apache-2.0.
 
 ## Whisper source notes
 
@@ -107,5 +109,5 @@ Release action: the licence entry is in `NOTICE` and `app/src/main/assets/legal/
 
 - `core/inference/src/main/java/com/kernel/ai/core/inference/download/KernelModel.kt` records the Hugging Face model URLs for STT ONNX assets.
 - `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaSttModelSpec.kt` records required ONNX/token file groups and online/offline runtime shape.
-- `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaKokoroVoice.kt` records the Kokoro asset name, download key, approximate size, speaker count, and Sherpa-ONNX release URL pattern.
+- `core/voice/src/main/java/com/kernel/ai/core/voice/kokoro/KokoroSetup.kt` lists the Kokoro ExecuTorch pack files and the approximate on-demand download size.
 - `core/voice/src/main/java/com/kernel/ai/core/voice/SherpaPiperVoice.kt` records Piper/VITS voice pack asset names, sizes, download keys, and the `releaseVisible` field used by `entriesForBuild()` to filter release vs debug/internal catalogues.

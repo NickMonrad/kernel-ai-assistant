@@ -17,9 +17,9 @@ enum class VoiceOutputEngine(
         debugOnly = false,
     ),
     KokoroExperimental(
-        displayName = "Kokoro (Experimental)",
-        description = "Studio-grade Kokoro-82M TTS. Requires a ~130MB download. Falls back to Android TTS if unavailable.",
-        debugOnly = true,
+        displayName = "Kokoro (experimental)",
+        description = "Experimental Kokoro-82M speech on this device. Optional download of about 351 MB; falls back to Inflect Micro, then Android TTS.",
+        debugOnly = false,
     ),
     InflectMicroExperimental(
         displayName = "Inflect Micro",
@@ -42,8 +42,8 @@ enum class VoiceOutputEngine(
         /**
          * Returns the engine catalogue allowed for this build and device.
          *
-         * Release offers Piper (Cori) and Android TTS, plus Inflect Micro on eligible devices. Kokoro stays
-         * debug-only, and every experimental engine stays in debug builds.
+         * Release offers Piper (Cori), Kokoro and Android TTS, plus Inflect Micro on eligible devices. Engines
+         * marked debugOnly stay in debug builds.
          */
         fun entriesForBuild(
             isRelease: Boolean,

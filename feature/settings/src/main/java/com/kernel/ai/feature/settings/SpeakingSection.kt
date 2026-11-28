@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ExpandLess
@@ -16,6 +18,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.kernel.ai.core.inference.download.DownloadState
@@ -40,7 +44,8 @@ import com.kernel.ai.core.ui.SectionLabel
 import com.kernel.ai.core.ui.StatusChip
 import com.kernel.ai.core.ui.terms.TermsOfUseLinkWithSheet
 import com.kernel.ai.core.ui.theme.JandalTheme
-import com.kernel.ai.core.voice.SherpaKokoroVoice
+import com.kernel.ai.core.voice.kokoro.KokoroSetup
+import com.kernel.ai.core.voice.kokoro.KokoroVoice
 import com.kernel.ai.core.voice.SherpaPiperVoice
 import com.kernel.ai.core.voice.VoiceOutputCopy
 import com.kernel.ai.core.voice.VoiceOutputEngine
@@ -51,7 +56,7 @@ import kotlin.math.roundToInt
 internal sealed interface SpeakingOption {
     data class PiperVoice(val row: SherpaVoiceRowUiState) : SpeakingOption
     data object InflectMicro : SpeakingOption
-    data class KokoroVoice(val row: KokoroVoiceRowUiState) : SpeakingOption
+    data object KokoroPack : SpeakingOption
     data object PhoneVoice : SpeakingOption
 }
 
@@ -65,9 +70,7 @@ internal fun speakingOptions(state: VoiceUiState): List<SpeakingOption> = buildL
         state.sherpaVoices.forEach { add(SpeakingOption.PiperVoice(it)) }
     }
     if (VoiceOutputEngine.InflectMicroExperimental in engines) add(SpeakingOption.InflectMicro)
-    if (VoiceOutputEngine.KokoroExperimental in engines) {
-        state.kokoroVoices.forEach { add(SpeakingOption.KokoroVoice(it)) }
-    }
+    if (VoiceOutputEngine.KokoroExperimental in engines) add(SpeakingOption.KokoroPack)
     if (VoiceOutputEngine.AndroidTts in engines) add(SpeakingOption.PhoneVoice)
 }
 
@@ -75,7 +78,7 @@ internal fun speakingOptions(state: VoiceUiState): List<SpeakingOption> = buildL
 internal fun speakingCardTestTag(option: SpeakingOption): String = when (option) {
     is SpeakingOption.PiperVoice -> "speaking_piper_${option.row.voice.name}"
     SpeakingOption.InflectMicro -> "speaking_inflect_micro"
-    is SpeakingOption.KokoroVoice -> "speaking_kokoro_${option.row.voice.name}"
+    SpeakingOption.KokoroPack -> "speaking_kokoro"
     SpeakingOption.PhoneVoice -> "speaking_phone_voice"
 }
 
@@ -94,16 +97,16 @@ internal fun SpeakingSection(
     onSherpaPitchChanged: (Float) -> Unit,
     onSherpaGainChanged: (Float) -> Unit,
     onActiveSpeakerIdChanged: (Int) -> Unit,
-    onKokoroVoiceSelected: (SherpaKokoroVoice) -> Unit,
-    onKokoroActiveSpeakerIdChanged: (Int) -> Unit,
+    onKokoroVoiceSelected: (KokoroVoice) -> Unit,
     onDownloadSherpaVoice: (SherpaPiperVoice) -> Unit,
     onCancelSherpaVoice: (SherpaPiperVoice) -> Unit,
     onDeleteSherpaVoice: (SherpaPiperVoice) -> Unit,
     onPlaySherpaSample: (SherpaPiperVoice) -> Unit,
     onUseMobileDataForVoice: (SherpaPiperVoice) -> Unit,
-    onDownloadKokoroVoice: (SherpaKokoroVoice) -> Unit,
-    onCancelKokoroVoice: (SherpaKokoroVoice) -> Unit,
-    onDeleteKokoroVoice: (SherpaKokoroVoice) -> Unit,
+    onDownloadKokoroPack: () -> Unit,
+    onCancelKokoroPack: () -> Unit,
+    onDeleteKokoroPack: () -> Unit,
+    onUseMobileDataForKokoro: () -> Unit = {},
     onDownloadInflectMicro: () -> Unit,
     onCancelInflectMicro: () -> Unit,
     onDeleteInflectMicro: () -> Unit,
@@ -348,65 +351,81 @@ internal fun SpeakingSection(
                         )
                     }
 
-                    is SpeakingOption.KokoroVoice -> {
-                        val voice = option.row.voice
-                        val downloadState = option.row.downloadState
-                        val downloaded = downloadState is VoicePackDownloadState.Downloaded
+                    SpeakingOption.KokoroPack -> {
+                        val states = uiState.kokoroStates
+                        val models = KokoroSetup.kernelModels()
+                        val ready = states.isNotEmpty() && states.values.all { it is DownloadState.Downloaded }
+                        val downloading = states.values.any { it is DownloadState.Downloading }
+                        val failed = states.values.any { it is DownloadState.Error }
+                        val totalBytes = models.sumOf { it.approxSizeBytes }
+                        val downloadedBytes = models.sumOf { model ->
+                            when (val state = states[model]) {
+                                is DownloadState.Downloaded -> model.approxSizeBytes
+                                is DownloadState.Downloading -> (model.approxSizeBytes * state.progress.coerceIn(0f, 1f)).toLong()
+                                else -> 0L
+                            }
+                        }
+                        val progress = if (totalBytes > 0L) downloadedBytes.toFloat() / totalBytes else 0f
                         ChoiceCard(
-                            title = voice.displayName,
-                            description = voice.description,
-                            selected = kokoroSelected && uiState.selectedKokoroVoice == voice,
+                            title = VoiceOutputCopy.title(VoiceOutputEngine.KokoroExperimental),
+                            description = VoiceOutputCopy.body(VoiceOutputEngine.KokoroExperimental),
+                            selected = kokoroSelected,
                             onSelect = {
-                                if (downloaded) onKokoroVoiceSelected(voice)
                                 onOutputEngineSelected(VoiceOutputEngine.KokoroExperimental)
-                                if (downloadState.needsDownloadOnTap()) onDownloadKokoroVoice(voice)
+                                // A tap starts a missing pack, as the Download button does.
+                                if (!ready && !downloading) onDownloadKokoroPack()
                             },
                             index = index,
                             modifier = Modifier.testTag(speakingCardTestTag(option)),
-                            tag = if (downloaded) downloadedChip() else sizeTag(voice.approxDownloadBytes),
-                            extraLine = downloadStatusLine(downloadState) ?: if (kokoroSelected && uiState.selectedKokoroVoice == voice && !downloaded) {
-                                // Kokoro is debug-only (absent from the release catalogue), so this hint never reaches release.
-                                "Selected. Download this voice first; the phone's voice speaks until then."
-                            } else {
-                                null
+                            tag = if (ready) downloadedChip() else sizeTag(KokoroSetup.approxSizeBytes()),
+                            extraLine = when {
+                                uiState.kokoroWaitingForWifi -> "Waiting for Wi-Fi"
+                                downloading -> "Downloading ${(progress.coerceIn(0f, 1f) * 100).toInt()}%"
+                                failed -> "Download failed. Tap Retry."
+                                kokoroSelected && !ready -> "Selected. Download the pack first; the phone's voice speaks until then."
+                                else -> null
                             },
                             subContent = {
                                 TermsOfUseLinkWithSheet()
                                 if (kokoroSelected) {
-                                    when (downloadState) {
-                                        is VoicePackDownloadState.NotDownloaded -> Button(
-                                            onClick = { onDownloadKokoroVoice(voice) },
-                                            modifier = Modifier.semantics {
-                                                contentDescription = "Download ${voice.displayName}"
-                                            },
-                                        ) { Text("Download") }
-                                        is VoicePackDownloadState.Downloading -> OutlinedButton(
-                                            onClick = { onCancelKokoroVoice(voice) },
+                                    when {
+                                        downloading -> OutlinedButton(
+                                            onClick = onCancelKokoroPack,
                                             colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics {
-                                                contentDescription = "Cancel ${voice.displayName} download"
-                                            },
+                                            modifier = Modifier.semantics { contentDescription = "Cancel Kokoro download" },
                                         ) { Text("Cancel") }
-                                        is VoicePackDownloadState.Downloaded -> OutlinedButton(
-                                            onClick = { onDeleteKokoroVoice(voice) },
+                                        ready -> OutlinedButton(
+                                            onClick = onDeleteKokoroPack,
                                             colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics {
-                                                contentDescription = "Delete ${voice.displayName}"
-                                            },
+                                            modifier = Modifier.semantics { contentDescription = "Delete Kokoro" },
                                         ) { Text("Delete") }
-                                        is VoicePackDownloadState.Error -> OutlinedButton(
-                                            onClick = { onDownloadKokoroVoice(voice) },
+                                        failed -> OutlinedButton(
+                                            onClick = onDownloadKokoroPack,
                                             colors = accentOutlinedColors,
-                                            modifier = Modifier.semantics {
-                                                contentDescription = "Retry ${voice.displayName} download"
-                                            },
+                                            modifier = Modifier.semantics { contentDescription = "Retry Kokoro download" },
                                         ) { Text("Retry") }
+                                        else -> Button(
+                                            onClick = onDownloadKokoroPack,
+                                            modifier = Modifier.semantics { contentDescription = "Download Kokoro" },
+                                        ) { Text("Download") }
                                     }
-                                    if (uiState.selectedKokoroVoice == voice && downloaded && voice.speakerCount > 1) {
-                                        KokoroSpeakerSelector(
-                                            voice = voice,
-                                            activeSpeakerId = uiState.kokoroActiveSpeakerId,
-                                            onSpeakerSelected = onKokoroActiveSpeakerIdChanged,
+                                    if (uiState.kokoroWaitingForWifi) {
+                                        Text(
+                                            text = "Waiting for Wi-Fi. Keep Wi-Fi on, or use mobile data for this pack only.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Button(
+                                            onClick = onUseMobileDataForKokoro,
+                                            modifier = Modifier.semantics {
+                                                contentDescription = "Use mobile data for Kokoro"
+                                            },
+                                        ) { Text("Use mobile data") }
+                                    }
+                                    if (ready) {
+                                        KokoroVoicePicker(
+                                            selected = uiState.selectedKokoroVoice,
+                                            onSelected = onKokoroVoiceSelected,
                                         )
                                     }
                                 }
@@ -479,6 +498,39 @@ internal fun SpeakingSection(
 
 private fun downloadedChip(): @Composable () -> Unit = {
     StatusChip(status = ChipStatus.On, label = "Downloaded")
+}
+
+@Composable
+private fun KokoroVoicePicker(
+    selected: KokoroVoice,
+    onSelected: (KokoroVoice) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Voice",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        KokoroVoice.entries.forEach { voice ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .selectable(
+                        selected = voice == selected,
+                        onClick = { onSelected(voice) },
+                        role = Role.RadioButton,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = voice == selected, onClick = null)
+                Text(
+                    text = "${voice.displayName}: ${voice.description}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
+    }
 }
 
 private fun sizeTag(bytes: Long): @Composable () -> Unit = {

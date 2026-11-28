@@ -35,6 +35,8 @@
 # Sherpa's JNI library also exports a JNI-named nativePhonemize entry point for
 # this app-owned class; preserve that class and its native method name.
 -keep class com.kernel.ai.core.voice.InflectPhonemizer { *; }
+# Kokoro ExecuTorch phonemiser JNI: nativeCreate/nativePhonemize/nativeClose (core/voice src/main/cpp).
+-keep class com.kernel.ai.core.voice.kokoro.NativeKokoroPhonemizer { *; }
 # kernelvec exports JNI methods using VectorStoreJni's exact Java class/method names.
 -keep class com.kernel.ai.core.memory.vector.VectorStoreJni { *; }
 
